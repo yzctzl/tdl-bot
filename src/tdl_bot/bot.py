@@ -47,17 +47,18 @@ _COMMANDS = (
     ("join", "join", "加入来源群：群链接 待重试编号", False),
     ("update_tdl", "update", "检查并更新 tdl", True),
     ("users", "users", "查看成员与封禁状态", True),
-    ("user_add", "user_add", "添加普通账号：账号 ID", True),
-    ("user_remove", "user_remove", "删除账号：账号 ID", True),
-    ("user_ban", "user_ban", "封禁账号：账号 ID 1d/1w/1m", True),
-    ("user_unban", "user_unban", "解除封禁：账号 ID", True),
-    ("user_role", "user_role", "设置角色：账号 ID user/admin", True),
-    ("user_history", "user_history", "查看账号管理记录：账号 ID", True),
+    ("user_add", "user_add", "添加普通账号：UID/@用户名", True),
+    ("user_remove", "user_remove", "删除账号：UID/@用户名", True),
+    ("user_ban", "user_ban", "封禁账号：UID/@用户名 1d/1w/1m", True),
+    ("user_unban", "user_unban", "解除封禁：UID/@用户名", True),
+    ("user_role", "user_role", "设置角色：UID/@用户名 user/admin", True),
+    ("user_history", "user_history", "查看账号管理记录：UID/@用户名", True),
 )
 _HELP = (
-    "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字。\n"
+    "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字\n"
     "/target private <chat> [topic_id] 设置个人目标\n"
     "/target shared 或 /target private 切换已保存目标\n"
+    "/status 查看所有已保存目标与当前目标\n"
     "/jobs 查看活动任务，/cancel <编号> 取消\n"
     "/pending 查看待重试记录，/retry [编号] 重试\n"
     "/retry_cancel <编号> 删除待重试记录\n"
@@ -68,14 +69,15 @@ _HELP = (
 _ADMIN_HELP = (
     "\n\n管理员：\n"
     "/target shared <chat> [topic_id] 设置共享目标\n"
-    "/target for <账号 ID> [chat] [topic_id] 管理个人目标\n"
+    "/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n"
     "/users 查看成员\n"
-    "/user_add <账号 ID> 添加普通账号\n"
-    "/user_remove <账号 ID> 删除账号\n"
-    "/user_ban <账号 ID> <1d|1w|1m> 封禁一天／周／30天\n"
-    "/user_unban <账号 ID> 解封\n"
-    "/user_role <账号 ID> <user|admin> 设置角色\n"
-    "/user_history <账号 ID> 查看管理记录\n"
+    "/user_add <UID或@用户名> 添加普通账号\n"
+    "/user_remove <UID或@用户名> 删除账号\n"
+    "/user_ban <UID或@用户名> <1d|1w|1m> 封禁一天／周／30天\n"
+    "/user_unban <UID或@用户名> 解封\n"
+    "/user_role <UID或@用户名> <user|admin> 设置角色\n"
+    "/user_history <UID或@用户名> 查看管理记录\n"
+    "/status <UID或@用户名> 查看其他账号的所有目标\n"
     "/update_tdl [latest|v0.20.4] 检查并更新 tdl"
 )
 
@@ -142,6 +144,12 @@ class Authorization(BaseMiddleware):
             return None
         if event.chat.type != "private" or event.from_user is None:
             return None
+        if self.policy.store is not None:
+            self.policy.store.remember_user(
+                event.from_user.id,
+                getattr(event.from_user, "username", None),
+                getattr(event.from_user, "full_name", ""),
+            )
         command = (event.text or "").split(maxsplit=1)[0:1]
         if command and command[0].split("@")[0] == "/whoami":
             return await handler(event, data)
@@ -269,11 +277,13 @@ class BotApplication:
         if args[0] == "for":
             if not self.policy.is_admin(operator):
                 raise UserError("只有管理员可以设置其他账号的个人目标。")
-            if len(args) < 2 or not args[1].isdigit():
+            if len(args) < 2:
                 raise UserError(
-                    "用法：/target for <操作账号 ID> <chat> [topic_id]"
+                    "用法：/target for <UID或@用户名> <chat> [topic_id]"
                 )
-            owner = int(args[1])
+            owner = await self._resolve_user(args[1])
+            if not self.policy.is_admin(operator):
+                raise UserError("只有管理员可以查看其他账号的目标。")
             if (
                 not self.policy.is_known(owner)
                 and self.store.target_for(owner) is None
@@ -282,7 +292,8 @@ class BotApplication:
             if len(args) == 2:
                 target = self.store.target_for(owner)
                 await message.answer(
-                    f"该账号的个人目标：{target.chat}，"
+                    f"{self.store.user_label(owner)} 的个人目标："
+                    f"{target.chat}，"
                     f"话题：{target.topic_id or '默认'}"
                     if target
                     else "该账号尚未设置个人目标。"
@@ -318,10 +329,19 @@ class BotApplication:
             f"{scope}上传目标已保存；已排队任务仍使用原来的目标。"
         )
 
-    async def status(self, message: Message) -> None:
+    async def status(
+        self, message: Message, command: CommandObject | None = None
+    ) -> None:
         """Show the selected target and counts visible to this operator."""
         assert message.from_user is not None
-        operator = message.from_user.id
+        actor = message.from_user.id
+        operator = actor
+        if command and command.args:
+            if not self.policy.is_admin(actor):
+                raise UserError("只有管理员可以查看其他账号的目标。")
+            operator = await self._resolve_user(command.args.strip())
+            if not self.policy.is_admin(actor):
+                raise UserError("只有管理员可以查看其他账号的目标。")
         destination = self.store.destination(operator)
         target = (
             f"{destination.target.chat}，话题："
@@ -338,12 +358,53 @@ class BotApplication:
             else f"{self.store.pending_count(operator)}/3"
         )
         await message.answer(
+            f"账号：{self.store.user_label(operator)}\n"
+            f"共享目标：{self._target_label(self.store.target_for(None))}\n"
+            f"个人目标：{self._target_label(self.store.target_for(operator))}\n"
             f"当前目标（{scope}）：{target}\n执行账号：{account}\n"
             f"可管理任务：{len(self.service.jobs(operator))}；"
             f"待重试：{len(self.service.pending_items(operator))}\n"
             f"自己的待重试名额：{quota}\n"
             "使用 /jobs 管理任务，/pending 查看待重试列表。"
         )
+
+    @staticmethod
+    def _target_label(target: Target | None) -> str:
+        if target is None:
+            return "尚未设置"
+        return f"{target.chat}；话题：{target.topic_id or '默认'}"
+
+    async def _resolve_user(self, value: str) -> int:
+        if not value.startswith("@"):
+            user_id = self._user_id(value)
+            await self._refresh_profile(user_id)
+            return user_id
+        # Resolve live: old usernames must never grant privileges to a new UID.
+        media = self.service.accounts.shared.media
+        async with self.tdl.gate.job():
+            entity = await media.resolve_user(value)
+        self.store.remember_user(
+            entity.id,
+            entity.username,
+            " ".join(filter(None, [entity.first_name, entity.last_name])),
+        )
+        return entity.id
+
+    async def _refresh_profile(self, user_id: int) -> None:
+        media = self.service.accounts.shared.media
+        if not hasattr(media, "resolve_user"):
+            return
+        try:
+            async with self.tdl.gate.job():
+                entity = await media.resolve_user(user_id)
+        except (UserError, errors.RPCError, ValueError):
+            return
+        if entity.id == user_id:
+            self.store.remember_user(
+                entity.id,
+                entity.username,
+                " ".join(filter(None, [entity.first_name, entity.last_name])),
+            )
 
     @staticmethod
     def _page(args: str | None) -> int:
@@ -637,26 +698,37 @@ class BotApplication:
                 if member.active(self.store.now())
                 else (f"封禁至 {self._deadline(member.banned_until)}")
             )
-            lines.append(f"{member.user_id} · {role} · {state}")
+            await self._refresh_profile(member.user_id)
+            lines.append(
+                f"{self.store.user_label(member.user_id)} · {role} · {state}"
+            )
+            lines.append(
+                f"当前目标：{self._target_label(self.store.target(member.user_id))}"
+            )
+        if not self.policy.is_admin(message.from_user.id):
+            raise UserError("只有管理员可以查看成员列表。")
         await message.answer("\n".join(lines))
 
     async def user_add(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 1)
-        user_id = self._user_id(args[0])
+        user_id = await self._resolve_user(args[0])
         self.store.add_member(actor, user_id)
         await self.refresh_menu(user_id)
-        await message.answer("普通账号已添加，权限已生效。")
+        await message.answer(
+            f"{self.store.user_label(user_id)}：普通账号已添加，权限已生效。"
+        )
 
     async def user_remove(
         self, message: Message, command: CommandObject
     ) -> None:
         actor, args = self._admin_args(message, command, 1)
-        user_id = self._user_id(args[0])
+        user_id = await self._resolve_user(args[0])
         self.store.remove_member(actor, user_id)
         await self.service.cancel_submitted(actor, user_id)
         await self.refresh_menu(user_id)
         await message.answer(
-            "账号已删除，活动任务已取消并清理。历史目标和重试记录保留给管理员。"
+            f"{self.store.user_label(user_id)}：账号已删除，活动任务已取消并清理。"
+            "历史目标和重试记录保留给管理员。"
         )
 
     async def user_ban(self, message: Message, command: CommandObject) -> None:
@@ -665,36 +737,39 @@ class BotApplication:
         duration = durations.get(args[1])
         if duration is None:
             raise UserError("封禁时长请使用 1d、1w 或 1m（30 天）。")
-        user_id = self._user_id(args[0])
+        user_id = await self._resolve_user(args[0])
         self.store.ban_member(actor, user_id, duration)
         await self.service.cancel_submitted(actor, user_id)
         await self.refresh_menu(user_id)
         await message.answer(
-            "封禁已生效，活动任务已取消并清理；到期自动恢复权限。"
+            f"{self.store.user_label(user_id)}：封禁已生效，活动任务已取消并清理；到期自动恢复权限。"
         )
 
     async def user_unban(
         self, message: Message, command: CommandObject
     ) -> None:
         actor, args = self._admin_args(message, command, 1)
-        user_id = self._user_id(args[0])
+        user_id = await self._resolve_user(args[0])
         self.store.unban_member(actor, user_id)
         await self.refresh_menu(user_id)
-        await message.answer("封禁已解除。")
+        await message.answer(f"{self.store.user_label(user_id)}：封禁已解除。")
 
     async def user_role(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 2)
-        user_id = self._user_id(args[0])
+        user_id = await self._resolve_user(args[0])
         self.store.set_member_role(actor, user_id, args[1])
         await self.service.reconcile_permissions()
         await self.refresh_menu(user_id)
-        await message.answer("账号角色已更新。")
+        await message.answer(
+            f"{self.store.user_label(user_id)}：账号角色已更新。"
+        )
 
     async def user_history(
         self, message: Message, command: CommandObject
     ) -> None:
         actor, args = self._admin_args(message, command, 1)
-        rows = self.store.member_history(actor, self._user_id(args[0]))
+        user_id = await self._resolve_user(args[0])
+        rows = self.store.member_history(actor, user_id)
         names = {
             "add": "添加普通账号",
             "remove": "删除账号",
@@ -706,10 +781,14 @@ class BotApplication:
             "ban:2592000": "封禁 30 天",
         }
         text = "\n".join(
-            f"{self._deadline(created)} · {admin} · {names.get(action, action)}"
+            f"{self._deadline(created)} · {self.store.user_label(admin)} · "
+            f"{names.get(action, action)}"
             for admin, action, created in rows
         )
-        await message.answer(text or "没有账号管理记录。")
+        await message.answer(
+            f"{self.store.user_label(user_id)}\n"
+            + (text or "没有账号管理记录。")
+        )
 
     async def update(self, message: Message, command: CommandObject) -> None:
         """Schedule an administrator-requested update without blocking input."""

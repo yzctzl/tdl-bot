@@ -161,9 +161,65 @@ class TelegramMedia:
             return await self._peer(-(1_000_000_000_000 + peer))
         return await self._peer(peer)
 
+    async def resolve_user(self, value: str | int):
+        """Resolve usernames live, rejecting channels and bot identities."""
+        try:
+            entity = await self.client.get_entity(value)
+        except (
+            ValueError,
+            *_ACCESS_ERRORS,
+            errors.UsernameNotOccupiedError,
+            errors.UsernameInvalidError,
+        ) as exc:
+            raise UserError("无法解析用户，请检查 @用户名或使用 UID。") from exc
+        if not isinstance(entity, types.User) or entity.bot or entity.deleted:
+            raise UserError("请指定真实用户，不能使用频道、群或 Bot。")
+        return entity
+
+    async def copy_messages(self, chat: str, ids: list[int], target: Target):
+        """Copy an entire album server-side, retaining captions and topics."""
+        source = await self._peer(_target_peer(chat))
+        destination = await self.target_peer(target)
+        existing = cast(
+            list[Message | types.MessageEmpty | None],
+            await self.client.get_messages(source, ids=ids),
+        )
+        if len(existing) != len(ids) or any(
+            not message or isinstance(message, types.MessageEmpty)
+            for message in existing
+        ):
+            return None  # A deleted cached result is safe to regenerate.
+        request = functions.messages.ForwardMessagesRequest(
+            from_peer=source,
+            id=ids,
+            to_peer=destination,
+            drop_author=True,
+            top_msg_id=target.topic_id,
+        )
+        result = await self.client(request)
+        # Only newly created messages belong to this copy operation.
+        messages = [
+            update.message
+            for update in result.updates
+            if isinstance(
+                update, (types.UpdateNewMessage, types.UpdateNewChannelMessage)
+            )
+        ]
+        if len(messages) != len(ids):
+            raise UserError("转发未返回完整媒体组，请检查目标后重试。")
+        return [message.id for message in messages]
+
+    async def copy_group(self, group: MediaGroup, target: Target):
+        try:
+            return await self.copy_messages(
+                str(group.link.peer), [m.id for m in group.messages], target
+            )
+        except errors.ChatForwardsRestrictedError:
+            return None
+
     async def upload(
         self, group: MediaGroup, files: list[Path], target: Target
-    ) -> None:
+    ):
         """Upload an ordered album with each original caption and entities.
 
         Uploads use the user account so large videos do not encounter the
@@ -208,6 +264,9 @@ class TelegramMedia:
         )
         if count != len(files):
             raise UserError("上传未返回完整媒体组，请检查目标后重试。")
+
+        messages = result if isinstance(result, list) else [result]
+        return [message.id for message in messages if hasattr(message, "id")]
 
 
 def _target_peer(chat: str) -> str | int:

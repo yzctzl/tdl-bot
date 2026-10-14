@@ -349,3 +349,23 @@ ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvir
 `data/tdl/pkg/kv/bolt.go`、`data/tdl/app/migrate/backup.go`、
 `data/tdl/pkg/tclient/app.go` 及
 [gotd session schema](https://raw.githubusercontent.com/gotd/td/v0.140.0/session/session.go)。
+
+用户名、目标查询和媒体复用：
+
+- 用户管理命令接受 UID 或 `@用户名`，例如 `/user_add @example`、
+  `/user_ban @example 1d`、`/user_role @example user`。
+  用户名通过共享执行账号实时解析；频道、群和 Bot 不能作为成员。
+  权限始终绑定 UID，用户名变更不会转移权限。没有用户名的账号仍使用 UID。
+- `/users` 显示用户名（未知时显示姓名或提示）、UID 和当前目标；
+  管理操作反馈也包含账号身份。成员与 Bot 交互时会更新身份资料。
+- `/status` 显示共享、个人和当前选中的目标及话题。
+  管理员可用 `/status @example` 或 `/status 123456789` 查询其他账号，
+  `/target for @example` 查询该账号个人目标。
+- 媒体组优先通过 Telegram 在服务器端转发，去掉原发送者署名，保留文字、
+  格式和目标话题。来源禁止转发时仍使用原来的 tdl 下载与上传路径。
+- 成功处理后保存结果消息 ID；重复链接、同一媒体组的其他成员链接，或
+  Telegram 媒体 ID、文字和格式一致的内容，优先转发已有结果，不重新下载。
+  历史结果被删除或无法访问时重新处理来源；普通账号不能复用别人的个人结果。
+  记录从本次版本开始积累，旧版本没有保存结果消息 ID，无法追溯旧上传。
+- 数据库升级到版本 4。已有版本 3 数据库会先生成权限为 `0600` 的
+  `state.sqlite3.pre-results` 备份；升级后需使用本版本或更高版本运行。

@@ -152,3 +152,83 @@ async def test_channel_targets_use_marked_channel_id(target):
     client = SimpleNamespace(get_input_entity=AsyncMock(return_value="channel"))
     await TelegramMedia(client).validate_target(Target(target))
     client.get_input_entity.assert_awaited_once_with(-1001234567890)
+
+
+async def test_server_copy_drops_author_preserves_album_and_topic():
+    client = AsyncMock(
+        return_value=types.Updates(
+            updates=[
+                types.UpdateNewChannelMessage(
+                    types.Message(
+                        id=i,
+                        peer_id=types.PeerChannel(123),
+                        date=None,
+                        message="text",
+                    ),
+                    pts=1,
+                    pts_count=1,
+                )
+                for i in [200, 201]
+            ],
+            users=[],
+            chats=[],
+            date=None,
+            seq=1,
+        )
+    )
+    client.get_input_entity.return_value = types.InputPeerChannel(123, 1)
+    client.get_messages.return_value = [media_message(1), media_message(2)]
+    copied = await TelegramMedia(client).copy_messages(
+        "channel", [1, 2], Target("other", 77)
+    )
+    request = client.call_args.args[0]
+    assert request.id == [1, 2]
+    assert request.drop_author is True
+    assert request.drop_media_captions is None
+    assert request.top_msg_id == 77
+    assert copied == [200, 201]
+
+
+async def test_missing_cached_album_member_never_partially_forwards():
+    client = AsyncMock()
+    client.get_input_entity.return_value = types.InputPeerChannel(123, 1)
+    client.get_messages.return_value = [media_message(1), None]
+    assert (
+        await TelegramMedia(client).copy_messages(
+            "channel", [1, 2], Target("other")
+        )
+        is None
+    )
+    client.assert_not_awaited()
+
+
+async def test_protected_source_falls_back_only_for_forward_restriction():
+    media = TelegramMedia(AsyncMock())
+    media.copy_messages = AsyncMock(
+        side_effect=errors.ChatForwardsRestrictedError(None)
+    )
+    group = SimpleNamespace(
+        link=MessageLink("channel", 1), messages=[media_message(1)]
+    )
+    assert await media.copy_group(group, Target("other")) is None
+    media.copy_messages.side_effect = errors.ChatWriteForbiddenError(None)
+    with pytest.raises(errors.ChatWriteForbiddenError):
+        await media.copy_group(group, Target("other"))
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        types.Channel(
+            id=123,
+            title="channel",
+            photo=types.ChatPhotoEmpty(),
+            date=None,
+        ),
+        types.User(id=123, bot=True),
+    ],
+)
+async def test_user_resolution_rejects_channels_and_bots(entity):
+    client = SimpleNamespace(get_entity=AsyncMock(return_value=entity))
+    with pytest.raises(UserError, match="真实用户"):
+        await TelegramMedia(client).resolve_user("@example")

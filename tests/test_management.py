@@ -389,6 +389,7 @@ def test_v1_migration_keeps_workspace_data_and_creates_private_backup(tmp_path):
         db.executescript(
             "DROP TABLE workspace_members; DROP TABLE workspace_metadata; "
             "DROP TABLE member_events; DROP TABLE permission_retry_archive; "
+            "DROP TABLE user_profiles; DROP TABLE transfer_results; "
             "PRAGMA user_version=1;"
         )
     current = Store(path)
@@ -471,7 +472,9 @@ def test_archive_upgrade_keeps_v2_members_and_creates_private_backup(tmp_path):
     store.close()
     with sqlite3.connect(path) as db:
         db.executescript(
-            "DROP TABLE permission_retry_archive; PRAGMA user_version=2;"
+            "DROP TABLE permission_retry_archive; "
+            "DROP TABLE user_profiles; DROP TABLE transfer_results; "
+            "PRAGMA user_version=2;"
         )
     migrated = Store(path)
     try:
@@ -542,3 +545,76 @@ async def test_worker_rechecks_changed_private_permissions(managed):
     await service.close()
     assert borrowed.cancel_requested
     service.accounts.shared.media.resolve.assert_not_awaited()
+
+
+async def test_username_management_resolves_live_uid_and_shows_both(managed):
+    app, service, store, _ = managed
+    service.accounts.shared.media.resolve_user = AsyncMock(
+        return_value=SimpleNamespace(
+            id=4,
+            username="example",
+            first_name="Test",
+            last_name=None,
+        )
+    )
+    event = message(1)
+    await app.user_add(event, command("user_add", "@example"))
+    assert store.member(4)
+    assert "@example" in event.answer.call_args.args[0]
+    assert "UID: 4" in event.answer.call_args.args[0]
+    # Reassigned usernames resolve to their current UID, never cached privilege.
+    service.accounts.shared.media.resolve_user.return_value.id = 5
+    await app.user_add(event, command("user_add", "@example"))
+    assert "@example" not in store.user_label(4)
+    assert "@example" in store.user_label(5)
+
+
+async def test_admin_status_shows_all_targets_but_other_users_cannot(managed):
+    app, _, store, _ = managed
+    store.set_target(2, Target("personal", 77), private=True)
+    event = message(1)
+    await app.status(event, command("status", "2"))
+    text = event.answer.call_args.args[0]
+    assert "共享目标：me" in text
+    assert "个人目标：personal" in text
+    assert "77" in text
+    with pytest.raises(UserError, match="只有管理员"):
+        await app.status(message(3), command("status", "2"))
+
+
+def test_result_cache_and_profiles_survive_restart(managed, tmp_path):
+    _, _, store, _ = managed
+    store.remember_user(2, "example", "Test")
+    store.save_result(["https://t.me/channel/1"], "shared", None, "me", [10])
+    reopened = Store(tmp_path / "state.sqlite3")
+    try:
+        assert reopened.user_label(2) == "@example (UID: 2)"
+        assert reopened.saved_results(["https://t.me/channel/1"], "shared") == [
+            (None, "me", [10])
+        ]
+    finally:
+        reopened.close()
+
+
+def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
+    _, _, store, _ = managed
+    path = tmp_path / "state.sqlite3"
+    store.close()
+    with sqlite3.connect(path) as db:
+        db.executescript(
+            "DROP TABLE user_profiles; DROP TABLE transfer_results; "
+            "PRAGMA user_version=3;"
+        )
+    migrated = Store(path)
+    try:
+        member = migrated.member(1)
+        assert member is not None and member.role == "admin"
+        assert migrated.target(1) == Target("me")
+        backup = path.with_name(path.name + ".pre-results")
+        assert backup.stat().st_mode & 0o777 == 0o600
+        with sqlite3.connect(backup) as db:
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        with sqlite3.connect(path) as db:
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+    finally:
+        migrated.close()

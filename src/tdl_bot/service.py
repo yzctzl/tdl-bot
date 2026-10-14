@@ -1,6 +1,8 @@
 """Run bounded background transfers and clean temporary files."""
 
 import asyncio
+import hashlib
+import json
 import logging
 import shutil
 import tempfile
@@ -91,6 +93,7 @@ class TransferService:
         self._jobs: dict[str, Job] = {}
         self._workers: list[asyncio.Task] = []
         self._closing = False
+        self._transfer_locks: dict[int, asyncio.Lock] = {}
 
     def start(self) -> None:
         """Remove abandoned owned directories and start queue workers."""
@@ -420,11 +423,30 @@ class TransferService:
     async def _transfer(self, job: Job) -> None:
         """Resolve, download, verify and upload under one update lease."""
         executor = self.accounts.get(job.executor_key)
-        async with executor.tdl.gate.job():
+        lock = self._transfer_locks.setdefault(id(executor.tdl), asyncio.Lock())
+        async with lock, executor.tdl.gate.job():
             _LOGGER.info("任务 user=%s phase=resolve", job.user_id)
             job.stage = "定位媒体组"
             await self._notify(job, "2/5 正在定位媒体组。")
+            if await self._reuse(job, [job.url]):
+                return
             group = await executor.media.resolve(MessageLink.parse(job.url))
+            aliases = [*group.urls]
+            fingerprint = _media_fingerprint(group.messages)
+            if fingerprint:
+                aliases.append(fingerprint)
+            if await self._reuse(job, aliases):
+                return
+            copier = getattr(executor.media, "copy_group", None)
+            if copier is not None:
+                job.stage = "直接转发"
+                await self._notify(job, "正在去除发送者署名并直接转发媒体组。")
+                job.upload_started = True
+                ids = await copier(group, job.target)
+                if ids:
+                    await self._complete(job, aliases, ids, "直接转发")
+                    return
+                job.upload_started = False
             with tempfile.TemporaryDirectory(
                 prefix="job-", dir=self.jobs_dir
             ) as temporary:
@@ -454,7 +476,15 @@ class TransferService:
                     job.target.topic_id,
                 )
                 job.upload_started = True
-                await executor.media.upload(group, files, job.target)
+                ids = await executor.media.upload(group, files, job.target)
+            if isinstance(ids, list) and len(ids) == len(group.messages):
+                self.store.save_result(
+                    [job.url, *aliases],
+                    job.executor_key,
+                    job.owner_id,
+                    job.target.chat,
+                    ids,
+                )
             self.store.clear_pending(
                 job.url,
                 job.destination,
@@ -469,6 +499,71 @@ class TransferService:
                 f"5/5 完成：已上传 {len(group.messages)} 个媒体及视频文字。",
                 finished=True,
             )
+
+    async def _reuse(self, job: Job, urls: list[str]) -> bool:
+        executor = self.accounts.get(job.executor_key)
+        copier = getattr(executor.media, "copy_messages", None)
+        if copier is None:
+            return False
+        for owner, chat, ids in self.store.saved_results(
+            urls, job.executor_key
+        ):
+            if not self.policy.can_manage(job.user_id, owner):
+                continue
+            job.stage = "复用历史结果"
+            await self._notify(job, "正在转发以前处理的结果，无需重新下载。")
+            job.upload_started = True
+            try:
+                copied = await copier(chat, ids, job.target)
+            except (
+                AccessDenied,
+                errors.ChannelPrivateError,
+                errors.ChatForwardsRestrictedError,
+            ):
+                copied = None
+            if copied:
+                await self._complete(job, urls, copied, "复用历史结果")
+                return True
+            job.upload_started = False
+        return False
+
+    async def _complete(self, job: Job, urls, ids, mode: str) -> None:
+        self.store.save_result(
+            [job.url, *urls],
+            job.executor_key,
+            job.owner_id,
+            job.target.chat,
+            ids,
+        )
+        self.store.clear_pending(
+            job.url,
+            job.destination,
+            job.executor_key,
+            pending_id=job.retry_id,
+        )
+        await self._notify(
+            job,
+            f"完成：已{mode} {len(ids)} 个媒体及视频文字。",
+            finished=True,
+        )
+
+
+def _media_fingerprint(messages) -> str | None:
+    """Reuse identical Telegram media only when captions/entities also match."""
+    parts = []
+    for message in messages:
+        media = getattr(message, "document", None) or getattr(
+            message, "photo", None
+        )
+        media_id = getattr(media, "id", None)
+        if media_id is None:
+            return None
+        entities = [entity.to_dict() for entity in (message.entities or [])]
+        parts.append(
+            (type(media).__name__, media_id, message.message, entities)
+        )
+    encoded = json.dumps(parts, sort_keys=True, default=str).encode()
+    return "media:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _downloaded_files(directory: Path, messages) -> list[Path]:

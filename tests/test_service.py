@@ -250,3 +250,111 @@ async def test_initial_progress_failure_never_starts_transfer(setup_service):
     await service.close()
     assert not service.busy(1)
     media.resolve.assert_not_awaited()
+
+
+async def test_direct_copy_and_cached_repeat_never_download(setup_service):
+    service, tdl, media, store, _ = setup_service
+    media.copy_group = AsyncMock(return_value=[100, 101])
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    url = "https://t.me/channel/20"
+    await service._transfer(Job(1, url, Target("me")))
+    tdl.download.assert_not_awaited()
+    media.upload.assert_not_awaited()
+    await service._transfer(Job(2, url, Target("other", 77)))
+    assert media.resolve.await_count == 1
+    media.copy_messages.assert_awaited_once_with(
+        "me", [100, 101], Target("other", 77)
+    )
+    assert store.saved_results([url], "shared")
+
+
+async def test_protected_copy_downloads_then_reuses_upload(setup_service):
+    service, tdl, media, _, _ = setup_service
+    media.copy_group = AsyncMock(return_value=None)
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    media.upload.return_value = [100, 101]
+    url = "https://t.me/channel/20"
+    await service._transfer(Job(1, url, Target("me")))
+    await service._transfer(Job(1, url, Target("other")))
+    assert tdl.download.await_count == 1
+    assert media.upload.await_count == 1
+
+
+async def test_private_cached_result_is_not_visible_to_other_operator(
+    setup_service,
+):
+    service, _, media, store, _ = setup_service
+    url = "https://t.me/channel/20"
+    store.save_result([url], "shared", 1, "private", [100, 101])
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    await service._transfer(Job(2, url, Target("me")))
+    media.copy_messages.assert_not_awaited()
+    media.upload.assert_awaited_once()
+
+
+async def test_deleted_cache_falls_back_to_source(setup_service):
+    service, tdl, media, store, _ = setup_service
+    url = "https://t.me/channel/20"
+    store.save_result([url], "shared", None, "old", [100, 101])
+    media.copy_messages = AsyncMock(return_value=None)
+    media.copy_group = AsyncMock(return_value=[200, 201])
+    await service._transfer(Job(1, url, Target("me")))
+    media.resolve.assert_awaited_once()
+    tdl.download.assert_not_awaited()
+
+
+def test_media_fingerprint_respects_caption_and_media_identity():
+    from tdl_bot.service import _media_fingerprint
+
+    message = SimpleNamespace(
+        document=SimpleNamespace(id=11),
+        photo=None,
+        message="caption",
+        entities=[],
+    )
+    first = _media_fingerprint([message])
+    message.message = "different"
+    assert first != _media_fingerprint([message])
+    message.message = "caption"
+    message.document.id = 12
+    assert first != _media_fingerprint([message])
+
+
+async def test_different_album_links_reuse_one_result_under_concurrency(
+    setup_service,
+):
+    service, tdl, media, _, _ = setup_service
+    media.copy_group = AsyncMock(return_value=[100, 101])
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    group = media.resolve.return_value
+    group.urls = ["https://t.me/channel/10", "https://t.me/channel/20"]
+    await asyncio.gather(
+        service._transfer(Job(1, group.urls[0], Target("me"))),
+        service._transfer(Job(2, group.urls[1], Target("other"))),
+    )
+    assert media.copy_group.await_count == 1
+    assert media.resolve.await_count == 1
+    assert media.copy_messages.await_count == 1
+    tdl.download.assert_not_awaited()
+
+
+async def test_same_media_in_another_source_reuses_by_fingerprint(
+    setup_service,
+):
+    service, tdl, media, _, _ = setup_service
+    group = media.resolve.return_value
+    for index, message in enumerate(group.messages):
+        message.document = SimpleNamespace(id=index + 90, size=5)
+        message.photo = None
+        message.message = "text"
+        message.entities = []
+    group.urls = ["https://t.me/channel/10", "https://t.me/channel/20"]
+    media.copy_group = AsyncMock(return_value=[100, 101])
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    await service._transfer(Job(1, group.urls[0], Target("me")))
+    group.urls = ["https://t.me/another/10", "https://t.me/another/20"]
+    await service._transfer(Job(1, group.urls[0], Target("other")))
+    assert media.resolve.await_count == 2
+    assert media.copy_group.await_count == 1
+    assert media.copy_messages.await_count == 1
+    tdl.download.assert_not_awaited()

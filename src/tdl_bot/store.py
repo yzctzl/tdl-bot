@@ -1,5 +1,6 @@
 """Persist one workspace, optional personal targets and permission retries."""
 
+import json
 import os
 import sqlite3
 import time
@@ -57,7 +58,7 @@ class Store:
         self._db = sqlite3.connect(path)
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise UserError("数据库版本比当前程序更新，请使用匹配的版本。")
             if version == 0:
                 tables = {
@@ -78,6 +79,24 @@ class Store:
                 if version == 2:
                     self._backup(path, suffix=".pre-retry-cap")
                 self._initialize_retry_archive()
+            if version < 4:
+                if version == 3:
+                    self._backup(path, suffix=".pre-results")
+                with self._db:
+                    self._db.execute("BEGIN")
+                    self._db.execute(
+                        "CREATE TABLE user_profiles ("
+                        "user_id INTEGER PRIMARY KEY, "
+                        "username TEXT, name TEXT NOT NULL)"
+                    )
+                    self._db.execute(
+                        "CREATE TABLE transfer_results (url TEXT NOT NULL, "
+                        "executor_key TEXT NOT NULL, "
+                        "scope_key INTEGER NOT NULL, "
+                        "chat TEXT NOT NULL, ids TEXT NOT NULL, "
+                        "PRIMARY KEY(url, executor_key, scope_key))"
+                    )
+                    self._db.execute("PRAGMA user_version = 4")
         except BaseException:
             self._db.close()
             raise
@@ -542,6 +561,55 @@ class Store:
                         executor_key,
                     ),
                 )
+
+    def remember_user(self, user_id: int, username, name: str) -> None:
+        with self._db:
+            # A username may be reassigned; it is never an authorization key.
+            if username:
+                self._db.execute(
+                    "UPDATE user_profiles SET username=NULL "
+                    "WHERE lower(username)=lower(?) AND user_id!=?",
+                    (username, user_id),
+                )
+            self._db.execute(
+                "INSERT OR REPLACE INTO user_profiles VALUES (?, ?, ?)",
+                (user_id, username, name),
+            )
+
+    def user_label(self, user_id: int) -> str:
+        row = self._db.execute(
+            "SELECT username, name FROM user_profiles WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        label = (f"@{row[0]}" if row[0] else row[1]) if row else "用户名未知"
+        return f"{label} (UID: {user_id})"
+
+    def saved_results(self, urls: list[str], executor_key: str):
+        rows = []
+        for url in urls:
+            rows.extend(
+                self._db.execute(
+                    "SELECT scope_key, chat, ids FROM transfer_results "
+                    "WHERE url=? AND executor_key=?",
+                    (url, executor_key),
+                ).fetchall()
+            )
+        return [
+            (owner or None, chat, json.loads(ids)) for owner, chat, ids in rows
+        ]
+
+    def save_result(self, urls, executor_key, owner_id, chat, ids) -> None:
+        if not ids:
+            return
+        with self._db:
+            self._db.executemany(
+                "INSERT OR REPLACE INTO transfer_results "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (url, executor_key, owner_id or 0, chat, json.dumps(ids))
+                    for url in urls
+                ],
+            )
 
     def close(self) -> None:
         """Close the database."""
