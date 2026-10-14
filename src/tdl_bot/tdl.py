@@ -85,15 +85,18 @@ class Tdl:
         timeout: int = 7200,
         *,
         data_dir: Path | None = None,
+        proxy: str | None = None,
+        storage_lock: AccountLock | None = None,
     ) -> None:
         """Configure the executable and account namespace."""
         self.binary = binary
         self.namespace = namespace
         self.timeout = timeout
         self.data_dir = data_dir.resolve() if data_dir is not None else None
+        self.proxy = proxy
         # tdl's default Bolt storage uses an exclusive database lock.
         self.account_lock = AccountLock()
-        self._process_lock = self.account_lock
+        self._process_lock = storage_lock or self.account_lock
         self.gate = UpdateGate()
 
     def storage_args(self) -> list[str]:
@@ -161,7 +164,11 @@ class Tdl:
         timeout: int | None = None,
     ) -> str:
         """Drain both streams, and reap the process on timeout/cancellation."""
-        async with self._process_lock:
+        async with self.account_lock, self._process_lock:
+            environment = os.environ.copy()
+            if self.proxy is not None:
+                # Keep each executor's tdl and Telethon on the same egress.
+                environment["TDL_PROXY"] = self.proxy
             try:
                 process = await asyncio.create_subprocess_exec(
                     str(binary or self.binary),
@@ -169,6 +176,7 @@ class Tdl:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     stdin=asyncio.subprocess.DEVNULL,
+                    env=environment,
                 )
             except OSError as exc:
                 raise UserError("无法启动 tdl，请检查 TDL_BINARY。") from exc

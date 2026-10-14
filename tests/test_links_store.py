@@ -60,21 +60,22 @@ def test_join_urls(url, expected):
     assert JoinLink.parse(url) == expected
 
 
-def test_store_persists_and_isolates_users(tmp_path):
+def test_store_persists_shared_and_personal_targets(tmp_path):
     path = tmp_path / "state.sqlite3"
     store = Store(path)
     store.set_target(1, Target("me", 42))
-    store.set_target(2, Target("@elsewhere"))
+    store.set_target(2, Target("@personal"), private=True)
     store.set_pending(1, "old")
     store.set_pending(1, "new")
-    store.clear_pending(1, "old")
     store.close()
     reopened = Store(path)
     assert reopened.target(1) == Target("me", 42)
-    assert reopened.target(2) == Target("@elsewhere")
-    assert reopened.target(3) is None
-    assert reopened.pending(1) == "new"
-    assert reopened.pending(2) is None
-    reopened.clear_pending(1, "new")
-    assert reopened.pending(1) is None
+    assert reopened.target(2) == Target("@personal")
+    assert reopened.target(3) == Target("me", 42)
+    assert [item.url for item in reopened.pending_items()] == ["old", "new"]
+    item = reopened.pending_items()[0]
+    reopened.clear_pending(item.url, item.destination, item.executor_key)
+    assert [item.url for item in reopened.pending_items()] == ["new"]
+    reopened.select_target(2, private=False)
+    assert reopened.target(2) == Target("me", 42)
     reopened.close()

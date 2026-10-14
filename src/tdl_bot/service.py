@@ -12,11 +12,10 @@ from uuid import uuid4
 
 from telethon import errors
 
+from tdl_bot.accounts import AccessPolicy, AccountPool
 from tdl_bot.errors import AccessDenied, UserError
 from tdl_bot.links import MessageLink
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import Tdl
-from tdl_bot.telegram import TelegramMedia
+from tdl_bot.store import Destination, PendingTransfer, Store, Target
 
 _LOGGER = logging.getLogger(__name__)
 Notify = Callable[..., Awaitable[None]]
@@ -24,7 +23,7 @@ Notify = Callable[..., Awaitable[None]]
 
 @dataclass(eq=False)
 class Job:
-    """A queued url with a snapshot of the user's selected destination."""
+    """Separate notification, management and execution identities per task."""
 
     user_id: int
     url: str
@@ -38,6 +37,14 @@ class Job:
     cancel_requested: bool = False
     finished: bool = False
     upload_started: bool = False
+    owner_id: int | None = None
+    executor_key: str = "shared"
+    retry_id: int | None = None
+    stage: str = "排队中"
+
+    @property
+    def destination(self) -> Destination:
+        return Destination(self.target, self.owner_id)
 
 
 class JobQueue(asyncio.Queue[Job]):
@@ -64,24 +71,24 @@ class TransferService:
 
     def __init__(
         self,
-        tdl: Tdl,
-        media: TelegramMedia,
+        accounts: AccountPool,
         store: Store,
         jobs_dir: Path,
         notify: Notify,
         *,
+        policy: AccessPolicy,
         workers: int = 2,
         queue_size: int = 20,
     ) -> None:
-        """Initialize a bounded queue and a single active job per user."""
-        self.tdl = tdl
-        self.media = media
+        """Initialize a bounded workspace queue and execution account pool."""
         self.store = store
         self.jobs_dir = jobs_dir
         self.notify = notify
+        self.policy = policy
+        self.accounts = accounts
         self._worker_count = workers
         self._queue = JobQueue(queue_size)
-        self._users: dict[int, Job] = {}
+        self._jobs: dict[str, Job] = {}
         self._workers: list[asyncio.Task] = []
         self._closing = False
 
@@ -99,23 +106,99 @@ class TransferService:
     async def submit(
         self, user_id: int, url: str, *, source_message_id: int | None = None
     ) -> Job:
-        """Reserve a queue slot and create one progress reply before work."""
-        MessageLink.parse(url)
+        """Capture the selected destination and own-or-shared executor."""
+        destination = self.store.destination(user_id)
+        if destination is None:
+            raise UserError("请先用 /target 设置共享目标或个人目标。")
+        return await self._submit(
+            user_id,
+            url,
+            destination,
+            self.accounts.select(user_id).key,
+            source_message_id,
+        )
+
+    async def retry(
+        self,
+        user_id: int,
+        pending_id: int | None,
+        *,
+        source_message_id: int | None = None,
+    ) -> Job:
+        """Keep the failed task's exact target, scope and execution account."""
+        pending = self.pending_record(user_id, pending_id)
+        return await self._submit(
+            user_id,
+            pending.url,
+            pending.destination,
+            pending.executor_key,
+            source_message_id,
+            pending.id,
+        )
+
+    def pending_items(self, user_id: int) -> list[PendingTransfer]:
+        return [
+            item
+            for item in self.store.pending_items()
+            if self.policy.can_manage(user_id, item.destination.owner_id)
+        ]
+
+    def pending_record(
+        self, user_id: int, pending_id: int | None = None
+    ) -> PendingTransfer:
+        items = self.pending_items(user_id)
+        if pending_id is None:
+            if len(items) != 1:
+                raise UserError(
+                    "请使用 /pending 查看待重试任务，再用 /retry <编号>。"
+                )
+            return items[0]
+        for item in items:
+            if item.id == pending_id:
+                return item
+        raise UserError("待重试任务不存在或你无权管理。")
+
+    async def _submit(
+        self,
+        user_id: int,
+        url: str,
+        destination: Destination,
+        executor_key: str,
+        source_message_id: int | None,
+        retry_id: int | None = None,
+    ) -> Job:
+        link = MessageLink.parse(url)
+        if not self.policy.can_manage(user_id, destination.owner_id):
+            raise UserError("无权管理此任务。")
+        executor = self.accounts.get(executor_key)
         if self._closing:
             raise UserError("Bot 正在关闭，请稍后重试。")
-        if user_id in self._users:
-            raise UserError("你已有一个排队或执行中的任务，请等待完成。")
-        target = self.store.target(user_id)
-        if target is None:
-            raise UserError("请先用 /target 设置上传目标。")
-        job = Job(user_id, url, target, source_message_id=source_message_id)
+        for current in self._jobs.values():
+            if (
+                not current.finished
+                and MessageLink.parse(current.url) == link
+                and current.destination == destination
+                and self.accounts.get(current.executor_key).tdl is executor.tdl
+            ):
+                raise UserError("相同来源、目标和执行账号的任务已在队列中。")
+        url = link.url_for(link.message_id)
+        if link.comment_id is not None:
+            url += f"?comment={link.comment_id}"
+        job = Job(
+            user_id,
+            url,
+            destination.target,
+            source_message_id=source_message_id,
+            owner_id=destination.owner_id,
+            executor_key=executor_key,
+            retry_id=retry_id,
+        )
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
             raise UserError("下载队列已满，请稍后重试。") from exc
-        self._users[user_id] = job
+        self._jobs[job.id] = job
         try:
-            # Initial delivery is mandatory; never start an invisible job.
             await self.notify(job, "1/5 下载任务已加入队列。", finished=False)
         except BaseException:
             job.finished = True
@@ -126,17 +209,31 @@ class TransferService:
             job.ready.set()
         return job
 
+    def jobs(self, user_id: int) -> list[Job]:
+        """List all shared jobs plus manageable personal jobs."""
+        return [
+            job
+            for job in self._jobs.values()
+            if not job.finished
+            and self.policy.can_manage(user_id, job.owner_id)
+        ]
+
     def busy(self, user_id: int) -> bool:
-        """Report whether a user has an outstanding transfer."""
-        return user_id in self._users
+        return bool(self.jobs(user_id))
 
     def current_job(self, user_id: int, job_id: str) -> Job | None:
-        """Resolve an owned live job; stale buttons never target newer jobs."""
-        job = self._users.get(user_id)
-        return job if job and job.id == job_id and not job.finished else None
+        """Accept exact IDs or unique eight-character prefixes."""
+        if len(job_id) < 8:
+            return None
+        matches = [
+            job
+            for job in self.jobs(user_id)
+            if job.ready.is_set() and job.id.startswith(job_id)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     async def cancel(self, user_id: int, job_id: str) -> bool:
-        """Cancel one owned job and wait for cleanup and its terminal edit."""
+        """Cancel a manageable job and wait for cleanup and terminal edit."""
         job = self.current_job(user_id, job_id)
         if job is None:
             return False
@@ -144,6 +241,7 @@ class TransferService:
             await job.done.wait()
             return True
         job.cancel_requested = True
+        job.stage = "取消中"
         if job.task is not None:
             job.task.cancel()
             await job.done.wait()
@@ -159,9 +257,7 @@ class TransferService:
         return True
 
     def _release(self, job: Job) -> None:
-        """Release ownership without clearing a more recent job."""
-        if self._users.get(job.user_id) is job:
-            del self._users[job.user_id]
+        self._jobs.pop(job.id, None)
 
     async def _cancelled(self, job: Job) -> None:
         """Report cancellation only after the transfer has cleaned files."""
@@ -193,7 +289,7 @@ class TransferService:
             _LOGGER.warning("无法更新进度 user=%s", job.user_id)
 
     async def _worker(self) -> None:
-        """Process jobs and always release per-user queue ownership."""
+        """Process workspace jobs and always release the task registry entry."""
         while True:
             job = await self._queue.get()
             try:
@@ -207,10 +303,17 @@ class TransferService:
                     raise
                 await self._cancelled(job)
             except AccessDenied:
-                self.store.set_pending(job.user_id, job.url)
+                if job.retry_id is None:
+                    self.store.set_pending(
+                        job.user_id,
+                        job.url,
+                        destination=job.destination,
+                        executor_key=job.executor_key,
+                    )
                 await self._notify(
                     job,
-                    "下载账号无权访问来源群。请发送 /join 群主页或邀请 url；"
+                    "下载账号无权访问来源群。请用 /pending 查看编号，"
+                    "发送 /join 群主页或邀请 url [编号]；"
                     "加入后会自动重试。若需审核，批准后发送 /retry。"
                     "请确认来源群链接正确、账号未被封禁且历史可见。",
                     finished=True,
@@ -241,10 +344,12 @@ class TransferService:
 
     async def _transfer(self, job: Job) -> None:
         """Resolve, download, verify and upload under one update lease."""
-        async with self.tdl.gate.job():
+        executor = self.accounts.get(job.executor_key)
+        async with executor.tdl.gate.job():
             _LOGGER.info("任务 user=%s phase=resolve", job.user_id)
+            job.stage = "定位媒体组"
             await self._notify(job, "2/5 正在定位媒体组。")
-            group = await self.media.resolve(MessageLink.parse(job.url))
+            group = await executor.media.resolve(MessageLink.parse(job.url))
             with tempfile.TemporaryDirectory(
                 prefix="job-", dir=self.jobs_dir
             ) as temporary:
@@ -254,13 +359,15 @@ class TransferService:
                     job.user_id,
                     len(group.messages),
                 )
+                job.stage = "下载中"
                 await self._notify(
                     job, f"3/5 正在下载 {len(group.messages)} 个媒体文件。"
                 )
-                await self.tdl.download(group.urls, directory)
+                await executor.tdl.download(group.urls, directory)
                 files = await asyncio.to_thread(
                     _downloaded_files, directory, group.messages
                 )
+                job.stage = "上传中"
                 await self._notify(
                     job, f"4/5 正在上传 {len(files)} 个媒体文件。"
                 )
@@ -272,8 +379,13 @@ class TransferService:
                     job.target.topic_id,
                 )
                 job.upload_started = True
-                await self.media.upload(group, files, job.target)
-            self.store.clear_pending(job.user_id, job.url)
+                await executor.media.upload(group, files, job.target)
+            self.store.clear_pending(
+                job.url,
+                job.destination,
+                job.executor_key,
+                pending_id=job.retry_id,
+            )
             _LOGGER.info(
                 "任务 user=%s phase=complete cleaned=true", job.user_id
             )

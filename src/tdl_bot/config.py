@@ -1,6 +1,7 @@
 """Environment-based configuration."""
 
 import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -8,12 +9,22 @@ from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
+class AccountBinding:
+    """An operator's existing tdl session, configured only on the server."""
+
+    operator_id: int
+    tdl_dir: Path
+    namespace: str
+    proxy: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
 class Settings:
     """Settings shared by the CLI and bot services."""
 
-    bot_token: str
+    bot_token: str = field(repr=False)
     api_id: int
-    api_hash: str
+    api_hash: str = field(repr=False)
     allowed_users: frozenset[int]
     admin_users: frozenset[int]
     data_dir: Path
@@ -25,6 +36,7 @@ class Settings:
     workers: int = 2
     queue_size: int = 20
     download_timeout: int = 7200
+    account_bindings: tuple[AccountBinding, ...] = ()
 
     @property
     def session_path(self) -> Path:
@@ -60,7 +72,17 @@ class Settings:
         api_id = int(os.getenv("TELEGRAM_API_ID", "0") or "0")
         api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
         allowed = ids("ALLOWED_USER_IDS")
-        admins = ids("ADMIN_USER_IDS") or allowed
+        first_operator = next(
+            (
+                int(value.strip())
+                for value in os.getenv("ALLOWED_USER_IDS", "").split(",")
+                if value.strip()
+            ),
+            None,
+        )
+        admins = ids("ADMIN_USER_IDS") or (
+            frozenset({first_operator}) if first_operator else frozenset()
+        )
         source = os.getenv("SESSION_SOURCE", "tdl").strip()
         if source not in {"tdl", "telethon"}:
             raise ValueError("SESSION_SOURCE 必须是 tdl 或 telethon。")
@@ -95,4 +117,60 @@ class Settings:
             raise ValueError(
                 "WORKERS、QUEUE_SIZE、DOWNLOAD_TIMEOUT 必须为正数。"
             )
+        account_file = Path(
+            os.getenv("ACCOUNTS_FILE", str(settings.data_dir / "accounts.toml"))
+        ).resolve()
+        if account_file.is_file():
+            from dataclasses import replace
+
+            settings = replace(
+                settings,
+                account_bindings=read_account_bindings(account_file, settings),
+            )
+        elif os.getenv("ACCOUNTS_FILE", "").strip():
+            raise ValueError("ACCOUNTS_FILE 指定的账号配置文件不存在。")
         return settings
+
+
+def read_account_bindings(
+    path: Path, settings: Settings
+) -> tuple[AccountBinding, ...]:
+    """Validate bindings without including account or proxy data in errors."""
+    try:
+        with path.open("rb") as file:
+            config = tomllib.load(file)
+        if set(config) - {"accounts"}:
+            raise ValueError
+        entries = config.get("accounts", [])
+        if not isinstance(entries, list):
+            raise ValueError
+        result = []
+        operators = set()
+        sources = set()
+        for entry in entries:
+            if set(entry) - {"operator_id", "tdl_dir", "namespace", "proxy"}:
+                raise ValueError
+            operator = entry["operator_id"]
+            namespace = entry["namespace"]
+            directory = Path(entry.get("tdl_dir", settings.tdl_dir)).resolve()
+            proxy = entry.get("proxy", settings.tdl_proxy)
+            if (
+                type(operator) is not int
+                or operator not in settings.allowed_users
+                or operator in operators
+                or not isinstance(namespace, str)
+                or not namespace
+                or Path(namespace).name != namespace
+                or not isinstance(proxy, str)
+                or (directory, namespace) in sources
+            ):
+                raise ValueError
+            operators.add(operator)
+            sources.add((directory, namespace))
+            result.append(AccountBinding(operator, directory, namespace, proxy))
+        return tuple(result)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise ValueError(
+            "账号配置无效：请检查 accounts 列表、授权账号、目录"
+            "和唯一 namespace。"
+        ) from exc

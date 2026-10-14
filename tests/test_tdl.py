@@ -197,3 +197,45 @@ async def test_tdl_permission_errors_are_recognized(tmp_path):
     binary.chmod(0o755)
     with pytest.raises(AccessDenied):
         await Tdl(binary, "default")._run(["download"])
+
+
+@pytest.mark.parametrize("proxy", ["", "socks5://localhost:1080"])
+async def test_executor_proxy_overrides_inherited_proxy(
+    tmp_path, monkeypatch, proxy
+):
+    binary = tmp_path / "tdl"
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        'import os\nprint(os.environ.get("TDL_PROXY", "missing"))\n'
+    )
+    binary.chmod(0o755)
+    monkeypatch.setenv("TDL_PROXY", "socks5://unrelated:1080")
+    result = await Tdl(binary, "own", proxy=proxy)._run(["version"])
+    assert result == proxy
+
+
+async def test_shared_storage_lock_preserves_each_account_rpc_lock(tmp_path):
+    from tdl_bot.client import AccountLock
+
+    started = tmp_path / "started"
+    binary = tmp_path / "tdl"
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        f"from pathlib import Path\nPath({str(started)!r}).touch()\n"
+    )
+    binary.chmod(0o755)
+    storage = AccountLock()
+    tdl = Tdl(binary, "own", storage_lock=storage)
+    async with tdl.account_lock:
+        task = asyncio.create_task(tdl._run(["version"]))
+        await asyncio.sleep(0)
+        assert not started.exists()
+    await task
+    assert started.exists()
+    started.unlink()
+    async with storage:
+        task = asyncio.create_task(tdl._run(["version"]))
+        await asyncio.sleep(0)
+        assert not started.exists()
+    await task
+    assert started.exists()

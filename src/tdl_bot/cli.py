@@ -13,8 +13,9 @@ from aiogram import Bot
 from telethon import TelegramClient
 from telethon.tl import types
 
+from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.bot import BotApplication, ProgressMessages
-from tdl_bot.client import SharedSessionClient
+from tdl_bot.client import AccountLock, SharedSessionClient
 from tdl_bot.config import Settings
 from tdl_bot.errors import UserError
 from tdl_bot.service import TransferService
@@ -44,11 +45,14 @@ def instance_lock(path: Path):
 async def run(settings: Settings, command: str) -> None:
     """Run user-account login or the aiogram polling service."""
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    storage_locks = {settings.tdl_dir: AccountLock()}
     tdl = Tdl(
         settings.tdl_binary,
         settings.tdl_namespace,
         settings.download_timeout,
         data_dir=settings.tdl_dir,
+        proxy=settings.tdl_proxy,
+        storage_lock=storage_locks[settings.tdl_dir],
     )
     proxy = proxy_settings(settings.tdl_proxy)
     if settings.session_source == "tdl":
@@ -95,10 +99,11 @@ async def run(settings: Settings, command: str) -> None:
             await client.disconnect()
         return
 
-    bot = Bot(settings.bot_token)
-    store = Store(settings.data_dir / "state.sqlite3")
+    bot = None
+    store = None
     service = None
     application = None
+    clients = [client]
     try:
         await client.connect()
         if not await client.is_user_authorized():
@@ -112,18 +117,91 @@ async def run(settings: Settings, command: str) -> None:
             raise UserError("Telethon 会话必须属于用户账号。")
         await tdl.version()
         media = TelegramMedia(client)
+        shared = Executor("shared", tdl, media)
+        personal = []
+        session = client.session
+        if session is None or session.auth_key is None:
+            raise UserError("执行账号缺少有效的授权密钥。")
+        keys = {session.auth_key.key}
+        for binding in settings.account_bindings:
+            if (binding.tdl_dir, binding.namespace) == (
+                settings.tdl_dir,
+                settings.tdl_namespace,
+            ):
+                if me.id != binding.operator_id:
+                    raise UserError(
+                        "专属执行会话的账号与绑定的操作账号不一致。"
+                    )
+                if binding.proxy != settings.tdl_proxy:
+                    raise UserError("同一会话不能绑定不同代理。")
+                personal.append(
+                    Executor(
+                        f"operator:{binding.operator_id}",
+                        tdl,
+                        media,
+                        binding.operator_id,
+                    )
+                )
+                continue
+            own_tdl = Tdl(
+                settings.tdl_binary,
+                binding.namespace,
+                settings.download_timeout,
+                data_dir=binding.tdl_dir,
+                proxy=binding.proxy,
+                storage_lock=storage_locks.setdefault(
+                    binding.tdl_dir, AccountLock()
+                ),
+            )
+            own_tdl.gate = tdl.gate
+            imported = await load_tdl_session(own_tdl, settings.data_dir)
+            key = imported.session.auth_key.key
+            if key in keys:
+                raise UserError(
+                    "执行会话重复，请绑定原目录和 namespace，避免使用会话副本。"
+                )
+            keys.add(key)
+            own = SharedSessionClient(
+                imported.session,
+                imported.api_id,
+                imported.api_hash,
+                proxy=proxy_settings(binding.proxy),
+                account_lock=own_tdl.account_lock,
+            )
+            clients.append(own)
+            await own.connect()
+            if not await own.is_user_authorized():
+                raise UserError("专属 tdl 会话已失效，请检查账号绑定。")
+            own_user = cast(types.User | None, await own.get_me())
+            if (
+                own_user is None
+                or own_user.bot
+                or own_user.id != binding.operator_id
+            ):
+                raise UserError("专属执行会话的账号与绑定的操作账号不一致。")
+            personal.append(
+                Executor(
+                    f"operator:{binding.operator_id}",
+                    own_tdl,
+                    TelegramMedia(own),
+                    binding.operator_id,
+                )
+            )
+        accounts = AccountPool(shared, tuple(personal))
+        bot = Bot(settings.bot_token)
+        store = Store(settings.data_dir / "state.sqlite3")
 
         service = TransferService(
-            tdl,
-            media,
+            accounts,
             store,
             settings.data_dir / "jobs",
             ProgressMessages(bot),
+            policy=AccessPolicy(settings.allowed_users, settings.admin_users),
             workers=settings.workers,
             queue_size=settings.queue_size,
         )
         service.start()
-        application = BotApplication(bot, settings, store, media, tdl, service)
+        application = BotApplication(bot, settings, store, tdl, service)
         await application.dispatcher.start_polling(
             bot,
             close_bot_session=False,
@@ -137,9 +215,15 @@ async def run(settings: Settings, command: str) -> None:
             if application:
                 await application.close()
         finally:
-            store.close()
-            await client.disconnect()
-            await bot.session.close()
+            if store:
+                store.close()
+            # Attempt every disconnect even if another account fails to close.
+            await asyncio.gather(
+                *(account.disconnect() for account in clients),
+                return_exceptions=True,
+            )
+            if bot:
+                await bot.session.close()
 
 
 def main() -> None:
@@ -165,17 +249,19 @@ def main() -> None:
             stack.enter_context(
                 instance_lock(settings.tdl_binary.with_suffix(".lock"))
             )
+            sources = {
+                (binding.tdl_dir, binding.namespace)
+                for binding in settings.account_bindings
+            }
             if settings.session_source == "tdl":
-                tdl = Tdl(
-                    settings.tdl_binary,
-                    settings.tdl_namespace,
-                    data_dir=settings.tdl_dir,
-                )
-                tdl.storage_args()
+                sources.add((settings.tdl_dir, settings.tdl_namespace))
+            # Stable ordering prevents two startups taking locks in reverse.
+            for directory, namespace in sorted(sources):
+                Tdl(
+                    settings.tdl_binary, namespace, data_dir=directory
+                ).storage_args()
                 stack.enter_context(
-                    instance_lock(
-                        settings.tdl_dir / f".bot-{settings.tdl_namespace}.lock"
-                    )
+                    instance_lock(directory / f".bot-{namespace}.lock")
                 )
             asyncio.run(run(settings, args.command))
     except (ValueError, UserError) as exc:

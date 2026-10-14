@@ -7,10 +7,12 @@ import pytest
 from aiogram.filters import CommandObject
 from aiogram.types import Message, TelegramObject
 
+from tdl_bot.accounts import AccountPool, Executor
 from tdl_bot.bot import Authorization, BotApplication, ProgressMessages
 from tdl_bot.errors import JoinPending, UserError
 from tdl_bot.service import Job
 from tdl_bot.store import Store, Target
+from tdl_bot.tdl import UpdateGate
 
 
 @pytest.mark.parametrize(
@@ -45,16 +47,23 @@ async def test_authorization_rejects_non_message_events():
 @pytest.mark.parametrize("approval_required", [False, True])
 async def test_join_retries_only_after_membership(tmp_path, approval_required):
     store = Store(tmp_path / "state.sqlite3")
+    store.set_target(1, Target("me"))
     store.set_pending(1, "https://t.me/c/123456/10")
     media = SimpleNamespace(join=AsyncMock())
     if approval_required:
         media.join.side_effect = JoinPending("等待审核")
-    service = SimpleNamespace(busy=Mock(return_value=False), submit=AsyncMock())
+    item = store.pending_items()[0]
+    service = SimpleNamespace(
+        pending_record=Mock(return_value=item),
+        retry=AsyncMock(),
+        accounts=AccountPool(
+            Executor("shared", SimpleNamespace(gate=UpdateGate()), media)
+        ),
+    )
     application = BotApplication(
         SimpleNamespace(),
         SimpleNamespace(allowed_users=frozenset({1})),
         store,
-        media,
         SimpleNamespace(),
         service,
     )
@@ -64,8 +73,8 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
     await application.join(
         message, CommandObject(command="join", args="https://t.me/+invite")
     )
-    assert service.submit.call_count == int(not approval_required)
-    assert store.pending(1) is not None
+    assert service.retry.call_count == int(not approval_required)
+    assert store.pending_items()
     store.close()
 
 
@@ -113,7 +122,6 @@ async def test_cancel_callback_checks_owner_token_and_progress_message(
         SimpleNamespace(allowed_users=frozenset({1})),
         store,
         SimpleNamespace(),
-        SimpleNamespace(),
         service,
     )
     callback = SimpleNamespace(
@@ -142,7 +150,6 @@ async def test_update_requires_admin(tmp_path):
             allowed_users=frozenset({1}), admin_users=frozenset({2})
         ),
         store,
-        SimpleNamespace(),
         tdl,
         SimpleNamespace(),
     )

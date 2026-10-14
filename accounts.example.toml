@@ -1,0 +1,9 @@
+# 复制到 data/accounts.toml，替换示例操作账号 ID 和已有 tdl namespace。
+# 未添加绑定的操作账号使用 .env 中的共享执行账号。
+# 相对路径从启动时的项目工作目录解析，而不是从本文件所在目录解析。
+[[accounts]]
+operator_id = 123456789
+namespace = "personal"
+tdl_dir = ".tdl"
+# 不写 proxy 时继承 TDL_PROXY，空串表示直连。
+# proxy = ""

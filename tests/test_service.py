@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.errors import AccessDenied, UserError
 from tdl_bot.service import Job, TransferService
 from tdl_bot.store import Store, Target
@@ -16,7 +17,6 @@ from tdl_bot.tdl import UpdateGate
 def setup_service(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
     store.set_target(1, Target("me"))
-    store.set_target(2, Target("elsewhere"))
     messages = [
         SimpleNamespace(id=10, document=None),
         SimpleNamespace(id=20, document=SimpleNamespace(size=5)),
@@ -35,7 +35,13 @@ def setup_service(tmp_path):
     )
     notify = AsyncMock()
     service = TransferService(
-        tdl, media, store, tmp_path / "jobs", notify, workers=1, queue_size=1
+        AccountPool(Executor("shared", tdl, media)),
+        store,
+        tmp_path / "jobs",
+        notify,
+        policy=AccessPolicy(frozenset({1, 2, 3}), frozenset({3})),
+        workers=1,
+        queue_size=1,
     )
     service.jobs_dir.mkdir()
     yield service, tdl, media, store, notify
@@ -50,7 +56,7 @@ async def test_success_preserves_order_and_deletes_files(setup_service):
     paths = media.upload.call_args.args[1]
     assert [path.name for path in paths] == ["10_photo.jpg", "20_video.mp4"]
     assert not any(service.jobs_dir.iterdir())
-    assert store.pending(1) is None
+    assert store.pending_items() == []
     assert "完成：已上传 2 个媒体及视频文字" in notify.call_args.args[1]
     assert notify.call_args.kwargs["finished"] is True
 
@@ -105,9 +111,9 @@ async def test_cancellation_cleans_partial_download(setup_service):
 async def test_queue_is_bounded_and_target_is_snapshotted(setup_service):
     service, _, _, store, _ = setup_service
     await service.submit(1, "https://t.me/channel/10")
+    with pytest.raises(UserError, match="已在"):
+        await service.submit(1, "https://t.me/channel/10")
     store.set_target(1, Target("new"))
-    with pytest.raises(UserError, match="已有"):
-        await service.submit(1, "https://t.me/channel/20")
     with pytest.raises(UserError, match="已满"):
         await service.submit(2, "https://t.me/channel/20")
     queued = service._queue.get_nowait()
@@ -121,7 +127,7 @@ async def test_access_denied_is_persisted_and_worker_recovers(setup_service):
     service.start()
     await service.submit(1, "https://t.me/channel/10")
     await service.close()
-    assert store.pending(1) == "https://t.me/channel/10"
+    assert store.pending_items()[0].url == "https://t.me/channel/10"
     assert not service.busy(1)
     assert "/join" in notify.call_args.args[1]
 
@@ -168,7 +174,8 @@ async def test_progress_reports_exactly_five_stages_in_order(setup_service):
 async def test_queued_cancel_releases_slot_and_old_button_cannot_cancel_new_job(
     setup_service,
 ):
-    service, _, media, _, notify = setup_service
+    service, _, media, store, notify = setup_service
+    store.set_target(1, Target("me"), private=True)
     first = await service.submit(1, "https://t.me/channel/10")
     assert not await service.cancel(2, first.id)
     assert await service.cancel(1, first.id)
