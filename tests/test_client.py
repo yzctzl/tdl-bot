@@ -75,9 +75,11 @@ async def test_each_rpc_resolves_and_pins_layer(monkeypatch):
     assert client._no_updates
 
 
-def test_layer_wrapper_preserves_custom_result_decoder():
+def test_layer_wrapper_preserves_custom_result_decoder(monkeypatch):
     query = functions.help.GetConfigRequest()
-    query.read_result = lambda reader: "decoded with original method"
+    monkeypatch.setattr(
+        query, "read_result", lambda reader: "decoded with original method"
+    )
     assert LayerRequest(LAYER, query).read_result(None) == (
         "decoded with original method"
     )

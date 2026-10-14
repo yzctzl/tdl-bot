@@ -174,7 +174,25 @@ url 则持久化到 SQLite。Telegram 上传并非事务，若中途失败，目
 uv run pytest -q
 uv run ruff check src tests
 uv run ruff format --check src tests
+uv run ty check
 ```
+
+Ruff 负责代码规范、导入排序和格式化；ty 负责类型检查与编辑器补全、跳转。
+ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvironment"`
+以保持版本一致。日常编辑建议 `ty.diagnosticMode = "openFilesOnly"`，提交前
+执行上面的完整检查；无需同时启用 Pylance。
+
+业务代码保留默认类型检查，仅对 Telethon 已确认的动态接口和不完整注解使用
+带具体规则及原因的局部豁免。测试目录仅放宽 `invalid-argument-type`，允许
+轻量测试替身代替真实服务，其余检查仍开启。`unused-ignore-comment` 会提醒
+已经不再需要的豁免。
+
+整个项目按需使用类型标注，不要求每个函数、参数或返回值都写标注。能确定的
+类型正常标注；难以确定的框架参数（如 `handler`）可以省略，同一签名中的
+`event`、`data` 等仍可保留标注。Ruff 不启用强制标注的 `ANN` 规则，ty 默认
+允许省略标注，继续检查已标注或可推断的类型。通过 `isinstance`、空值判断
+和局部变量推断补充信息。未知类型会降低静态检查覆盖率，因此复杂业务仍需要
+测试验证，不使用全局 `Any` 或关闭业务代码的参数、属性检查来掩盖问题。
 
 测试不需要真实 Telegram 凭据，覆盖 url、媒体组补齐、文字／格式保留、私密群
 权限和入群重试、目标持久化、队列限制、下载完整性、异常／取消清理、子进程

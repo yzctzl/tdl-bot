@@ -13,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyParameters,
+    TelegramObject,
 )
 from telethon import errors
 
@@ -90,8 +91,12 @@ class Authorization(BaseMiddleware):
         """Store the configured allowlist."""
         self.allowed = allowed
 
-    async def __call__(self, handler, event: Message, data: dict[str, Any]):
+    async def __call__(
+        self, handler, event: TelegramObject, data: dict[str, Any]
+    ):
         """Reject unauthorized messages before running any command."""
+        if not isinstance(event, Message):
+            return None
         if event.chat.type != "private" or event.from_user is None:
             return None
         command = (event.text or "").split(maxsplit=1)[0:1]

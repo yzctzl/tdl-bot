@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from telethon import TelegramClient, errors, utils
 from telethon.tl import functions, types
@@ -90,7 +91,11 @@ class TelegramMedia:
                 chat_id = utils.get_peer_id(candidates[0].peer_id)
                 link = MessageLink(chat_id, link.comment_id)
                 peer = await self._peer(chat_id)
-            anchor = await self.client.get_messages(peer, ids=link.message_id)
+            # A scalar ids argument returns one message, not TotalList.
+            anchor = cast(
+                Message | types.MessageEmpty | None,
+                await self.client.get_messages(peer, ids=link.message_id),
+            )
             if not anchor or isinstance(anchor, types.MessageEmpty):
                 raise UserError("消息不存在、已删除，或入群前的历史不可见。")
             if not anchor.photo and not anchor.document:
@@ -117,8 +122,11 @@ class TelegramMedia:
                     functions.messages.ImportChatInviteRequest(link.invite_hash)
                 )
             else:
+                if not link.username:
+                    raise UserError("请提供群主页或邀请 url。")
+                # Telethon resolves usernames before serializing the request.
                 await self.client(
-                    functions.channels.JoinChannelRequest(link.username)
+                    functions.channels.JoinChannelRequest(link.username)  # ty: ignore[invalid-argument-type]
                 )
         except errors.UserAlreadyParticipantError:
             return
@@ -190,7 +198,8 @@ class TelegramMedia:
             caption=captions[0] if single else captions,
             formatting_entities=entities[0] if single else entities,
             parse_mode=None,
-            reply_to=target.topic_id,
+            # None is supported by Telethon but missing from its annotation.
+            reply_to=target.topic_id,  # ty: ignore[invalid-argument-type]
             force_document=not visual,
             supports_streaming=visual,
         )

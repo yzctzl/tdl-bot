@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from aiogram.filters import CommandObject
+from aiogram.types import Message, TelegramObject
 
 from tdl_bot.bot import Authorization, BotApplication, ProgressMessages
 from tdl_bot.errors import JoinPending, UserError
@@ -23,7 +24,8 @@ from tdl_bot.store import Store, Target
     ],
 )
 async def test_authorization(user_id, chat_type, text, authorized):
-    event = SimpleNamespace(
+    event = Mock(
+        spec=Message,
         chat=SimpleNamespace(type=chat_type),
         from_user=SimpleNamespace(id=user_id),
         text=text,
@@ -32,6 +34,12 @@ async def test_authorization(user_id, chat_type, text, authorized):
     handler = AsyncMock()
     await Authorization(frozenset({1}))(handler, event, {})
     assert handler.await_count == int(authorized)
+
+
+async def test_authorization_rejects_non_message_events():
+    handler = AsyncMock()
+    await Authorization(frozenset({1}))(handler, TelegramObject(), {})
+    handler.assert_not_awaited()
 
 
 @pytest.mark.parametrize("approval_required", [False, True])

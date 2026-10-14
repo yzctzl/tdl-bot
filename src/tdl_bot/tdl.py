@@ -10,7 +10,7 @@ import re
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -40,7 +40,7 @@ class UpdateGate:
         self._waiting = 0
 
     @asynccontextmanager
-    async def job(self) -> AsyncIterator[None]:
+    async def job(self) -> AsyncGenerator[None]:
         """Hold a lease for the entire download/upload/cleanup operation."""
         async with self._condition:
             await self._condition.wait_for(
@@ -55,7 +55,7 @@ class UpdateGate:
                 self._condition.notify_all()
 
     @asynccontextmanager
-    async def update(self) -> AsyncIterator[None]:
+    async def update(self) -> AsyncGenerator[None]:
         """Acquire exclusive access after all active jobs complete."""
         async with self._condition:
             self._waiting += 1

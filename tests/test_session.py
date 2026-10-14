@@ -223,6 +223,7 @@ async def test_login_command_only_checks_reused_authorization(
 def test_shared_proxy_settings_decode_credentials():
     assert proxy_settings("") is None
     proxy = proxy_settings("socks5://name:p%40ss@127.0.0.1:1080")
+    assert proxy is not None
     assert proxy["proxy_type"] == "socks5"
     assert proxy["password"] == "p@ss"
     with pytest.raises(UserError, match="TDL_PROXY"):

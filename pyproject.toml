@@ -14,7 +14,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+dev = [
+    "pytest>=8,<10",
+    "pytest-asyncio>=1,<2",
+    "ruff>=0.12,<1",
+    "ty==0.0.86",
+]
 
 [project.scripts]
 tdl-bot = "tdl_bot:main"
@@ -32,8 +37,23 @@ target-version = "py312"
 line-length = 80
 
 [tool.ruff.lint]
+# Type annotations are optional; do not enable the ANN rule family.
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 ignore = ["ASYNC109"]  # Subprocess runner deliberately owns its timeout.
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.12"
+
+[tool.ty.rules]
+# Keep default type checks; unannotated parameters/functions are permitted.
+unused-ignore-comment = "warn"
+
+[[tool.ty.overrides]]
+include = ["tests/**"]
+# Tests deliberately pass lightweight duck-typed stand-ins to real services.
+[tool.ty.overrides.rules]
+invalid-argument-type = "ignore"

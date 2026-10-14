@@ -1,5 +1,6 @@
 """Media-group lookup, original captions and explicit join requests."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -35,6 +36,8 @@ async def test_resolve_entire_album_from_uncaptioned_middle_member():
     class Client:
         get_input_entity = AsyncMock(return_value="peer")
         get_messages = AsyncMock(return_value=anchor)
+        upload_file = AsyncMock(return_value=types.InputFile(1, 1, "x", ""))
+        send_file = AsyncMock(return_value=[1, 2, 3])
 
         async def iter_messages(self, peer, *, reverse, **kwargs):
             for message in [after, unrelated] if reverse else [before]:
@@ -49,9 +52,9 @@ async def test_resolve_entire_album_from_uncaptioned_middle_member():
         "https://t.me/channel/100",
         "https://t.me/channel/140",
     ]
-    client.upload_file = AsyncMock(return_value=types.InputFile(1, 1, "x", ""))
-    client.send_file = AsyncMock(return_value=[1, 2, 3])
-    await media.upload(group, ["one", "two", "three"], Target("me", 77))
+    await media.upload(
+        group, [Path("one"), Path("two"), Path("three")], Target("me", 77)
+    )
     kwargs = client.send_file.call_args.kwargs
     assert kwargs["caption"] == ["文字😀", "", ""]
     assert kwargs["formatting_entities"] == [[bold], [], []]
@@ -75,7 +78,7 @@ async def test_single_video_retains_mime_and_video_attributes():
     )
     media = TelegramMedia(client)
     group = await media.resolve(MessageLink("channel", 5))
-    await media.upload(group, ["video"], Target("me"))
+    await media.upload(group, [Path("video")], Target("me"))
     uploaded = client.send_file.call_args.args[1]
     assert isinstance(uploaded, types.InputMediaUploadedDocument)
     assert uploaded.mime_type == "video/mp4"

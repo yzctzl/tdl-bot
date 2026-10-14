@@ -4,11 +4,14 @@ import argparse
 import asyncio
 import logging
 import os
+from collections.abc import Awaitable
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import cast
 
 from aiogram import Bot
 from telethon import TelegramClient
+from telethon.tl import types
 
 from tdl_bot.bot import BotApplication, ProgressMessages
 from tdl_bot.client import SharedSessionClient
@@ -47,21 +50,23 @@ async def run(settings: Settings, command: str) -> None:
         settings.download_timeout,
         data_dir=settings.tdl_dir,
     )
+    proxy = proxy_settings(settings.tdl_proxy)
     if settings.session_source == "tdl":
         imported = await load_tdl_session(tdl, settings.data_dir)
         client = SharedSessionClient(
             imported.session,
             imported.api_id,
             imported.api_hash,
-            proxy=proxy_settings(settings.tdl_proxy),
+            proxy=proxy,
             account_lock=tdl.account_lock,
         )
     else:
+        # Telethon accepts None, but its proxy annotation omits it.
         client = TelegramClient(
             str(settings.session_path),
             settings.api_id,
             settings.api_hash,
-            proxy=proxy_settings(settings.tdl_proxy),
+            proxy=proxy,  # ty: ignore[invalid-argument-type]
         )
     if command == "login":
         try:
@@ -72,8 +77,12 @@ async def run(settings: Settings, command: str) -> None:
                         "tdl 的已有会话已失效，请检查原 tdl 登录状态。"
                     )
             else:
-                await client.start()
-            me = await client.get_me()
+                # Inside this running loop, start() returns a coroutine.
+                await cast(Awaitable[TelegramClient], client.start())
+            # input_peer defaults to False, so get_me returns User or None.
+            me = cast(types.User | None, await client.get_me())
+            if me is None:
+                raise UserError("无法获取已登录账号的信息。")
             if me.bot:
                 raise UserError(
                     "必须使用 Telegram 用户账号登录，而不是 Bot token。"
@@ -96,7 +105,9 @@ async def run(settings: Settings, command: str) -> None:
             if settings.session_source == "tdl":
                 raise UserError("tdl 的已有会话已失效，请检查原 tdl 登录状态。")
             raise UserError("请先运行 uv run tdl-bot login 完成用户账号登录。")
-        me = await client.get_me()
+        me = cast(types.User | None, await client.get_me())
+        if me is None:
+            raise UserError("无法获取已登录账号的信息。")
         if me.bot:
             raise UserError("Telethon 会话必须属于用户账号。")
         await tdl.version()

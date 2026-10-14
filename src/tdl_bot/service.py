@@ -4,6 +4,7 @@ import asyncio
 import logging
 import shutil
 import tempfile
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,9 @@ class Job:
 
 class JobQueue(asyncio.Queue[Job]):
     """A bounded queue whose pending jobs can be removed on cancellation."""
+
+    # asyncio initializes this deque, but typeshed omits the private field.
+    _queue: deque[Job]
 
     def discard(self, job: Job) -> None:
         """Free a pending queue slot without interrupting other workers.
