@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Credentials, user sessions, state, downloaded media and executables
+.env
+.env.*
+!.env.example
+data/
+.tdl/
+downloads/
+bin/
+*.session*
+.pytest_cache/
+.ruff_cache/
+
+# Local agent instructions
+/Agents.md

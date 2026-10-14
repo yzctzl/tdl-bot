@@ -1,0 +1,39 @@
+[project]
+name = "tdl-bot"
+version = "0.1.0"
+description = "An aiogram bot for downloading Telegram media groups with tdl"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.28,<4",
+    "aiohttp>=3.12,<4",
+    "python-dotenv>=1.1,<2",
+    "telethon>=1.45,<2",
+    "zstandard>=0.23,<1",
+    "python-socks[asyncio]>=2.7,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+
+[project.scripts]
+tdl-bot = "tdl_bot:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 80
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["ASYNC109"]  # Subprocess runner deliberately owns its timeout.
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
