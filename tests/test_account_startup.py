@@ -74,7 +74,9 @@ async def test_account_startup_validates_and_disconnects_all_clients(
     monkeypatch.setattr("tdl_bot.cli.Bot", constructor)
     monkeypatch.setattr("tdl_bot.cli.ProgressMessages", lambda bot: AsyncMock())
     application = SimpleNamespace(
-        dispatcher=SimpleNamespace(start_polling=AsyncMock()), close=AsyncMock()
+        dispatcher=SimpleNamespace(start_polling=AsyncMock()),
+        register_commands=AsyncMock(),
+        close=AsyncMock(),
     )
     app_constructor = Mock(return_value=application)
     monkeypatch.setattr("tdl_bot.cli.BotApplication", app_constructor)

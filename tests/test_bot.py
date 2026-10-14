@@ -7,7 +7,7 @@ import pytest
 from aiogram.filters import CommandObject
 from aiogram.types import Message, TelegramObject
 
-from tdl_bot.accounts import AccountPool, Executor
+from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.bot import Authorization, BotApplication, ProgressMessages
 from tdl_bot.errors import JoinPending, UserError
 from tdl_bot.service import Job
@@ -34,13 +34,17 @@ async def test_authorization(user_id, chat_type, text, authorized):
         answer=AsyncMock(),
     )
     handler = AsyncMock()
-    await Authorization(frozenset({1}))(handler, event, {})
+    await Authorization(AccessPolicy(frozenset({1}), frozenset({1})))(
+        handler, event, {}
+    )
     assert handler.await_count == int(authorized)
 
 
 async def test_authorization_rejects_non_message_events():
     handler = AsyncMock()
-    await Authorization(frozenset({1}))(handler, TelegramObject(), {})
+    await Authorization(AccessPolicy(frozenset({1}), frozenset({1})))(
+        handler, TelegramObject(), {}
+    )
     handler.assert_not_awaited()
 
 
@@ -54,6 +58,7 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
         media.join.side_effect = JoinPending("等待审核")
     item = store.pending_items()[0]
     service = SimpleNamespace(
+        policy=AccessPolicy(frozenset({1}), frozenset({1})),
         pending_record=Mock(return_value=item),
         retry=AsyncMock(),
         accounts=AccountPool(
@@ -114,6 +119,7 @@ async def test_cancel_callback_checks_owner_token_and_progress_message(
         1, "https://t.me/channel/20", Target("me"), progress_message_id=99
     )
     service = SimpleNamespace(
+        policy=AccessPolicy(frozenset({1}), frozenset({1})),
         current_job=Mock(return_value=None if invalid == "stale" else job),
         cancel=AsyncMock(),
     )
@@ -151,7 +157,7 @@ async def test_update_requires_admin(tmp_path):
         ),
         store,
         tdl,
-        SimpleNamespace(),
+        SimpleNamespace(policy=AccessPolicy(frozenset({1}), frozenset())),
     )
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=1), answer=AsyncMock()

@@ -140,6 +140,12 @@ async def test_update_installs_only_verified_release(
     monkeypatch.setattr("tdl_bot.tdl.aiohttp.ClientSession", Session)
     monkeypatch.setattr("tdl_bot.tdl._fetch", fetch)
     tdl = Tdl(binary, "default")
+    actual_version = tdl.version
+
+    async def version(path=None):
+        return await actual_version(path) if path else "Version: 1.0.0"
+
+    monkeypatch.setattr(tdl, "version", version)
     if corrupt:
         with pytest.raises(UserError, match="SHA-256"):
             await tdl.update("v1.2.3")
@@ -239,3 +245,134 @@ async def test_shared_storage_lock_preserves_each_account_rpc_lock(tmp_path):
         assert not started.exists()
     await task
     assert started.exists()
+
+
+@pytest.fixture
+def update_release(monkeypatch):
+    state = {"tag_name": "v1.2.3", "assets": []}
+
+    class Response:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def raise_for_status(self):
+            pass
+
+        async def json(self):
+            return state
+
+    class Session(Response):
+        def __init__(self, **kwargs):
+            pass
+
+        def get(self, url):
+            return Response()
+
+    monkeypatch.setattr("tdl_bot.tdl.aiohttp.ClientSession", Session)
+    fetch = AsyncMock()
+    monkeypatch.setattr("tdl_bot.tdl._fetch", fetch)
+    return state, fetch
+
+
+@pytest.mark.parametrize(
+    "installed,requested",
+    [
+        ("1.2.3", "latest"),
+        ("1.2.3", "v1.2.3"),
+        ("1.10.0", "latest"),
+    ],
+)
+async def test_current_version_skips_assets_and_never_blocks_jobs(
+    tmp_path, update_release, installed, requested
+):
+    _, fetch = update_release
+    binary = tmp_path / "tdl"
+    binary.write_text(f'#!{sys.executable}\nprint("Version: {installed}")\n')
+    binary.chmod(0o755)
+    original = binary.read_bytes()
+    tdl = Tdl(binary, "shared")
+    async with tdl.gate.job(), tdl.account_lock:
+        async with asyncio.timeout(2):
+            result = await tdl.update(requested)
+    assert result.startswith("无需更新")
+    fetch.assert_not_awaited()
+    assert binary.read_bytes() == original
+    assert not list(tmp_path.glob(".tdl-update-*"))
+
+
+async def test_waiting_update_rechecks_version_before_fetching(
+    tmp_path, monkeypatch, update_release
+):
+    _, fetch = update_release
+    tdl = Tdl(tmp_path / "tdl", "shared")
+    checked = asyncio.Event()
+    calls = 0
+
+    async def version(binary=None):
+        nonlocal calls
+        calls += 1
+        checked.set()
+        return "Version: 1.0.0" if calls == 1 else "Version: 1.2.3"
+
+    monkeypatch.setattr(tdl, "version", version)
+    async with tdl.gate.job():
+        task = asyncio.create_task(tdl.update())
+        await asyncio.wait_for(checked.wait(), 2)
+        await asyncio.sleep(0)
+        assert not task.done()
+    result = await asyncio.wait_for(task, 2)
+    assert result.startswith("无需更新")
+    fetch.assert_not_awaited()
+    assert calls == 2
+
+
+async def test_unrecognized_version_preserves_binary_and_never_fetches(
+    tmp_path, update_release
+):
+    _, fetch = update_release
+    binary = tmp_path / "tdl"
+    binary.write_text(f'#!{sys.executable}\nprint("unrecognized version")\n')
+    binary.chmod(0o755)
+    original = binary.read_bytes()
+    with pytest.raises(UserError, match="无法识别"):
+        await Tdl(binary, "shared").update()
+    fetch.assert_not_awaited()
+    assert binary.read_bytes() == original
+
+
+async def test_release_must_match_requested_version(tmp_path, update_release):
+    _, fetch = update_release
+    with pytest.raises(UserError, match="请求不一致"):
+        await Tdl(tmp_path / "tdl", "shared").update("v1.0.0")
+    fetch.assert_not_awaited()
+
+
+async def test_version_uses_disposable_storage_instead_of_account(
+    tmp_path, monkeypatch
+):
+    import csv
+    from pathlib import Path
+
+    tdl = Tdl(tmp_path / "tdl", "own", data_dir=tmp_path / ".tdl")
+    observed = []
+
+    async def run(args, **kwargs):
+        assert args[0] == "--storage"
+        assert args[-1] == "version"
+        options = dict(
+            part.split("=", 1) for part in next(csv.reader([args[1]]))
+        )
+        directory = Path(options["path"])
+        assert await asyncio.to_thread(directory.is_dir)
+        assert directory != tdl.data_dir
+        assert kwargs["coordinate"] is False
+        observed.append(directory)
+        return "Version: 1.2.3"
+
+    monkeypatch.setattr(tdl, "_run", run)
+    assert await tdl.version() == "Version: 1.2.3"
+    assert not observed[0].exists()
+    assert not (tmp_path / ".tdl").exists()

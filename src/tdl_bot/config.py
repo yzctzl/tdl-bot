@@ -1,7 +1,9 @@
 """Environment-based configuration."""
 
 import os
+import sqlite3
 import tomllib
+from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -71,18 +73,23 @@ class Settings:
         token = os.getenv("BOT_TOKEN", "").strip()
         api_id = int(os.getenv("TELEGRAM_API_ID", "0") or "0")
         api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
-        allowed = ids("ALLOWED_USER_IDS")
-        first_operator = next(
-            (
-                int(value.strip())
-                for value in os.getenv("ALLOWED_USER_IDS", "").split(",")
-                if value.strip()
-            ),
-            None,
-        )
-        admins = ids("ADMIN_USER_IDS") or (
-            frozenset({first_operator}) if first_operator else frozenset()
-        )
+        data_dir = Path(os.getenv("DATA_DIR", "data")).resolve()
+        persisted = persisted_members(data_dir / "state.sqlite3")
+        if persisted is not None:
+            allowed, admins = persisted
+        else:
+            allowed = ids("ALLOWED_USER_IDS")
+            first_operator = next(
+                (
+                    int(value.strip())
+                    for value in os.getenv("ALLOWED_USER_IDS", "").split(",")
+                    if value.strip()
+                ),
+                None,
+            )
+            admins = ids("ADMIN_USER_IDS") or (
+                frozenset({first_operator}) if first_operator else frozenset()
+            )
         source = os.getenv("SESSION_SOURCE", "tdl").strip()
         if source not in {"tdl", "telethon"}:
             raise ValueError("SESSION_SOURCE 必须是 tdl 或 telethon。")
@@ -98,7 +105,7 @@ class Settings:
             api_hash=api_hash,
             allowed_users=allowed,
             admin_users=admins,
-            data_dir=Path(os.getenv("DATA_DIR", "data")).resolve(),
+            data_dir=data_dir,
             tdl_binary=Path(os.getenv("TDL_BINARY", "bin/tdl")).resolve(),
             tdl_namespace=os.getenv("TDL_NAMESPACE", "default"),
             tdl_dir=Path(os.getenv("TDL_DIR", ".tdl")).resolve(),
@@ -132,6 +139,33 @@ class Settings:
         return settings
 
 
+def persisted_members(path: Path):
+    """Read initialized membership without creating or migrating a database."""
+    if not path.is_file():
+        return None
+    try:
+        with closing(
+            sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        ) as db:
+            if not db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='workspace_metadata'"
+            ).fetchone():
+                return None
+            if not db.execute(
+                "SELECT 1 FROM workspace_metadata WHERE key='members_seeded'"
+            ).fetchone():
+                return None
+            rows = db.execute(
+                "SELECT user_id, role FROM workspace_members"
+            ).fetchall()
+            return (
+                frozenset(row[0] for row in rows),
+                frozenset(row[0] for row in rows if row[1] == "admin"),
+            )
+    except sqlite3.Error as exc:
+        raise ValueError("无法读取已初始化的成员数据库。") from exc
+
+
 def read_account_bindings(
     path: Path, settings: Settings
 ) -> tuple[AccountBinding, ...]:
@@ -156,7 +190,7 @@ def read_account_bindings(
             proxy = entry.get("proxy", settings.tdl_proxy)
             if (
                 type(operator) is not int
-                or operator not in settings.allowed_users
+                or operator <= 0
                 or operator in operators
                 or not isinstance(namespace, str)
                 or not namespace

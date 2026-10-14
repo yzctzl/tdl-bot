@@ -380,7 +380,7 @@ def test_account_bindings_validation(tmp_path, invalid):
     entry = '[[accounts]]\noperator_id = 2\nnamespace = "own"\n'
     content = {
         "duplicate": entry + entry,
-        "unauthorized": entry.replace("= 2", "= 3"),
+        "unauthorized": entry.replace("= 2", "= 0"),
         "namespace": entry.replace('"own"', '"../own"'),
         "unknown": entry + "typo = true\n",
     }[invalid]

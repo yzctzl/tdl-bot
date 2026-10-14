@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,19 @@ class PendingTransfer:
     submitted_by: int
     destination: Destination
     executor_key: str
+    archived: bool = False
+
+
+@dataclass(frozen=True)
+class Member:
+    """A workspace operator; ban deadlines are stored as UTC timestamps."""
+
+    user_id: int
+    role: str
+    banned_until: float = 0
+
+    def active(self, now: float) -> bool:
+        return self.banned_until <= now
 
 
 class Store:
@@ -43,7 +57,7 @@ class Store:
         self._db = sqlite3.connect(path)
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 3:
                 raise UserError("数据库版本比当前程序更新，请使用匹配的版本。")
             if version == 0:
                 tables = {
@@ -56,13 +70,21 @@ class Store:
                 if legacy:
                     self._backup(path)
                 self._initialize(legacy)
+            if version < 2:
+                if version == 1:
+                    self._backup(path, suffix=".pre-members")
+                self._initialize_members()
+            if version < 3:
+                if version == 2:
+                    self._backup(path, suffix=".pre-retry-cap")
+                self._initialize_retry_archive()
         except BaseException:
             self._db.close()
             raise
 
-    def _backup(self, path: Path) -> None:
+    def _backup(self, path: Path, *, suffix: str = ".pre-workspace") -> None:
         """Keep a private, consistent copy before migrating an old database."""
-        backup = path.with_name(path.name + ".pre-workspace")
+        backup = path.with_name(path.name + suffix)
         try:
             fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
@@ -143,6 +165,216 @@ class Store:
                         continue
             self._db.execute("PRAGMA user_version = 1")
 
+    @staticmethod
+    def now() -> float:
+        return time.time()
+
+    def _initialize_members(self) -> None:
+        with self._db:
+            self._db.execute("BEGIN")
+            self._db.execute(
+                "CREATE TABLE workspace_members (user_id INTEGER PRIMARY KEY, "
+                "role TEXT NOT NULL CHECK(role IN ('user', 'admin')), "
+                "banned_until REAL NOT NULL DEFAULT 0)"
+            )
+            self._db.execute(
+                "CREATE TABLE workspace_metadata "
+                "(key TEXT PRIMARY KEY, value TEXT)"
+            )
+            self._db.execute(
+                "CREATE TABLE member_events "
+                "(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "actor_id INTEGER NOT NULL, member_id INTEGER NOT NULL, "
+                "action TEXT NOT NULL, created_at REAL NOT NULL)"
+            )
+            self._db.execute("PRAGMA user_version = 2")
+
+    def _initialize_retry_archive(self) -> None:
+        with self._db:
+            self._db.execute("BEGIN")
+            self._db.execute(
+                "CREATE TABLE permission_retry_archive AS "
+                "SELECT * FROM permission_retries WHERE 0"
+            )
+            self._db.execute(
+                "CREATE UNIQUE INDEX retry_archive_id "
+                "ON permission_retry_archive(id)"
+            )
+            for member in self.members():
+                if member.role == "user":
+                    self._archive_excess(member.user_id)
+            self._db.execute("PRAGMA user_version = 3")
+
+    def _archive_excess(self, operator_id: int) -> None:
+        """Keep overflow for admins and enforce ordinary retry capacity."""
+        rows = self._db.execute(
+            "SELECT id FROM permission_retries WHERE submitted_by=? "
+            "ORDER BY id LIMIT -1 OFFSET 3",
+            (operator_id,),
+        ).fetchall()
+        for row in rows:
+            self._db.execute(
+                "INSERT INTO permission_retry_archive "
+                "SELECT * FROM permission_retries WHERE id=?",
+                row,
+            )
+            self._db.execute("DELETE FROM permission_retries WHERE id=?", row)
+
+    def seed_members(
+        self, operators: frozenset[int], admins: frozenset[int]
+    ) -> None:
+        """Use environment identities once, so removals survive restarts."""
+        with self._db:
+            if self._db.execute(
+                "SELECT 1 FROM workspace_metadata WHERE key='members_seeded'"
+            ).fetchone():
+                return
+            if not operators or not admins or not admins <= operators:
+                raise UserError("首次初始化成员需要有效的操作账号和管理员。")
+            self._db.executemany(
+                "INSERT INTO workspace_members (user_id, role) VALUES (?, ?)",
+                [
+                    (operator, "admin" if operator in admins else "user")
+                    for operator in operators
+                ],
+            )
+            for operator in operators - admins:
+                self._archive_excess(operator)
+            self._db.execute(
+                "INSERT INTO workspace_metadata VALUES ('members_seeded', '1')"
+            )
+
+    def members(self) -> list[Member]:
+        return [
+            Member(*row)
+            for row in self._db.execute(
+                "SELECT user_id, role, banned_until FROM workspace_members "
+                "ORDER BY user_id"
+            )
+        ]
+
+    def member(self, user_id: int) -> Member | None:
+        row = self._db.execute(
+            "SELECT user_id, role, banned_until FROM workspace_members "
+            "WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        return Member(*row) if row else None
+
+    def menu_member_ids(self) -> frozenset[int]:
+        return frozenset(
+            row[0]
+            for row in self._db.execute(
+                "SELECT user_id FROM workspace_members UNION "
+                "SELECT member_id FROM member_events"
+            )
+        )
+
+    def _require_admin(self, actor_id: int) -> None:
+        actor = self.member(actor_id)
+        if (
+            actor is None
+            or actor.role != "admin"
+            or not actor.active(self.now())
+        ):
+            raise UserError("只有管理员可以管理账号。")
+
+    def _protect_admin(self, user_id: int) -> None:
+        member = self.member(user_id)
+        if member and member.role == "admin" and member.active(self.now()):
+            count = sum(
+                item.role == "admin" and item.active(self.now())
+                for item in self.members()
+            )
+            if count <= 1:
+                raise UserError("不能封禁、删除或降级最后一个有效管理员。")
+
+    def _member_event(self, actor_id: int, user_id: int, action: str) -> None:
+        self._db.execute(
+            "INSERT INTO member_events "
+            "(actor_id, member_id, action, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (actor_id, user_id, action, self.now()),
+        )
+
+    def add_member(self, actor_id: int, user_id: int) -> None:
+        self._require_admin(actor_id)
+        if user_id <= 0:
+            raise UserError("账号 ID 必须为正整数。")
+        if self.member(user_id):
+            raise UserError("该账号已在成员列表中。")
+        with self._db:
+            self._db.execute(
+                "INSERT INTO workspace_members (user_id, role) "
+                "VALUES (?, 'user')",
+                (user_id,),
+            )
+            self._archive_excess(user_id)
+            self._member_event(actor_id, user_id, "add")
+
+    def remove_member(self, actor_id: int, user_id: int) -> None:
+        self._require_admin(actor_id)
+        if self.member(user_id) is None:
+            raise UserError("该账号不在成员列表中。")
+        self._protect_admin(user_id)
+        if actor_id == user_id:
+            raise UserError("不能在 Bot 内删除自己的管理员账号。")
+        with self._db:
+            self._db.execute(
+                "DELETE FROM workspace_members WHERE user_id=?", (user_id,)
+            )
+            self._member_event(actor_id, user_id, "remove")
+
+    def ban_member(self, actor_id: int, user_id: int, seconds: int) -> None:
+        self._require_admin(actor_id)
+        if self.member(user_id) is None:
+            raise UserError("该账号不在成员列表中。")
+        if seconds not in {86400, 7 * 86400, 30 * 86400}:
+            raise UserError("封禁时长必须是一天、一周或 30 天。")
+        self._protect_admin(user_id)
+        if actor_id == user_id:
+            raise UserError("不能封禁自己的管理员账号。")
+        with self._db:
+            self._db.execute(
+                "UPDATE workspace_members SET banned_until=? WHERE user_id=?",
+                (self.now() + seconds, user_id),
+            )
+            self._member_event(actor_id, user_id, f"ban:{seconds}")
+
+    def unban_member(self, actor_id: int, user_id: int) -> None:
+        self._require_admin(actor_id)
+        if self.member(user_id) is None:
+            raise UserError("该账号不在成员列表中。")
+        with self._db:
+            self._db.execute(
+                "UPDATE workspace_members SET banned_until=0 WHERE user_id=?",
+                (user_id,),
+            )
+            self._member_event(actor_id, user_id, "unban")
+
+    def set_member_role(self, actor_id: int, user_id: int, role: str) -> None:
+        self._require_admin(actor_id)
+        if role not in {"user", "admin"} or self.member(user_id) is None:
+            raise UserError("请指定已有成员和 user／admin 角色。")
+        if role == "user":
+            self._protect_admin(user_id)
+        with self._db:
+            self._db.execute(
+                "UPDATE workspace_members SET role=? WHERE user_id=?",
+                (role, user_id),
+            )
+            if role == "user":
+                self._archive_excess(user_id)
+            self._member_event(actor_id, user_id, f"role:{role}")
+
+    def member_history(self, actor_id: int, user_id: int):
+        self._require_admin(actor_id)
+        return self._db.execute(
+            "SELECT actor_id, action, created_at FROM member_events "
+            "WHERE member_id=? ORDER BY id DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+
     def private_selected(self, operator_id: int) -> bool:
         """Default every operator to the shared destination."""
         row = self._db.execute(
@@ -222,16 +454,58 @@ class Store:
         *,
         destination: Destination | None = None,
         executor_key: str = "shared",
-    ) -> None:
+        limit: int | None = None,
+    ) -> bool:
         """Persist distinct failures without replacing another pending url."""
         destination = destination or self.destination(operator_id)
         if destination is None:
             raise UserError("待重试任务缺少上传目标。")
         with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
+            existing = self._db.execute(
+                "SELECT 1 FROM permission_retries WHERE url=? AND scope_key=? "
+                "AND chat=? AND topic_key=? AND executor_key=?",
+                (
+                    url,
+                    destination.owner_id or 0,
+                    destination.target.chat,
+                    destination.target.topic_id or 0,
+                    executor_key,
+                ),
+            ).fetchone()
+            if existing:
+                return True
+            if limit is not None and self.pending_count(operator_id) >= limit:
+                return False
             self._insert_pending(operator_id, url, destination, executor_key)
+        return True
 
-    def pending_items(self) -> list[PendingTransfer]:
-        """Return ordered records for service-level permission filtering."""
+    def pending_count(self, operator_id: int) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM permission_retries WHERE submitted_by=?",
+            (operator_id,),
+        ).fetchone()[0]
+
+    def delete_pending(self, pending_id: int) -> None:
+        with self._db:
+            for table in ("permission_retries", "permission_retry_archive"):
+                self._db.execute(
+                    f"DELETE FROM {table} WHERE id=?", (pending_id,)
+                )
+
+    def pending_items(
+        self, *, include_archived: bool = False
+    ) -> list[PendingTransfer]:
+        """Return active retries, optionally including archived overflow."""
+        columns = (
+            "id, url, submitted_by, scope_key, chat, topic_key, executor_key"
+        )
+        sql = f"SELECT {columns}, 0 FROM permission_retries"
+        if include_archived:
+            sql += (
+                f" UNION ALL SELECT {columns}, 1 FROM permission_retry_archive"
+            )
+        sql += " ORDER BY id"
         return [
             PendingTransfer(
                 row[0],
@@ -239,11 +513,9 @@ class Store:
                 row[2],
                 Destination(Target(row[4], row[5] or None), row[3] or None),
                 row[6],
+                bool(row[7]),
             )
-            for row in self._db.execute(
-                "SELECT id, url, submitted_by, scope_key, chat, topic_key, "
-                "executor_key FROM permission_retries ORDER BY id"
-            )
+            for row in self._db.execute(sql)
         ]
 
     def clear_pending(
@@ -256,19 +528,20 @@ class Store:
     ) -> None:
         """Clear only the successful destination/account combination."""
         with self._db:
-            self._db.execute(
-                "DELETE FROM permission_retries WHERE id=? OR (url=? "
-                "AND scope_key=? AND chat=? AND topic_key=? "
-                "AND executor_key=?)",
-                (
-                    pending_id,
-                    url,
-                    destination.owner_id or 0,
-                    destination.target.chat,
-                    destination.target.topic_id or 0,
-                    executor_key,
-                ),
-            )
+            for table in ("permission_retries", "permission_retry_archive"):
+                self._db.execute(
+                    f"DELETE FROM {table} WHERE id=? OR (url=? "
+                    "AND scope_key=? AND chat=? AND topic_key=? "
+                    "AND executor_key=?)",
+                    (
+                        pending_id,
+                        url,
+                        destination.owner_id or 0,
+                        destination.target.chat,
+                        destination.target.topic_id or 0,
+                        executor_key,
+                    ),
+                )
 
     def close(self) -> None:
         """Close the database."""

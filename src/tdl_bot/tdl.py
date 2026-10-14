@@ -138,7 +138,19 @@ class Tdl:
 
     async def version(self, binary: Path | None = None) -> str:
         """Return the installed version without contacting Telegram."""
-        return await self._run(["version"], binary=binary, timeout=30)
+        # tdl's root command initializes storage even for version. An explicit
+        # disposable store avoids default-session migration and database locks.
+        with tempfile.TemporaryDirectory(prefix="tdl-version-") as directory:
+            options = io.StringIO()
+            csv.writer(options, lineterminator="").writerow(
+                ["type=bolt", f"path={directory}"]
+            )
+            return await self._run(
+                ["--storage", options.getvalue(), "version"],
+                binary=binary,
+                timeout=30,
+                coordinate=False,
+            )
 
     async def download(self, urls: list[str], directory: Path) -> None:
         """Download exact media-group members using message-ID filenames."""
@@ -162,9 +174,14 @@ class Tdl:
         *,
         binary: Path | None = None,
         timeout: int | None = None,
+        coordinate: bool = True,
     ) -> str:
         """Drain both streams, and reap the process on timeout/cancellation."""
-        async with self.account_lock, self._process_lock:
+        # Version uses disposable storage and no account authorization.
+        # It must remain available while downloads hold their account locks.
+        account_lock = self.account_lock if coordinate else AccountLock()
+        storage_lock = self._process_lock if coordinate else account_lock
+        async with account_lock, storage_lock:
             environment = os.environ.copy()
             if self.proxy is not None:
                 # Keep each executor's tdl and Telethon on the same egress.
@@ -238,21 +255,35 @@ class Tdl:
         suffix = (
             "latest" if version == "latest" else f"tags/v{version.lstrip('v')}"
         )
-        async with self.gate.update():
-            try:
-                timeout = aiohttp.ClientTimeout(total=300)
-                async with aiohttp.ClientSession(
-                    timeout=timeout,
-                    headers={
-                        "User-Agent": "tdl-bot",
-                        "Accept": "application/json",
-                    },
-                ) as session:
-                    async with session.get(
-                        f"{_RELEASE_API}/{suffix}"
-                    ) as response:
-                        response.raise_for_status()
-                        release = await response.json()
+        try:
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(
+                timeout=timeout,
+                headers={"User-Agent": "tdl-bot", "Accept": "application/json"},
+            ) as session:
+                async with session.get(f"{_RELEASE_API}/{suffix}") as response:
+                    response.raise_for_status()
+                    release = await response.json()
+                tag = release["tag_name"].lstrip("v")
+                if not re.fullmatch(r"\d+\.\d+\.\d+", tag):
+                    raise UserError("release 版本格式无效，现有程序保留。")
+                desired = tuple(int(part) for part in tag.split("."))
+                if version != "latest" and tag != version.lstrip("v"):
+                    raise UserError("release 版本与请求不一致，现有程序保留。")
+
+                async def unnecessary() -> bool:
+                    current = version_number(await self.version())
+                    return current == desired or (
+                        version == "latest" and current > desired
+                    )
+
+                # No writer lease or assets are needed for an unchanged binary.
+                if await unnecessary():
+                    return f"无需更新：当前 tdl 已满足版本要求（目标 {tag}）。"
+                async with self.gate.update():
+                    # Another update may have completed while we were waiting.
+                    if await unnecessary():
+                        return f"无需更新：当前 tdl 已满足目标版本（{tag}）。"
                     assets = {
                         asset["name"]: asset["browser_download_url"]
                         for asset in release["assets"]
@@ -264,37 +295,41 @@ class Tdl:
                         session, assets["tdl_checksums.txt"], 1024 * 1024
                     )
                     archive = await _fetch(session, assets[name], 128 * 1024**2)
-                verify_checksum(archive, name, checksums.decode("utf-8"))
-                executable = extract_binary(archive, name)
-                self.binary.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryDirectory(
-                    prefix=".tdl-update-", dir=self.binary.parent
-                ) as directory:
-                    staged = Path(directory) / self.binary.name
-                    staged.write_bytes(executable)
-                    staged.chmod(0o755)
-                    result = await self.version(staged)
-                    tag = release["tag_name"].lstrip("v")
-                    if not re.search(
-                        rf"(?m)^Version:\s*{re.escape(tag)}\s*$", result
-                    ):
-                        raise UserError("下载程序的版本与 release 不一致。")
-                    os.replace(staged, self.binary)
-                return result
-            except UserError:
-                raise
-            except (
-                aiohttp.ClientError,
-                TimeoutError,
-                OSError,
-                ValueError,
-                KeyError,
-                tarfile.TarError,
-                zipfile.BadZipFile,
-            ) as exc:
-                raise UserError(
-                    "tdl 更新失败，现有程序保留，可稍后重试。"
-                ) from exc
+                    verify_checksum(archive, name, checksums.decode("utf-8"))
+                    executable = extract_binary(archive, name)
+                    self.binary.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.TemporaryDirectory(
+                        prefix=".tdl-update-", dir=self.binary.parent
+                    ) as directory:
+                        staged = Path(directory) / self.binary.name
+                        staged.write_bytes(executable)
+                        staged.chmod(0o755)
+                        result = await self.version(staged)
+                        if version_number(result) != desired:
+                            raise UserError("下载程序的版本与 release 不一致。")
+                        os.replace(staged, self.binary)
+                    return result
+        except UserError:
+            raise
+        except (
+            aiohttp.ClientError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            tarfile.TarError,
+            zipfile.BadZipFile,
+        ) as exc:
+            raise UserError("tdl 更新失败，现有程序保留，可稍后重试。") from exc
+
+
+def version_number(output: str) -> tuple[int, int, int]:
+    """Parse tdl's version output before comparing or installing releases."""
+    match = re.search(r"(?m)^Version:\s*v?(\d+)\.(\d+)\.(\d+)\s*$", output)
+    if match is None:
+        raise UserError("无法识别已安装 tdl 的版本，已停止更新。")
+    return int(match[1]), int(match[2]), int(match[3])
 
 
 def release_asset_name() -> str:

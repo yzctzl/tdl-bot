@@ -107,6 +107,15 @@ class TransferService:
         self, user_id: int, url: str, *, source_message_id: int | None = None
     ) -> Job:
         """Capture the selected destination and own-or-shared executor."""
+        if not self.policy.is_allowed(user_id):
+            raise UserError("当前账号未获授权或处于封禁中。")
+        if (
+            not self.policy.is_admin(user_id)
+            and self.store.pending_count(user_id) >= 3
+        ):
+            raise UserError(
+                "你的待重试任务已达 3 条，请先用 /retry_cancel 清理或完成重试。"
+            )
         destination = self.store.destination(user_id)
         if destination is None:
             raise UserError("请先用 /target 设置共享目标或个人目标。")
@@ -139,7 +148,9 @@ class TransferService:
     def pending_items(self, user_id: int) -> list[PendingTransfer]:
         return [
             item
-            for item in self.store.pending_items()
+            for item in self.store.pending_items(
+                include_archived=self.policy.is_admin(user_id)
+            )
             if self.policy.can_manage(user_id, item.destination.owner_id)
         ]
 
@@ -157,6 +168,49 @@ class TransferService:
             if item.id == pending_id:
                 return item
         raise UserError("待重试任务不存在或你无权管理。")
+
+    def discard_pending(self, user_id: int, pending_id: int) -> None:
+        """Remove a manageable retry, without racing an active transfer."""
+        item = self.pending_record(user_id, pending_id)
+        for job in self._jobs.values():
+            if not job.finished and (
+                job.retry_id == item.id
+                or (
+                    MessageLink.parse(job.url) == MessageLink.parse(item.url)
+                    and job.destination == item.destination
+                    and job.executor_key == item.executor_key
+                )
+            ):
+                raise UserError("该任务正在重试，请先用 /cancel 取消活动任务。")
+        self.store.delete_pending(item.id)
+
+    async def cancel_submitted(self, admin_id: int, operator_id: int) -> None:
+        """Revoke an operator's already accepted jobs and wait for cleanup."""
+        if not self.policy.is_admin(admin_id):
+            raise UserError("只有管理员可以管理账号。")
+        jobs = [
+            job for job in self._jobs.values() if job.user_id == operator_id
+        ]
+        for job in jobs:
+            # Initial reply delivery may be in progress; let it finish first.
+            await job.ready.wait()
+            await self._cancel_job(job)
+
+    def _can_run(self, job: Job) -> bool:
+        if not self.policy.can_manage(job.user_id, job.owner_id):
+            return False
+        if job.retry_id is not None and not self.policy.is_admin(job.user_id):
+            for item in self.store.pending_items(include_archived=True):
+                if item.id == job.retry_id and item.archived:
+                    return False
+        return True
+
+    async def reconcile_permissions(self) -> None:
+        """Cancel accepted jobs whose submitter lost management rights."""
+        for job in list(self._jobs.values()):
+            if not self._can_run(job):
+                await job.ready.wait()
+                await self._cancel_job(job)
 
     async def _submit(
         self,
@@ -204,6 +258,7 @@ class TransferService:
             job.finished = True
             self._queue.discard(job)
             self._release(job)
+            job.done.set()
             raise
         finally:
             job.ready.set()
@@ -237,6 +292,12 @@ class TransferService:
         job = self.current_job(user_id, job_id)
         if job is None:
             return False
+        return await self._cancel_job(job)
+
+    async def _cancel_job(self, job: Job) -> bool:
+        if job.finished:
+            await job.done.wait()
+            return True
         if job.cancel_requested:
             await job.done.wait()
             return True
@@ -296,6 +357,10 @@ class TransferService:
                 await job.ready.wait()
                 if job.finished:
                     continue
+                if not self._can_run(job):
+                    job.cancel_requested = True
+                    await self._cancelled(job)
+                    continue
                 job.task = asyncio.create_task(self._transfer(job))
                 await job.task
             except asyncio.CancelledError:
@@ -304,12 +369,22 @@ class TransferService:
                 await self._cancelled(job)
             except AccessDenied:
                 if job.retry_id is None:
-                    self.store.set_pending(
+                    saved = self.store.set_pending(
                         job.user_id,
                         job.url,
                         destination=job.destination,
                         executor_key=job.executor_key,
+                        limit=None if self.policy.is_admin(job.user_id) else 3,
                     )
+                    if not saved:
+                        await self._notify(
+                            job,
+                            "来源无访问权限；你的待重试记录已达 3 条。"
+                            "本任务未加入待重试列表，临时文件已清理。"
+                            "请清理或完成已有记录后重新发送链接。",
+                            finished=True,
+                        )
+                        continue
                 await self._notify(
                     job,
                     "下载账号无权访问来源群。请用 /pending 查看编号，"

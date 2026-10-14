@@ -191,17 +191,21 @@ async def run(settings: Settings, command: str) -> None:
         bot = Bot(settings.bot_token)
         store = Store(settings.data_dir / "state.sqlite3")
 
+        policy = AccessPolicy(
+            settings.allowed_users, settings.admin_users, store=store
+        )
         service = TransferService(
             accounts,
             store,
             settings.data_dir / "jobs",
             ProgressMessages(bot),
-            policy=AccessPolicy(settings.allowed_users, settings.admin_users),
+            policy=policy,
             workers=settings.workers,
             queue_size=settings.queue_size,
         )
         service.start()
         application = BotApplication(bot, settings, store, tdl, service)
+        await application.register_commands()
         await application.dispatcher.start_polling(
             bot,
             close_bot_session=False,

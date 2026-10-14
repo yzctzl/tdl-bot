@@ -2,11 +2,17 @@
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
     CallbackQuery,
     ErrorEvent,
     InlineKeyboardButton,
@@ -17,25 +23,60 @@ from aiogram.types import (
 )
 from telethon import errors
 
+from tdl_bot.accounts import AccessPolicy
 from tdl_bot.config import Settings
 from tdl_bot.errors import JoinPending, UserError
 from tdl_bot.links import JoinLink
 from tdl_bot.service import Job, TransferService
-from tdl_bot.store import Store, Target
+from tdl_bot.store import PendingTransfer, Store, Target
 from tdl_bot.tdl import Tdl
 
 _LOGGER = logging.getLogger(__name__)
+# A single registry drives both routing and Telegram's command hints.
+_COMMANDS = (
+    ("start", "help", "开始使用", False),
+    ("help", "help", "查看用法", False),
+    ("whoami", "whoami", "查看自己的账号 ID", False),
+    ("target", "target", "设置个人目标或切换目标", False),
+    ("status", "status", "查看目标与任务状态", False),
+    ("jobs", "jobs", "查看可管理的任务", False),
+    ("cancel", "cancel_command", "取消活动任务：任务编号", False),
+    ("pending", "pending", "查看待重试列表", False),
+    ("retry", "retry", "重试：待重试编号", False),
+    ("retry_cancel", "retry_cancel", "移除待重试记录：编号", False),
+    ("join", "join", "加入来源群：群链接 待重试编号", False),
+    ("update_tdl", "update", "检查并更新 tdl", True),
+    ("users", "users", "查看成员与封禁状态", True),
+    ("user_add", "user_add", "添加普通账号：账号 ID", True),
+    ("user_remove", "user_remove", "删除账号：账号 ID", True),
+    ("user_ban", "user_ban", "封禁账号：账号 ID 1d/1w/1m", True),
+    ("user_unban", "user_unban", "解除封禁：账号 ID", True),
+    ("user_role", "user_role", "设置角色：账号 ID user/admin", True),
+    ("user_history", "user_history", "查看账号管理记录：账号 ID", True),
+)
 _HELP = (
-    "发送一个 Telegram 消息 url，Bot 会处理整个 media group 和视频文字。\n"
-    "/target [shared|private] <chat> [topic_id] 设置共享／个人目标\n"
-    "/target shared 或 /target private 切换已保存的目标\n"
-    "示例：/target -1001234567890 42；/target me 为收藏夹\n"
-    "/jobs 查看可管理的任务；/cancel <任务编号> 取消\n"
-    "/pending 查看待重试列表；/retry [编号] 重试\n"
-    "/join <群 url> [编号] 使用失败任务的账号入群并重试\n"
-    "/status 查看目标、执行账号与工作空间状态\n"
-    "/update_tdl [latest|v0.20.4] 更新 tdl（管理员）\n"
-    "/whoami 查看自己的用户 ID"
+    "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字。\n"
+    "/target private <chat> [topic_id] 设置个人目标\n"
+    "/target shared 或 /target private 切换已保存目标\n"
+    "/jobs 查看活动任务，/cancel <编号> 取消\n"
+    "/pending 查看待重试记录，/retry [编号] 重试\n"
+    "/retry_cancel <编号> 删除待重试记录\n"
+    "/join <群 url> [编号] 入群后重试\n"
+    "普通账号最多保存 3 条待重试记录。\n"
+    "/status 查看状态，/whoami 查看自己的账号 ID"
+)
+_ADMIN_HELP = (
+    "\n\n管理员：\n"
+    "/target shared <chat> [topic_id] 设置共享目标\n"
+    "/target for <账号 ID> [chat] [topic_id] 管理个人目标\n"
+    "/users 查看成员\n"
+    "/user_add <账号 ID> 添加普通账号\n"
+    "/user_remove <账号 ID> 删除账号\n"
+    "/user_ban <账号 ID> <1d|1w|1m> 封禁一天／周／30天\n"
+    "/user_unban <账号 ID> 解封\n"
+    "/user_role <账号 ID> <user|admin> 设置角色\n"
+    "/user_history <账号 ID> 查看管理记录\n"
+    "/update_tdl [latest|v0.20.4] 检查并更新 tdl"
 )
 
 
@@ -88,9 +129,10 @@ class ProgressMessages:
 class Authorization(BaseMiddleware):
     """Only allowlisted users in private chats may control the user account."""
 
-    def __init__(self, allowed: frozenset[int]) -> None:
-        """Store the configured allowlist."""
-        self.allowed = allowed
+    def __init__(self, policy: AccessPolicy, refresh_menu=None) -> None:
+        """Check current membership instead of caching startup identities."""
+        self.policy = policy
+        self.refresh_menu = refresh_menu
 
     async def __call__(
         self, handler, event: TelegramObject, data: dict[str, Any]
@@ -103,9 +145,13 @@ class Authorization(BaseMiddleware):
         command = (event.text or "").split(maxsplit=1)[0:1]
         if command and command[0].split("@")[0] == "/whoami":
             return await handler(event, data)
-        if event.from_user.id not in self.allowed:
-            await event.answer("当前用户未获授权。使用 /whoami 获取用户 ID。")
+        if not self.policy.is_allowed(event.from_user.id):
+            await event.answer(
+                "当前账号未获授权或处于封禁中。使用 /whoami 获取账号 ID。"
+            )
             return None
+        if self.refresh_menu:
+            await self.refresh_menu(event.from_user.id)
         return await handler(event, data)
 
 
@@ -126,27 +172,71 @@ class BotApplication:
         self.store = store
         self.tdl = tdl
         self.service = service
+        self.policy = service.policy
+        self._menu_roles: dict[int, str] = {}
+        self._menu_lock = asyncio.Lock()
         self._update: asyncio.Task | None = None
         self._controls: dict[tuple[int, int], set[str]] = {}
         router = Router()
-        router.message.outer_middleware(Authorization(settings.allowed_users))
-        router.message.register(self.help, Command("start", "help"))
-        router.message.register(self.whoami, Command("whoami"))
-        router.message.register(self.target, Command("target"))
-        router.message.register(self.status, Command("status"))
-        router.message.register(self.join, Command("join"))
-        router.message.register(self.retry, Command("retry"))
-        router.message.register(self.jobs, Command("jobs"))
-        router.message.register(self.pending, Command("pending"))
-        router.message.register(self.cancel_command, Command("cancel"))
-        router.message.register(self.update, Command("update_tdl"))
+        router.message.outer_middleware(
+            Authorization(self.policy, self.refresh_menu)
+        )
+        for name, handler, _, _ in _COMMANDS:
+            router.message.register(getattr(self, handler), Command(name))
         router.message.register(self.url, F.text)
         router.callback_query.register(
             self.cancel, F.data.startswith("cancel:")
         )
+        router.callback_query.register(
+            self.cancel_retry, F.data.startswith("retry_cancel:")
+        )
         router.errors.register(self.error)
         self.dispatcher = Dispatcher()
         self.dispatcher.include_router(router)
+
+    @staticmethod
+    def command_menu(*, admin: bool = False, allowed: bool = True):
+        return [
+            BotCommand(command=name, description=description)
+            for name, _, description, admin_only in _COMMANDS
+            if (allowed and (admin or not admin_only)) or name == "whoami"
+        ]
+
+    async def register_commands(self) -> None:
+        """Install ordinary hints and separate administrator menus."""
+        await self.bot.set_my_commands(
+            self.command_menu(allowed=False), scope=BotCommandScopeDefault()
+        )
+        await self.bot.set_my_commands(
+            self.command_menu(), scope=BotCommandScopeAllPrivateChats()
+        )
+        for operator in self.policy.menu_ids:
+            await self.refresh_menu(operator)
+
+    async def refresh_menu(self, operator_id: int) -> None:
+        async with self._menu_lock:
+            role = (
+                "admin"
+                if self.policy.is_admin(operator_id)
+                else "user"
+                if self.policy.is_allowed(operator_id)
+                else "denied"
+            )
+            if self._menu_roles.get(operator_id) == role:
+                return
+            try:
+                await self.bot.set_my_commands(
+                    self.command_menu(
+                        admin=role == "admin", allowed=role != "denied"
+                    ),
+                    scope=BotCommandScopeChat(chat_id=operator_id),
+                )
+            except Exception:
+                # The member may not have opened a private bot chat yet.
+                # Retry on their next message; permissions stay current.
+                _LOGGER.warning("无法同步账号命令菜单。")
+            else:
+                self._menu_roles[operator_id] = role
 
     async def close(self) -> None:
         """Wait for an already authorized binary update to complete."""
@@ -155,7 +245,11 @@ class BotApplication:
 
     async def help(self, message: Message) -> None:
         """Show the command reference."""
-        await message.answer(_HELP)
+        assert message.from_user is not None
+        text = _HELP
+        if self.policy.is_admin(message.from_user.id):
+            text += _ADMIN_HELP
+        await message.answer(text)
 
     async def whoami(self, message: Message) -> None:
         """Show a private-chat user's ID without account privileges."""
@@ -171,17 +265,20 @@ class BotApplication:
             await self.status(message)
             return
         owner = operator
-        private = False
+        private = not self.policy.is_admin(operator)
         if args[0] == "for":
-            if operator not in self.settings.admin_users:
+            if not self.policy.is_admin(operator):
                 raise UserError("只有管理员可以设置其他账号的个人目标。")
             if len(args) < 2 or not args[1].isdigit():
                 raise UserError(
                     "用法：/target for <操作账号 ID> <chat> [topic_id]"
                 )
             owner = int(args[1])
-            if owner not in self.settings.allowed_users:
-                raise UserError("目标操作账号不在授权名单中。")
+            if (
+                not self.policy.is_known(owner)
+                and self.store.target_for(owner) is None
+            ):
+                raise UserError("目标账号没有成员或历史个人目标记录。")
             if len(args) == 2:
                 target = self.store.target_for(owner)
                 await message.answer(
@@ -206,8 +303,15 @@ class BotApplication:
             if not args[1].isdigit() or int(args[1]) <= 0:
                 raise UserError("topic_id 必须为正整数。")
             topic = int(args[1])
+        if not private and not self.policy.is_admin(operator):
+            raise UserError("只有管理员可以设置或修改共享目标。")
         target = Target(args[0], topic)
         await self.service.accounts.select(owner).media.validate_target(target)
+        # Re-check after the network await, in case membership was revoked.
+        if not self.policy.can_manage(operator, owner if private else None):
+            raise UserError("当前账号无权修改目标。")
+        if not private and not self.policy.is_admin(operator):
+            raise UserError("只有管理员可以修改共享目标。")
         self.store.set_target(owner, target, private=private)
         scope = "个人" if private else "共享"
         await message.answer(
@@ -228,10 +332,16 @@ class BotApplication:
         scope = "个人" if self.store.private_selected(operator) else "共享"
         executor = self.service.accounts.select(operator)
         account = "自己的执行账号" if executor.owner_id else "共享执行账号"
+        quota = (
+            "不限"
+            if self.policy.is_admin(operator)
+            else f"{self.store.pending_count(operator)}/3"
+        )
         await message.answer(
             f"当前目标（{scope}）：{target}\n执行账号：{account}\n"
             f"可管理任务：{len(self.service.jobs(operator))}；"
             f"待重试：{len(self.service.pending_items(operator))}\n"
+            f"自己的待重试名额：{quota}\n"
             "使用 /jobs 管理任务，/pending 查看待重试列表。"
         )
 
@@ -283,6 +393,25 @@ class BotApplication:
         while len(self._controls) > 128:
             del self._controls[next(iter(self._controls))]
 
+    @staticmethod
+    def _pending_lines(item: PendingTransfer) -> list[str]:
+        lines = []
+        scope = (
+            "共享"
+            if item.destination.owner_id is None
+            else f"个人（{item.destination.owner_id}）"
+        )
+        account = "共享账号" if item.executor_key == "shared" else "专属账号"
+        archive = " · 归档（仅管理员）" if item.archived else ""
+        lines.append(
+            f"{item.id} · {scope} · {account}{archive} · {item.url[:180]}"
+        )
+        lines.append(
+            f"目标：{item.destination.target.chat[:80]}；"
+            f"话题：{item.destination.target.topic_id or '默认'}"
+        )
+        return lines
+
     async def pending(self, message: Message, command: CommandObject) -> None:
         """List permission retries without exposing private records to peers."""
         assert message.from_user is not None
@@ -293,22 +422,27 @@ class BotApplication:
             await message.answer("当前页没有待重试任务。")
             return
         lines = [f"待重试列表（第 {page} 页，共 {len(items)} 个）："]
+        buttons = []
         for item in selected:
-            scope = (
-                "共享"
-                if item.destination.owner_id is None
-                else f"个人（{item.destination.owner_id}）"
-            )
-            account = (
-                "共享账号" if item.executor_key == "shared" else "专属账号"
-            )
-            lines.append(f"{item.id} · {scope} · {account} · {item.url[:180]}")
-            lines.append(
-                f"目标：{item.destination.target.chat[:80]}；"
-                f"话题：{item.destination.target.topic_id or '默认'}"
+            lines.extend(self._pending_lines(item))
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"移除待重试 {item.id}",
+                        callback_data=f"retry_cancel:{item.id}",
+                    )
+                ]
             )
         lines.append("使用 /retry <编号> 或 /join <群 url> <编号>。")
-        await message.answer("\n".join(lines))
+        reply = await message.answer(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+        self._controls[(message.from_user.id, reply.message_id)] = {
+            f"retry:{item.id}" for item in selected
+        }
+        while len(self._controls) > 128:
+            del self._controls[next(iter(self._controls))]
 
     @staticmethod
     def _pending_id(value: str | None) -> int | None:
@@ -363,7 +497,7 @@ class BotApplication:
     async def cancel(self, query: CallbackQuery) -> None:
         """Check management permissions and validate the button source."""
         if (
-            query.from_user.id not in self.settings.allowed_users
+            not self.policy.is_allowed(query.from_user.id)
             or query.message is None
             or query.message.chat.type != "private"
         ):
@@ -392,14 +526,201 @@ class BotApplication:
         await query.answer("正在取消……")
         await self.service.cancel(query.from_user.id, job_id)
 
+    @staticmethod
+    def _user_id(value: str) -> int:
+        if not value.isdigit() or int(value) <= 0:
+            raise UserError("账号 ID 必须为正整数。")
+        return int(value)
+
+    def _admin_args(self, message: Message, command: CommandObject, count: int):
+        assert message.from_user is not None
+        if not self.policy.is_admin(message.from_user.id):
+            raise UserError("只有管理员可以管理账号。")
+        args = (command.args or "").split()
+        if len(args) != count:
+            raise UserError(
+                f"/{command.command} 需要 {count} 个参数，请查看 /help。"
+            )
+        return message.from_user.id, args
+
+    async def retry_cancel(
+        self, message: Message, command: CommandObject
+    ) -> None:
+        assert message.from_user is not None
+        pending_id = self._pending_id((command.args or "").strip())
+        if pending_id is None:
+            raise UserError("用法：/retry_cancel <待重试编号>")
+        self.service.discard_pending(message.from_user.id, pending_id)
+        await message.answer("待重试记录已移除；不会执行入群、下载或上传。")
+
+    async def cancel_retry(self, query: CallbackQuery) -> None:
+        if (
+            not self.policy.is_allowed(query.from_user.id)
+            or query.message is None
+            or query.message.chat.type != "private"
+            or query.message.chat.id != query.from_user.id
+        ):
+            await query.answer("无权管理此记录。", show_alert=True)
+            return
+        try:
+            pending_id = self._pending_id(
+                (query.data or "").removeprefix("retry_cancel:")
+            )
+            controls = self._controls.get(
+                (query.from_user.id, query.message.message_id), set()
+            )
+            if pending_id is None or f"retry:{pending_id}" not in controls:
+                raise UserError("按钮已失效，请重新使用 /pending。")
+            self.service.discard_pending(query.from_user.id, pending_id)
+        except UserError as exc:
+            await query.answer(str(exc), show_alert=True)
+            return
+        controls.discard(f"retry:{pending_id}")
+        await query.answer("待重试记录已移除。")
+        remaining = [
+            item
+            for item in self.service.pending_items(query.from_user.id)
+            if f"retry:{item.id}" in controls
+        ]
+        controls.intersection_update(f"retry:{item.id}" for item in remaining)
+        markup = (
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=f"移除待重试 {item.id}",
+                            callback_data=f"retry_cancel:{item.id}",
+                        )
+                    ]
+                    for item in remaining
+                ]
+            )
+            if remaining
+            else None
+        )
+        lines = [f"已移除待重试记录 {pending_id}。"]
+        for item in remaining:
+            lines.extend(self._pending_lines(item))
+        if not remaining:
+            lines.append("此列表已没有待重试记录。")
+        try:
+            await self.bot.edit_message_text(
+                chat_id=query.from_user.id,
+                message_id=query.message.message_id,
+                text="\n".join(lines),
+                reply_markup=markup,
+            )
+        except Exception:
+            _LOGGER.warning("记录已移除，但无法刷新列表。")
+
+    @staticmethod
+    def _deadline(timestamp: float) -> str:
+        return datetime.fromtimestamp(
+            timestamp, ZoneInfo("Asia/Tokyo")
+        ).strftime("%Y-%m-%d %H:%M JST")
+
+    async def users(self, message: Message, command: CommandObject) -> None:
+        assert message.from_user is not None
+        if not self.policy.is_admin(message.from_user.id):
+            raise UserError("只有管理员可以查看成员列表。")
+        members = self.store.members()
+        page = self._page(command.args)
+        selected = members[(page - 1) * 10 : page * 10]
+        if not selected:
+            await message.answer("当前页没有成员。")
+            return
+        lines = [f"成员列表（第 {page} 页，共 {len(members)} 个）："]
+        for member in selected:
+            role = "管理员" if member.role == "admin" else "普通账号"
+            state = (
+                "正常"
+                if member.active(self.store.now())
+                else (f"封禁至 {self._deadline(member.banned_until)}")
+            )
+            lines.append(f"{member.user_id} · {role} · {state}")
+        await message.answer("\n".join(lines))
+
+    async def user_add(self, message: Message, command: CommandObject) -> None:
+        actor, args = self._admin_args(message, command, 1)
+        user_id = self._user_id(args[0])
+        self.store.add_member(actor, user_id)
+        await self.refresh_menu(user_id)
+        await message.answer("普通账号已添加，权限已生效。")
+
+    async def user_remove(
+        self, message: Message, command: CommandObject
+    ) -> None:
+        actor, args = self._admin_args(message, command, 1)
+        user_id = self._user_id(args[0])
+        self.store.remove_member(actor, user_id)
+        await self.service.cancel_submitted(actor, user_id)
+        await self.refresh_menu(user_id)
+        await message.answer(
+            "账号已删除，活动任务已取消并清理。历史目标和重试记录保留给管理员。"
+        )
+
+    async def user_ban(self, message: Message, command: CommandObject) -> None:
+        actor, args = self._admin_args(message, command, 2)
+        durations = {"1d": 86400, "1w": 7 * 86400, "1m": 30 * 86400}
+        duration = durations.get(args[1])
+        if duration is None:
+            raise UserError("封禁时长请使用 1d、1w 或 1m（30 天）。")
+        user_id = self._user_id(args[0])
+        self.store.ban_member(actor, user_id, duration)
+        await self.service.cancel_submitted(actor, user_id)
+        await self.refresh_menu(user_id)
+        await message.answer(
+            "封禁已生效，活动任务已取消并清理；到期自动恢复权限。"
+        )
+
+    async def user_unban(
+        self, message: Message, command: CommandObject
+    ) -> None:
+        actor, args = self._admin_args(message, command, 1)
+        user_id = self._user_id(args[0])
+        self.store.unban_member(actor, user_id)
+        await self.refresh_menu(user_id)
+        await message.answer("封禁已解除。")
+
+    async def user_role(self, message: Message, command: CommandObject) -> None:
+        actor, args = self._admin_args(message, command, 2)
+        user_id = self._user_id(args[0])
+        self.store.set_member_role(actor, user_id, args[1])
+        await self.service.reconcile_permissions()
+        await self.refresh_menu(user_id)
+        await message.answer("账号角色已更新。")
+
+    async def user_history(
+        self, message: Message, command: CommandObject
+    ) -> None:
+        actor, args = self._admin_args(message, command, 1)
+        rows = self.store.member_history(actor, self._user_id(args[0]))
+        names = {
+            "add": "添加普通账号",
+            "remove": "删除账号",
+            "unban": "解除封禁",
+            "role:user": "设为普通账号",
+            "role:admin": "设为管理员",
+            "ban:86400": "封禁一天",
+            "ban:604800": "封禁一周",
+            "ban:2592000": "封禁 30 天",
+        }
+        text = "\n".join(
+            f"{self._deadline(created)} · {admin} · {names.get(action, action)}"
+            for admin, action, created in rows
+        )
+        await message.answer(text or "没有账号管理记录。")
+
     async def update(self, message: Message, command: CommandObject) -> None:
         """Schedule an administrator-requested update without blocking input."""
         assert message.from_user is not None
-        if message.from_user.id not in self.settings.admin_users:
+        if not self.policy.is_admin(message.from_user.id):
             raise UserError("只有管理员可以更新 tdl。")
         if self._update and not self._update.done():
             raise UserError("已有 tdl 更新任务，请等待完成。")
-        await message.answer("将等待执行中的任务结束后更新，期间新任务排队。")
+        await message.answer(
+            "正在检查 tdl 版本；需要更新时将等待活动任务结束。"
+        )
         self._update = asyncio.create_task(
             self._perform_update(
                 message.from_user.id, (command.args or "latest").strip()
@@ -410,7 +731,11 @@ class BotApplication:
         """Complete an update and report errors even if notification fails."""
         try:
             result = await self.tdl.update(version)
-            text = f"tdl 更新完成：\n{result}"
+            text = (
+                result
+                if result.startswith("无需更新")
+                else f"tdl 更新完成：\n{result}"
+            )
         except UserError as exc:
             text = str(exc)
         except Exception as exc:

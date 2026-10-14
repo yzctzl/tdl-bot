@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from tdl_bot.errors import UserError
+from tdl_bot.store import Store
 from tdl_bot.tdl import Tdl
 from tdl_bot.telegram import TelegramMedia
 
@@ -49,17 +50,62 @@ class AccountPool:
         return executor
 
 
-@dataclass(frozen=True)
 class AccessPolicy:
-    """One workspace's trusted operators and its administrators."""
+    """Evaluate current membership and bans at every protected operation."""
 
-    operators: frozenset[int]
-    admins: frozenset[int]
+    def __init__(
+        self,
+        operators: frozenset[int],
+        admins: frozenset[int],
+        *,
+        store: Store | None = None,
+    ) -> None:
+        self._operators = operators
+        self._admins = admins
+        self.store = store
+        if store is not None:
+            store.seed_members(operators, admins)
+
+    @property
+    def operators(self) -> frozenset[int]:
+        if self.store is None:
+            return self._operators
+        return frozenset(
+            member.user_id
+            for member in self.store.members()
+            if member.active(self.store.now())
+        )
+
+    @property
+    def admins(self) -> frozenset[int]:
+        if self.store is None:
+            return self._admins
+        return frozenset(
+            member.user_id
+            for member in self.store.members()
+            if member.role == "admin" and member.active(self.store.now())
+        )
+
+    def is_known(self, operator_id: int) -> bool:
+        return (
+            self.store.member(operator_id) is not None
+            if self.store
+            else operator_id in self._operators
+        )
+
+    @property
+    def menu_ids(self) -> frozenset[int]:
+        return self.store.menu_member_ids() if self.store else self._operators
+
+    def is_allowed(self, operator_id: int) -> bool:
+        return operator_id in self.operators
+
+    def is_admin(self, operator_id: int) -> bool:
+        return operator_id in self.admins and self.is_allowed(operator_id)
 
     def can_manage(self, operator_id: int, owner_id: int | None) -> bool:
-        """Allow shared management, personal ownership and admin overrides."""
-        return operator_id in self.operators and (
+        return self.is_allowed(operator_id) and (
             owner_id is None
             or operator_id == owner_id
-            or operator_id in self.admins
+            or self.is_admin(operator_id)
         )
