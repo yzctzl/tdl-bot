@@ -43,7 +43,7 @@ uv sync
 cp .env.example .env
 ```
 
-编辑 `.env`，填写 `BOT_TOKEN` 和 `ALLOWED_USER_IDS`，保留默认会话配置：
+编辑 `.env`，填写 `BOT_TOKEN` 和 `ADMIN_USER_IDS`，保留默认会话配置：
 
 ```dotenv
 SESSION_SOURCE=tdl
@@ -51,17 +51,14 @@ TDL_DIR=.tdl
 TDL_NAMESPACE=default
 ```
 
-初始化授权名单使用 Telegram **用户 ID**，以逗号分隔。
-可在 Bot 启动后通过 `/whoami` 查询用户 ID；这个命令不需要授权。
-`ADMIN_USER_IDS` 显式指定管理员；留空时只有 `ALLOWED_USER_IDS` 中**第一个**
-账号为管理员（按配置顺序，不按 ID 大小）。填写时必须是授权名单子集。
-升级时请检查名单顺序，或显式填写管理员；普通账号管理自己的任务，管理员
-可管理全部任务、配置内部存储并更新 tdl。
+`ADMIN_USER_IDS` 必须显式填写，使用 Telegram 用户 UID，以逗号分隔。
+首次启动仅初始化这些管理员；普通成员由管理员使用 `/user_add` 添加。
+`ALLOWED_USER_IDS` 已移除，不再作为初始化或授权来源。
 
-首次启动这版管理功能时，将 `.env` 的名单和角色初始化到 SQLite。此后数据库
-是成员权限的来源：通过 Bot 添加、删除、封禁或修改角色即可即时生效，重启
-不会将已删除账号从 `.env` 重新加回，也不会重置角色。`.env` 中的名单继续
-保留为初始化配置；修改它不会覆盖已经初始化的成员列表。
+成员初始化后，SQLite 是权限的唯一来源：通过 Bot 添加、删除、封禁或修改角色
+即时生效。已有数据库不会因为 `.env` 变化而重新添加成员或重置角色，后续启动
+也无需再次配置 `ADMIN_USER_IDS`。登录命令不要求 Bot token 或管理员 UID，
+可以先完成登录并获取 UID，再填写首次运行所需配置。
 
 已有 `./.tdl/data/default` 会话时直接启动：
 
@@ -386,8 +383,7 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `SESSION_SOURCE` | `tdl` | 复用已有 tdl 授权；`telethon` 为独立登录模式 |
 | `TDL_DIR` | `.tdl` | 已登录的 tdl 根目录（其下包含 `data/` 或 `data.kv`） |
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | 默认不需要 | 仅独立登录模式需要 |
-| `ALLOWED_USER_IDS` | 首次初始化必填 | 初始成员 ID，逗号分隔，保留配置顺序 |
-| `ADMIN_USER_IDS` | 第一个操作账号 | 初始管理员；初始化后用 Bot 管理角色 |
+| `ADMIN_USER_IDS` | 首次初始化必填 | 显式指定初始管理员 UID；初始化后由数据库管理 |
 | `DATA_DIR` | `data` | 会话、SQLite 和任务临时目录 |
 | `TDL_BINARY` | `bin/tdl` | tdl 可执行程序路径 |
 | `TDL_NAMESPACE` | `default` | tdl 登录 namespace |

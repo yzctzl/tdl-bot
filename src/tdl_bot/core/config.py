@@ -42,7 +42,7 @@ class Settings:
         """Read and validate settings from the environment and .env.
 
         Args:
-            login_only: Allow login without bot credentials or an allowlist.
+            login_only: Allow login before Bot credentials and admin setup.
 
         Returns:
             Validated settings with absolute filesystem paths.
@@ -72,29 +72,19 @@ class Settings:
         if persisted is not None:
             allowed, admins = persisted
         else:
-            allowed = ids("ALLOWED_USER_IDS")
-            first_operator = next(
-                (
-                    int(value.strip())
-                    for value in os.getenv("ALLOWED_USER_IDS", "").split(",")
-                    if value.strip()
-                ),
-                None,
-            )
-            admins = ids("ADMIN_USER_IDS") or (
-                frozenset({first_operator}) if first_operator else frozenset()
-            )
+            admins = ids("ADMIN_USER_IDS")
+            allowed = admins
+            if not login_only and not admins:
+                raise ValueError(
+                    tr("Set ADMIN_USER_IDS before the first start.")
+                )
         source = os.getenv("SESSION_SOURCE", "tdl").strip()
         if source not in {"tdl", "telethon"}:
             raise ValueError(tr("SESSION_SOURCE must be tdl or telethon."))
         if source == "telethon" and (api_id <= 0 or not api_hash):
             raise ValueError(tr("Set TELEGRAM_API_ID and TELEGRAM_API_HASH."))
-        if not login_only and (not token or not allowed):
-            raise ValueError(tr("Set BOT_TOKEN and ALLOWED_USER_IDS."))
-        if not admins <= allowed:
-            raise ValueError(
-                tr("ADMIN_USER_IDS must be a subset of ALLOWED_USER_IDS.")
-            )
+        if not login_only and not token:
+            raise ValueError(tr("Set BOT_TOKEN."))
         settings = cls(
             bot_token=token,
             api_id=api_id,
@@ -104,7 +94,7 @@ class Settings:
             data_dir=data_dir,
             tdl_binary=Path(os.getenv("TDL_BINARY", "bin/tdl")).resolve(),
             tdl_namespace=os.getenv("TDL_NAMESPACE", "default"),
-            tdl_dir=Path(os.getenv("TDL_DIR", ".tdl")).resolve(),
+            tdl_dir=Path(os.getenv("TDL_DIR", ".tdl")).expanduser().resolve(),
             session_source=source,
             tdl_proxy=os.getenv("TDL_PROXY", "").strip(),
             workers=int(os.getenv("WORKERS", "2")),

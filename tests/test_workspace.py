@@ -381,16 +381,20 @@ async def test_join_uses_failed_executor_even_from_another_operator(workspace):
     await service.close()
 
 
-def test_first_configured_operator_is_default_admin(tmp_path, monkeypatch):
+def test_first_start_requires_explicit_admins_and_ignores_legacy_allowlist(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("ALLOWED_USER_IDS", "3, 1, 2")
     monkeypatch.setenv("ADMIN_USER_IDS", "")
     monkeypatch.setenv("SESSION_SOURCE", "tdl")
-    monkeypatch.delenv("ACCOUNTS_FILE", raising=False)
+    with pytest.raises(ValueError, match="ADMIN_USER_IDS"):
+        Settings.from_env()
+    assert Settings.from_env(login_only=True).allowed_users == frozenset()
+    monkeypatch.setenv("ADMIN_USER_IDS", "2, 4")
     settings = Settings.from_env()
-    assert settings.admin_users == frozenset({3})
-    assert settings.allowed_users == frozenset({1, 2, 3})
+    assert settings.admin_users == settings.allowed_users == frozenset({2, 4})
 
 
 def test_legacy_binding_file_is_no_longer_configuration(tmp_path, monkeypatch):

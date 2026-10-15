@@ -535,7 +535,7 @@ def test_config_uses_persisted_members_instead_of_stale_env(
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("SESSION_SOURCE", "tdl")
     monkeypatch.setenv("ALLOWED_USER_IDS", "")
-    monkeypatch.setenv("ADMIN_USER_IDS", "1")
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
     monkeypatch.delenv("ACCOUNTS_FILE", raising=False)
     settings = Settings.from_env()
     assert settings.allowed_users == frozenset({2, 3})
