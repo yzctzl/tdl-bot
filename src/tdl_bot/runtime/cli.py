@@ -21,7 +21,11 @@ from tdl_bot.core.config import Settings
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
 from tdl_bot.integrations.tdl.runner import Tdl
-from tdl_bot.integrations.tdl.session import load_tdl_session, proxy_settings
+from tdl_bot.integrations.tdl.session import (
+    load_tdl_session,
+    load_tdl_sessions,
+    proxy_settings,
+)
 from tdl_bot.integrations.telegram.client import (
     AccountLock,
     SharedSessionClient,
@@ -156,7 +160,14 @@ async def run(settings: Settings, command: str) -> None:
         media = TelegramMedia(
             client, tdl=tdl if settings.session_source == "tdl" else None
         )
-        shared = Executor("shared", tdl, media)
+        shared = Executor(
+            "shared",
+            tdl,
+            media,
+            user_id=me.id,
+            username=getattr(me, "username", None),
+            name=getattr(me, "first_name", "") or "",
+        )
         personal = []
         session = client.session
         if session is None or session.auth_key is None:
@@ -164,94 +175,69 @@ async def run(settings: Settings, command: str) -> None:
                 tr("The execution account has no valid authorization key.")
             )
         keys = {session.auth_key.key}
-        for binding in settings.account_bindings:
-            if (binding.tdl_dir, binding.namespace) == (
-                settings.tdl_dir,
-                settings.tdl_namespace,
-            ):
-                if me.id != binding.operator_id:
-                    raise UserError(
-                        tr(
-                            "The personal execution session does not match "
-                            "its bound operator account."
-                        )
-                    )
-                if binding.proxy != settings.tdl_proxy:
-                    raise UserError(
-                        tr("The same session cannot use different proxies.")
-                    )
-                personal.append(
-                    Executor(
-                        f"operator:{binding.operator_id}",
-                        tdl,
-                        media,
-                        binding.operator_id,
-                    )
-                )
+        discovered = (
+            await load_tdl_sessions(tdl, settings.data_dir)
+            if settings.session_source == "tdl"
+            else {}
+        )
+        identities = {me.id}
+        for namespace, imported in sorted(discovered.items()):
+            key = imported.session.auth_key.key
+            # The shared namespace is already connected. Copies of its key
+            # must not open a second connection with competing API layers.
+            if key in keys:
                 continue
+            keys.add(key)
             own_tdl = Tdl(
                 settings.tdl_binary,
-                binding.namespace,
+                namespace,
                 settings.download_timeout,
-                data_dir=binding.tdl_dir,
-                proxy=binding.proxy,
+                data_dir=settings.tdl_dir,
+                proxy=settings.tdl_proxy,
                 upload_timeout=settings.upload_timeout,
                 upload_threads=settings.upload_concurrency,
-                storage_lock=storage_locks.setdefault(
-                    binding.tdl_dir, AccountLock()
-                ),
+                storage_lock=storage_locks[settings.tdl_dir],
             )
             own_tdl.gate = tdl.gate
-            imported = await load_tdl_session(own_tdl, settings.data_dir)
-            key = imported.session.auth_key.key
-            if key in keys:
-                raise UserError(
-                    tr(
-                        "Duplicate execution sessions. Bind the original "
-                        "directory and namespace instead of session copies."
-                    )
-                )
-            keys.add(key)
             own = SharedSessionClient(
                 imported.session,
                 imported.api_id,
                 imported.api_hash,
-                proxy=proxy_settings(binding.proxy),
+                proxy=proxy,
                 account_lock=own_tdl.account_lock,
                 upload_concurrency=settings.upload_concurrency,
             )
             clients.append(own)
             await own.connect()
-            if not await own.is_user_authorized():
-                raise UserError(
-                    tr(
-                        "The personal tdl session has expired. Check the "
-                        "account binding."
-                    )
+            own_user = cast(
+                types.User | None,
+                await own.get_me() if await own.is_user_authorized() else None,
+            )
+            if own_user is None or own_user.bot or own_user.id in identities:
+                # A logged-out namespace is not an available account. Multiple
+                # namespaces for the same UID resolve deterministically to one.
+                await own.disconnect()
+                clients.remove(own)
+                logging.warning(
+                    "Skipping an unavailable or duplicate tdl account"
                 )
-            own_user = cast(types.User | None, await own.get_me())
-            if (
-                own_user is None
-                or own_user.bot
-                or own_user.id != binding.operator_id
-            ):
-                raise UserError(
-                    tr(
-                        "The personal execution session does not match its "
-                        "bound operator account."
-                    )
-                )
+                continue
+            identities.add(own_user.id)
             personal.append(
                 Executor(
-                    f"operator:{binding.operator_id}",
+                    f"operator:{own_user.id}",
                     own_tdl,
                     TelegramMedia(own, tdl=own_tdl),
-                    binding.operator_id,
+                    own_user.id,
+                    own_user.id,
+                    getattr(own_user, "username", None),
+                    getattr(own_user, "first_name", "") or "",
                 )
             )
         accounts = AccountPool(shared, tuple(personal))
         bot = Bot(settings.bot_token)
         store = Store(settings.data_dir / "state.sqlite3")
+        store.save_execution_catalog(accounts.catalog())
 
         policy = AccessPolicy(
             settings.allowed_users, settings.admin_users, store=store
@@ -373,6 +359,12 @@ def main() -> None:
         if args.command == "reload":
             if not signal_supervisor(settings.data_dir, signal.SIGHUP):
                 raise UserError(tr("No Bot supervisor is running."))
+            path = settings.data_dir / "runtime.sock"
+            if path.exists():
+                # Reload also discovers sessions added without a code change.
+                asyncio.run(
+                    exchange(path, {"method": "ping", "args": {"reload": True}})
+                )
             return
         if args.command == "run":
             from tdl_bot.runtime.supervisor import supervise
@@ -391,19 +383,22 @@ def main() -> None:
             stack.enter_context(
                 instance_lock(settings.tdl_binary.with_suffix(".lock"))
             )
-            sources = {
-                (binding.tdl_dir, binding.namespace)
-                for binding in settings.account_bindings
-            }
             if settings.session_source == "tdl":
-                sources.add((settings.tdl_dir, settings.tdl_namespace))
-            # Stable ordering prevents two startups taking locks in reverse.
-            for directory, namespace in sorted(sources):
-                Tdl(
-                    settings.tdl_binary, namespace, data_dir=directory
-                ).storage_args()
+                tdl = Tdl(
+                    settings.tdl_binary,
+                    settings.tdl_namespace,
+                    data_dir=settings.tdl_dir,
+                )
+                tdl.storage_args()
+                # Discovery covers the whole storage directory. Claim it once
+                # rather than taking a changing set of namespace locks.
                 stack.enter_context(
-                    instance_lock(directory / f".bot-{namespace}.lock")
+                    instance_lock(settings.tdl_dir / ".bot-accounts.lock")
+                )
+                stack.enter_context(
+                    instance_lock(
+                        settings.tdl_dir / f".bot-{settings.tdl_namespace}.lock"
+                    )
                 )
             asyncio.run(run(settings, args.command))
     except (ValueError, UserError) as exc:

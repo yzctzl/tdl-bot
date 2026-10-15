@@ -4,7 +4,7 @@ import asyncio
 import os
 import signal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
@@ -63,9 +63,19 @@ def test_reload_and_stop_require_live_supervisor_and_release_locks(
         monkeypatch.setattr("sys.argv", ["tdl-bot", "stop"])
         cli.main()
     assert signals == [(123, signal.SIGHUP), (123, signal.SIGTERM)]
-    exchange.assert_awaited_once_with(
-        settings.data_dir / "runtime.sock", {"method": "shutdown", "args": {}}
+    exchange.assert_has_awaits(
+        [
+            call(
+                settings.data_dir / "runtime.sock",
+                {"method": "ping", "args": {"reload": True}},
+            ),
+            call(
+                settings.data_dir / "runtime.sock",
+                {"method": "shutdown", "args": {}},
+            ),
+        ]
     )
+    assert exchange.await_count == 2
     # Never signal a stale PID after the supervisor releases its lock.
     monkeypatch.setattr("sys.argv", ["tdl-bot", "reload"])
     with pytest.raises(SystemExit) as error:

@@ -237,3 +237,30 @@ def test_shared_proxy_settings_decode_credentials():
     assert proxy["password"] == "p@ss"
     with pytest.raises(UserError, match="TDL_PROXY"):
         proxy_settings("https://127.0.0.1:1080")
+
+
+async def test_discovery_reads_all_namespaces_and_skips_invalid_sessions(
+    tmp_path,
+):
+    from tdl_bot.integrations.tdl.session import load_tdl_sessions
+
+    data = metadata()
+    data.update(
+        {
+            "personal": data["default"],
+            "logged-out": {},
+            "broken": {"session": "invalid"},
+            "../outside": data["default"],
+        }
+    )
+
+    async def backup(destination):
+        assert destination.parent.stat().st_mode & 0o077 == 0
+        destination.write_bytes(
+            zstandard.ZstdCompressor().compress(json.dumps(data).encode())
+        )
+
+    sessions = await load_tdl_sessions(SimpleNamespace(backup=backup), tmp_path)
+    assert set(sessions) == {"default", "personal"}
+    assert sessions["personal"].session.auth_key.key == bytes(range(256))
+    assert not list(tmp_path.iterdir())

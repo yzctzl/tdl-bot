@@ -11,6 +11,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import logging
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,7 +64,39 @@ async def load_tdl_session(tdl: Tdl, temporary_root: Path) -> TdlSession:
         return await asyncio.to_thread(_read_backup, backup, tdl.namespace)
 
 
+async def load_tdl_sessions(
+    tdl: Tdl, temporary_root: Path
+) -> dict[str, TdlSession]:
+    """Discover logged-in namespaces through one credential-private backup."""
+    with tempfile.TemporaryDirectory(
+        prefix=".tdl-session-", dir=temporary_root
+    ) as directory:
+        backup = Path(directory) / "sessions.backup.tdl"
+        await tdl.backup(backup)
+        metadata = await asyncio.to_thread(_read_metadata, backup)
+    sessions = {}
+    for namespace, pairs in sorted(metadata.items()):
+        if (
+            not namespace
+            or Path(namespace).name != namespace
+            or not isinstance(pairs, dict)
+            or "session" not in pairs
+        ):
+            continue
+        try:
+            sessions[namespace] = decode_session(metadata, namespace)
+        except UserError:
+            logging.getLogger(__name__).warning(
+                "Skipping an invalid tdl authorization during discovery"
+            )
+    return sessions
+
+
 def _read_backup(path: Path, namespace: str) -> TdlSession:
+    return decode_session(_read_metadata(path), namespace)
+
+
+def _read_metadata(path: Path) -> dict:
     """Bound decompression and remove credentials from parse error messages."""
     try:
         with path.open("rb") as file:
@@ -71,7 +104,10 @@ def _read_backup(path: Path, namespace: str) -> TdlSession:
                 raw = reader.read(_MAX_BACKUP_BYTES + 1)
         if len(raw) > _MAX_BACKUP_BYTES:
             raise ValueError("backup exceeds limit")
-        return decode_session(json.loads(raw), namespace)
+        metadata = json.loads(raw)
+        if not isinstance(metadata, dict):
+            raise ValueError("invalid backup metadata")
+        return metadata
     except (OSError, ValueError, zstandard.ZstdError) as exc:
         raise UserError(
             tr(

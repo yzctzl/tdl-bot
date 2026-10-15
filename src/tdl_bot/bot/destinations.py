@@ -186,7 +186,7 @@ class DestinationCommands(CommandGroup):
                     )
                 )
         target = self.store.recipient(operator).target
-        executor = self.service.accounts.select(operator)
+        executor = self.service.execution_account(operator)
         account = (
             tr("Personal execution account")
             if executor.owner_id

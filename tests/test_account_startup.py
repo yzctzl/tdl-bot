@@ -1,4 +1,4 @@
-"""Account binding verification and cleanup without network access."""
+"""Automatic account discovery and cleanup without network access."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -7,8 +7,7 @@ import pytest
 from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
 
-from tdl_bot.core.config import AccountBinding, Settings
-from tdl_bot.core.errors import UserError
+from tdl_bot.core.config import Settings
 from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.integrations.telegram.client import AccountLock
 from tdl_bot.runtime.cli import run
@@ -17,7 +16,7 @@ pytestmark = pytest.mark.usefixtures("chinese")
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "identity", "expired", "duplicate", "connect"]
+    "failure", [None, "same_user", "expired", "duplicate", "bot", "connect"]
 )
 async def test_account_startup_validates_and_disconnects_all_clients(
     tmp_path, monkeypatch, failure
@@ -29,7 +28,11 @@ async def test_account_startup_validates_and_disconnects_all_clients(
 
     shared = imported(1)
     personal = imported(1 if failure == "duplicate" else 2)
-    imports = AsyncMock(side_effect=[shared, personal])
+    imports = AsyncMock(return_value=shared)
+    monkeypatch.setattr(
+        "tdl_bot.runtime.cli.load_tdl_sessions",
+        AsyncMock(return_value={"default": shared, "personal": personal}),
+    )
     monkeypatch.setattr("tdl_bot.runtime.cli.load_tdl_session", imports)
     clients = []
 
@@ -44,9 +47,9 @@ async def test_account_startup_validates_and_disconnects_all_clients(
             ),
             get_me=AsyncMock(
                 return_value=SimpleNamespace(
-                    bot=False,
-                    id=3
-                    if own and failure == "identity"
+                    bot=own and failure == "bot",
+                    id=1
+                    if own and failure == "same_user"
                     else (2 if own else 1),
                 )
             ),
@@ -89,19 +92,21 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         tmp_path,
         tmp_path / "tdl",
         tdl_dir=tmp_path / "shared",
-        account_bindings=(AccountBinding(2, tmp_path / "own", "personal"),),
     )
-    if failure:
-        with pytest.raises(OSError if failure == "connect" else UserError):
+    if failure == "connect":
+        with pytest.raises(OSError):
             await run(settings, "run")
         assert not (tmp_path / "state.sqlite3").exists()
         constructor.assert_not_called()
     else:
         await run(settings, "run")
         service = engine_constructor.call_args.args[0]
-        assert service.accounts.select(2).media.client is clients[1]
+        expected = clients[0] if failure else clients[1]
+        assert service.accounts.select(2).media.client is expected
+        assert bool(service.accounts.catalog()[1:]) == (failure is None)
         assert service.accounts.select(3).media.client is clients[0]
-        assert tdls[0].gate is tdls[1].gate
+        assert service.accounts.get("operator:1") is service.accounts.shared
+        assert all(item.gate is tdls[0].gate for item in tdls)
         bot.session.close.assert_awaited_once()
         engine.serve.assert_awaited_once()
     for client in clients:

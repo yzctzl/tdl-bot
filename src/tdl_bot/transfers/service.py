@@ -123,8 +123,55 @@ class TransferService:
             user_id,
             url,
             destination,
-            self.accounts.select(user_id).key,
+            self.execution_account(user_id).key,
             source_message_id,
+        )
+
+    def execution_account(self, user_id):
+        preferred = (
+            self.store.executor_choice(user_id)
+            if self.policy.is_admin(user_id)
+            else None
+        )
+        return self.accounts.select(user_id, preferred)
+
+    async def execution_accounts(self, user_id, choice=None):
+        """List identities; only admins can override automatic routing."""
+        if not self.policy.is_allowed(user_id):
+            raise UserError(tr("This account is unauthorized or banned."))
+        admin = self.policy.is_admin(user_id)
+        if choice is not None:
+            if not admin:
+                raise UserError(
+                    tr("Only administrators can switch execution accounts.")
+                )
+            key = None if choice == "auto" else choice
+            if key and key != "shared" and key.isdigit():
+                key = next(
+                    (
+                        item["key"]
+                        for item in self.accounts.catalog()
+                        if item["user_id"] == int(key)
+                    ),
+                    f"operator:{int(key)}",
+                )
+            if key is not None:
+                self.accounts.get(key)
+            self.store.set_executor_choice(user_id, key)
+        selected = self.execution_account(user_id).key
+        catalog = self.accounts.catalog()
+        return {
+            "selected": selected,
+            "automatic": not admin
+            or self.store.executor_choice(user_id) is None,
+            "accounts": catalog
+            if admin
+            else [item for item in catalog if item["key"] == selected],
+        }
+
+    def can_use_executor(self, user_id, key):
+        return self.policy.is_allowed(user_id) and self.accounts.can_use(
+            user_id, key, admin=self.policy.is_admin(user_id)
         )
 
     async def retry(
@@ -152,6 +199,7 @@ class TransferService:
                 include_archived=self.policy.is_admin(user_id)
             )
             if self.policy.can_manage(user_id, item.destination.owner_id)
+            and self.can_use_executor(user_id, item.executor_key)
         ]
 
     def pending_record(
@@ -202,7 +250,9 @@ class TransferService:
             await self._cancel_job(job)
 
     def _can_run(self, job: Job) -> bool:
-        if not self.policy.can_manage(job.user_id, job.owner_id):
+        if not self.policy.can_manage(
+            job.user_id, job.owner_id
+        ) or not self.can_use_executor(job.user_id, job.executor_key):
             return False
         if job.retry_id is not None and not self.policy.is_admin(job.user_id):
             for item in self.store.pending_items(include_archived=True):
@@ -234,6 +284,8 @@ class TransferService:
         if not self.policy.can_manage(user_id, destination.owner_id):
             raise UserError(tr("You cannot manage this task."))
         executor = self.accounts.get(executor_key)
+        if not self.can_use_executor(user_id, executor_key):
+            raise UserError(tr("You cannot use this execution account."))
         if self._closing:
             raise UserError(tr("The Bot is shutting down. Try again later."))
         for current in self._jobs.values():
@@ -700,7 +752,9 @@ class TransferService:
         if self.delivery is not None:
             if not info or not info["revealed"]:
                 executor = self.accounts.get(job.executor_key)
-                if info:
+                if info and self.can_use_executor(
+                    job.user_id, info["executor_key"]
+                ):
                     try:
                         executor = self.accounts.get(info["executor_key"])
                     except UserError:

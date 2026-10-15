@@ -1,6 +1,12 @@
 """One command registry drives routing, menus and help."""
 
 COMMANDS = (
+    (
+        "account",
+        "execution.account",
+        "View execution account; administrators can switch",
+        False,
+    ),
     ("language", "language", "Choose your language", False),
     ("start", "start", "Get started", False),
     ("help", "help", "Show help", False),
@@ -79,6 +85,7 @@ HELP = (
     "and retry\nRegular accounts can keep up to 3 pending "
     "retries.\n/status View status; /whoami View your account "
     "ID\n/language [en|zh] Choose your language"
+    "\n/account View execution account"
 )
 
 
@@ -93,4 +100,5 @@ ADMIN_HELP = (
     "<UID|@username> View account management history\n/status "
     "<UID|@username> View another account's destination\n/update_tdl "
     "[latest|v0.20.4] Check and update tdl"
+    "\n/account <auto|shared|UID> Switch execution account"
 )

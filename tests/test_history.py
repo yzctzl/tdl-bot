@@ -166,19 +166,28 @@ async def test_missing_latest_storage_result_falls_back_to_older_record(
     url = "https://t.me/channel/10"
     store.set_target(1, old_storage)
     store.save_result(
-        [url], "shared", None, old_storage.chat, [100], internal=True
+        [url], "operator:3", None, old_storage.chat, [100], internal=True
     )
     store.save_result(
-        [url], "shared", None, old_storage.chat, [200], internal=True
+        [url], "operator:3", None, old_storage.chat, [200], internal=True
     )
     store.set_target(1, new_storage)
     media = SimpleNamespace(
         resolve=AsyncMock(), reveal_messages=AsyncMock(return_value=True)
     )
+    private_media = SimpleNamespace(reveal_messages=AsyncMock())
     delivery = AsyncMock(side_effect=[MissingResult("deleted"), [300], [400]])
     service = TransferService(
         AccountPool(
-            Executor("shared", SimpleNamespace(gate=UpdateGate()), media)
+            Executor("shared", SimpleNamespace(gate=UpdateGate()), media),
+            (
+                Executor(
+                    "operator:3",
+                    SimpleNamespace(gate=UpdateGate()),
+                    private_media,
+                    3,
+                ),
+            ),
         ),
         store,
         tmp_path / "jobs",
@@ -193,6 +202,7 @@ async def test_missing_latest_storage_result_falls_back_to_older_record(
                 Job(2, url, Target("2"), owner_id=2, storage_target=new_storage)
             )
         media.resolve.assert_not_awaited()
+        private_media.reveal_messages.assert_not_awaited()
         assert delivery.await_count == 3
         assert all(
             call.args[0].storage_target == old_storage

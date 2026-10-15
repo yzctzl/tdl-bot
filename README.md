@@ -136,35 +136,50 @@ Bot 默认使用英文，不自动跟随 Telegram 客户端的语言。每个操
 修改代码或语言目录后执行 `uv run tdl-bot reload`；后台引擎在现有任务完成后
 切换到新版本，具体行为见下方热重启说明。
 
-## 专属执行账号（可选）
+## Execution accounts
 
-操作账号指给 Bot 发消息的账号；执行账号指下载、读取历史、入群和上传使用的
-Telegram 用户会话。二者分开管理，默认所有操作账号使用 `.env` 中的共享
-执行会话。有自己的已登录 tdl 会话时，在服务器配置绑定；无需让 Bot 再登录。
+The shared execution account is selected by `TDL_DIR` and `TDL_NAMESPACE` in
+`.env`. In native tdl mode, the engine discovers other logged-in namespaces in
+that same directory and verifies their Telegram identities. No `accounts.toml`,
+`ACCOUNTS_FILE`, or operator-to-namespace mapping is needed.
 
-将 `accounts.example.toml` 复制到 `data/accounts.toml`，替换示例操作账号 ID
-和已有 namespace。也可通过 `ACCOUNTS_FILE` 指定其他位置：
+A regular operator automatically uses the session whose verified Telegram UID
+matches their own. Without one, they use the shared execution account. Personal
+sessions cannot be selected or used for retries or joins by another regular
+operator. Administrators can use every discovered account:
 
-```toml
-[[accounts]]
-operator_id = 123456789
-namespace = "personal"
-tdl_dir = ".tdl"
-# proxy = "socks5://127.0.0.1:1080"
+- `/account`: view the current selection; administrators also see available
+  accounts with usernames and UIDs.
+- `/account <UID>`: select a logged-in account (administrator only).
+- `/account shared`: use the shared account (administrator only).
+- `/account auto`: restore automatic own-or-shared selection (administrator only).
+
+An administrator's selection persists across restarts and affects only their
+new tasks. Accepted tasks and retries retain their original execution account;
+a missing original account never silently falls back to another identity.
+Overrides stop applying when an operator loses administrator rights.
+
+Sign in through tdl itself, using a distinct namespace under the configured
+storage directory. For example, when `TDL_DIR=.tdl` uses Bolt storage:
+
+```sh
+bin/tdl --storage type=bolt,path=.tdl/data --ns personal login
+uv run tdl-bot reload
 ```
 
-只为有专属会话的操作账号添加条目；未配置的账号自动使用共享会话。每个操作
-账号最多绑定一个会话，`tdl_dir` 可省略以继承 `.env` 的 `TDL_DIR`；相对路径
-统一从启动时的项目工作目录解析。`proxy` 省略时继承 `TDL_PROXY`，填写空串
-表示该账号直连。实际绑定配置放在被 Git 忽略的 `data/` 内，不提交真实 ID。
+Manual reload discovers newly logged-in or logged-out sessions after existing
+engine work finishes. No directory watcher or Bot login flow is involved.
+Namespaces with no valid authorization or expired sessions are skipped; network
+failures during verification remain startup errors. Multiple sessions for the
+same Telegram UID use one identity: the shared session takes priority, otherwise
+the first namespace in alphabetical order. Duplicate authorization keys do not
+open competing connections. All discovered sessions use `TDL_PROXY`.
 
-启动时验证会话登录状态及 Telegram 账号 ID 必须匹配 `operator_id`，校验
-失败会退出并关闭所有连接，不自动退回共享身份。绑定相同授权的会话副本会
-被拒绝；如需绑定共享会话自身的账号，直接使用其原目录和 namespace。
-添加／修改绑定后请用 `uv run tdl-bot stop` 完整停服后重新启动。会话配置本身不会授予 Bot 访问权限：可以先
-在服务器准备绑定，再由管理员 `/user_add` 授权；只有有效成员才能提交任务。
-所有执行账号都必须能够写入内部存储。用户接收位置只要求 Bot 和用户有相应
-权限，不要求执行账号加入用户的目标频道／群；`me` 不再作为接收位置。
+Discovery does not grant Bot membership: administrators still manage allowed
+operators separately. Every execution account needs access to internal storage.
+The Bot handles final delivery, so execution accounts do not need access to each
+operator's destination. Standalone `SESSION_SOURCE=telethon` keeps its single
+shared execution account.
 
 ## 旧数据库迁移
 
@@ -373,7 +388,6 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | 默认不需要 | 仅独立登录模式需要 |
 | `ALLOWED_USER_IDS` | 首次初始化必填 | 初始成员 ID，逗号分隔，保留配置顺序 |
 | `ADMIN_USER_IDS` | 第一个操作账号 | 初始管理员；初始化后用 Bot 管理角色 |
-| `ACCOUNTS_FILE` | `<DATA_DIR>/accounts.toml` | 可选的专属 tdl 会话绑定配置 |
 | `DATA_DIR` | `data` | 会话、SQLite 和任务临时目录 |
 | `TDL_BINARY` | `bin/tdl` | tdl 可执行程序路径 |
 | `TDL_NAMESPACE` | `default` | tdl 登录 namespace |

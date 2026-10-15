@@ -17,10 +17,13 @@ class Executor:
     tdl: Tdl
     media: TelegramMedia
     owner_id: int | None = None
+    user_id: int | None = None
+    username: str | None = None
+    name: str = ""
 
 
 class AccountPool:
-    """Default to the shared account only when no own account is bound."""
+    """Default to the shared account when no own session is available."""
 
     def __init__(
         self, shared: Executor, personal: tuple[Executor, ...] = ()
@@ -41,21 +44,53 @@ class AccountPool:
             self._executors[executor.key] = executor
             self._personal[executor.owner_id] = executor
 
-    def select(self, operator_id: int) -> Executor:
-        """Use a configured own account or the workspace's shared account."""
+    def select(
+        self, operator_id: int, preferred: str | None = None
+    ) -> Executor:
+        """Use a discovered own account or the workspace's shared account."""
+        if preferred:
+            return self.get(preferred)
         return self._personal.get(operator_id, self.shared)
 
     def get(self, key: str) -> Executor:
         """Keep retries on their original identity, with no silent fallback."""
         executor = self._executors.get(key)
+        if (
+            executor is None
+            and self.shared.user_id is not None
+            and key == f"operator:{self.shared.user_id}"
+        ):
+            # Older bindings could name the shared identity as personal.
+            return self.shared
         if executor is None:
             raise UserError(
                 tr(
-                    "The task's original execution account is not "
-                    "configured. Restore its binding before retrying."
+                    "The execution account is unavailable. Sign in with tdl "
+                    "and reload, or use /account auto for new tasks."
                 )
             )
         return executor
+
+    def can_use(self, operator_id: int, key: str, *, admin: bool = False):
+        executor = self._executors.get(key)
+        return (
+            admin
+            or key == "shared"
+            or key == f"operator:{operator_id}"
+            or (executor is not None and executor.owner_id == operator_id)
+        )
+
+    def catalog(self):
+        return [
+            {
+                "key": executor.key,
+                "owner_id": executor.owner_id,
+                "user_id": executor.user_id or executor.owner_id,
+                "username": executor.username,
+                "name": executor.name,
+            }
+            for executor in self._executors.values()
+        ]
 
 
 class AccessPolicy:

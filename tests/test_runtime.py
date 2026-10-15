@@ -100,7 +100,6 @@ async def test_frontend_reconnect_keeps_real_tdl_pid_and_can_cancel(
         data_dir=tmp_path,
         allowed_users=frozenset({1, 2}),
         admin_users=frozenset({1}),
-        account_bindings=(),
     )
     service.start()
     server = EngineServer(service, settings)

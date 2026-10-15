@@ -82,3 +82,22 @@ Authorization uses a single indexed member lookup rather than loading all
 members for every check. Uploads reuse the peer returned by destination
 validation. Task and retry list buttons share the same bounded, persisted control
 history, and download verification reuses file sizes between completeness checks.
+
+## Execution identity and routing
+
+The engine imports an owner-only tdl backup to discover valid namespaces in
+TDL_DIR. Each session is verified with Telegram; its returned UID is its owner.
+The configured shared session takes priority over duplicates. Other UIDs use
+stable `operator:<UID>` keys, preserving existing task and retry snapshots.
+
+Automatic routing selects the operator's own identity, otherwise shared. Only
+administrators may persist a different choice. The workspace publishes an
+identity-only catalog to frontends; credentials remain in memory. The resident
+engine validates selections and executor permissions again when accepting work.
+Personal executor permissions are independent of shared target management, so
+managing a shared retry never grants the use of somebody else's session.
+
+Manual reload requests a new engine generation even without a code change,
+allowing login/logout discovery after active work drains. No background watcher
+reads or changes tdl sessions. Separate namespaces share a storage lock and
+an update gate, while each account retains its own RPC lock.

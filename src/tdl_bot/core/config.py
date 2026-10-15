@@ -2,7 +2,6 @@
 
 import os
 import sqlite3
-import tomllib
 from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,16 +9,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from tdl_bot.core.i18n import tr
-
-
-@dataclass(frozen=True)
-class AccountBinding:
-    """An operator's existing tdl session, configured only on the server."""
-
-    operator_id: int
-    tdl_dir: Path
-    namespace: str
-    proxy: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -40,7 +29,6 @@ class Settings:
     workers: int = 2
     queue_size: int = 20
     download_timeout: int = 7200
-    account_bindings: tuple[AccountBinding, ...] = ()
     upload_concurrency: int = 8
     upload_timeout: int = 7200
 
@@ -141,23 +129,6 @@ class Settings:
             raise ValueError(tr("UPLOAD_TIMEOUT must be positive."))
         if not 1 <= settings.upload_concurrency <= 32:
             raise ValueError(tr("UPLOAD_CONCURRENCY must be between 1 and 32."))
-        account_file = Path(
-            os.getenv("ACCOUNTS_FILE", str(settings.data_dir / "accounts.toml"))
-        ).resolve()
-        if account_file.is_file():
-            from dataclasses import replace
-
-            settings = replace(
-                settings,
-                account_bindings=read_account_bindings(account_file, settings),
-            )
-        elif os.getenv("ACCOUNTS_FILE", "").strip():
-            raise ValueError(
-                tr(
-                    "The account configuration file specified by "
-                    "ACCOUNTS_FILE does not exist."
-                )
-            )
         return settings
 
 
@@ -187,50 +158,4 @@ def persisted_members(path: Path):
     except sqlite3.Error as exc:
         raise ValueError(
             tr("Cannot read the initialized membership database.")
-        ) from exc
-
-
-def read_account_bindings(
-    path: Path, settings: Settings
-) -> tuple[AccountBinding, ...]:
-    """Validate bindings without including account or proxy data in errors."""
-    try:
-        with path.open("rb") as file:
-            config = tomllib.load(file)
-        if set(config) - {"accounts"}:
-            raise ValueError
-        entries = config.get("accounts", [])
-        if not isinstance(entries, list):
-            raise ValueError
-        result = []
-        operators = set()
-        sources = set()
-        for entry in entries:
-            if set(entry) - {"operator_id", "tdl_dir", "namespace", "proxy"}:
-                raise ValueError
-            operator = entry["operator_id"]
-            namespace = entry["namespace"]
-            directory = Path(entry.get("tdl_dir", settings.tdl_dir)).resolve()
-            proxy = entry.get("proxy", settings.tdl_proxy)
-            if (
-                type(operator) is not int
-                or operator <= 0
-                or operator in operators
-                or not isinstance(namespace, str)
-                or not namespace
-                or Path(namespace).name != namespace
-                or not isinstance(proxy, str)
-                or (directory, namespace) in sources
-            ):
-                raise ValueError
-            operators.add(operator)
-            sources.add((directory, namespace))
-            result.append(AccountBinding(operator, directory, namespace, proxy))
-        return tuple(result)
-    except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise ValueError(
-            tr(
-                "Invalid account configuration. Check the accounts list, "
-                "allowed users, directories, and unique namespaces."
-            )
         ) from exc

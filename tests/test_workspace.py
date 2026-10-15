@@ -1,7 +1,6 @@
 """Workspace migration, execution routing and scope-based management."""
 
 import sqlite3
-from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,7 +8,7 @@ import pytest
 from aiogram.filters import CommandObject
 
 from tdl_bot.bot.application import BotApplication
-from tdl_bot.core.config import Settings, read_account_bindings
+from tdl_bot.core.config import Settings
 from tdl_bot.core.errors import AccessDenied, UserError
 from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.storage.models import Destination, Target
@@ -130,6 +129,8 @@ def workspace(tmp_path):
                 validate_target=AsyncMock(),
             ),
             owner,
+            user_id=owner or 4,
+            username=f"user{owner or 4}",
         )
 
     shared = executor("shared")
@@ -208,10 +209,9 @@ async def test_pending_scope_and_account_do_not_overwrite_each_other(workspace):
     store.set_target(2, Target("@private"), private=True)
     store.set_pending(2, "https://t.me/channel/30", executor_key="operator:2")
     assert len(store.pending_items()) == 3
-    assert len(service.pending_items(3)) == 2
+    assert len(service.pending_items(3)) == 1
     assert len(service.pending_items(1)) == 3
-    with pytest.raises(UserError, match="/pending"):
-        service.pending_record(3)
+    assert service.pending_record(3).executor_key == "shared"
     private = store.pending_items()[-1]
     with pytest.raises(UserError, match="无权"):
         await service.retry(3, private.id)
@@ -224,10 +224,12 @@ async def test_retry_snapshots_account_target_and_clears_only_itself(workspace):
     store.set_pending(3, "https://t.me/channel/20")
     item = store.pending_items()[0]
     store.set_target(3, Target("@new"))
-    job = await service.retry(3, item.id)
+    with pytest.raises(UserError, match="无权"):
+        await service.retry(3, item.id)
+    job = await service.retry(1, item.id)
     assert job.target == Target("me")
     assert job.executor_key == "operator:2"
-    assert job.user_id == 3
+    assert job.user_id == 1
     service.start()
     await service.close()
     accounts.select(2).media.upload.assert_awaited_once()
@@ -240,8 +242,8 @@ async def test_retry_snapshots_account_target_and_clears_only_itself(workspace):
 async def test_missing_original_executor_never_falls_back(workspace):
     service, store, accounts = workspace
     store.set_pending(2, "https://t.me/channel/10", executor_key="missing")
-    with pytest.raises(UserError, match="原执行账号"):
-        await service.retry(3, store.pending_items()[0].id)
+    with pytest.raises(UserError, match="执行账号不可用"):
+        await service.retry(1, store.pending_items()[0].id)
     accounts.shared.media.resolve.assert_not_awaited()
     await service.close()
 
@@ -361,8 +363,16 @@ async def test_join_uses_failed_executor_even_from_another_operator(workspace):
     store.set_pending(2, "https://t.me/channel/10", executor_key="operator:2")
     item = store.pending_items()[0]
     app = application(workspace)
+    with pytest.raises(UserError, match="无权"):
+        await app.tasks.join(
+            message(3),
+            CommandObject(
+                command="join", args=f"https://t.me/+invite {item.id}"
+            ),
+        )
+    accounts.select(2).media.join.assert_not_awaited()
     await app.tasks.join(
-        message(3),
+        message(1),
         CommandObject(command="join", args=f"https://t.me/+invite {item.id}"),
     )
     accounts.select(2).media.join.assert_awaited_once()
@@ -383,38 +393,94 @@ def test_first_configured_operator_is_default_admin(tmp_path, monkeypatch):
     assert settings.allowed_users == frozenset({1, 2, 3})
 
 
-@pytest.mark.parametrize(
-    "invalid", ["duplicate", "unauthorized", "namespace", "unknown"]
-)
-def test_account_bindings_validation(tmp_path, invalid):
-    settings = Settings(
-        "", 0, "", frozenset({1, 2}), frozenset({1}), tmp_path, tmp_path / "tdl"
-    )
-    file = tmp_path / "accounts.toml"
-    entry = '[[accounts]]\noperator_id = 2\nnamespace = "own"\n'
-    content = {
-        "duplicate": entry + entry,
-        "unauthorized": entry.replace("= 2", "= 0"),
-        "namespace": entry.replace('"own"', '"../own"'),
-        "unknown": entry + "typo = true\n",
-    }[invalid]
-    file.write_text(content)
-    with pytest.raises(ValueError, match="账号配置无效"):
-        read_account_bindings(file, settings)
-
-
-def test_account_binding_paths_and_proxy_defaults(tmp_path, monkeypatch):
+def test_legacy_binding_file_is_no_longer_configuration(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    settings = Settings(
-        "", 0, "", frozenset({1, 2}), frozenset({1}), tmp_path, tmp_path / "tdl"
+    monkeypatch.setenv("BOT_TOKEN", "configured")
+    monkeypatch.setenv("ALLOWED_USER_IDS", "1")
+    monkeypatch.setenv("ADMIN_USER_IDS", "1")
+    monkeypatch.setenv("SESSION_SOURCE", "tdl")
+    monkeypatch.setenv("ACCOUNTS_FILE", str(tmp_path / "absent.toml"))
+    settings = Settings.from_env()
+    assert not hasattr(settings, "account_bindings")
+
+
+async def test_admin_selection_persists_and_only_affects_new_tasks(
+    workspace, monkeypatch
+):
+    service, store, accounts = workspace
+    admin = await service.submit(1, "https://t.me/channel/10")
+    assert admin.executor_key == "shared"
+    selected = await service.execution_accounts(1, "2")
+    assert selected["selected"] == "operator:2" and not selected["automatic"]
+    assert len(selected["accounts"]) == 2
+    own = await service.submit(1, "https://t.me/channel/20")
+    assert own.executor_key == "operator:2"
+    assert admin.executor_key == "shared"
+    viewer = await service.execution_accounts(3)
+    assert [item["key"] for item in viewer["accounts"]] == ["shared"]
+    with pytest.raises(UserError, match="管理员"):
+        await service.execution_accounts(3, "2")
+    with pytest.raises(UserError):
+        await service.execution_accounts(99)
+    with pytest.raises(UserError):
+        await service.execution_accounts(1, "999")
+    assert store.executor_choice(1) == "operator:2"
+    reopened = Store(
+        service.jobs_dir.parent / "workspace.sqlite3", migrate=False
     )
-    settings = replace(settings, tdl_proxy="socks5://localhost:1080")
-    file = tmp_path / "accounts.toml"
-    file.write_text(
-        '[[accounts]]\noperator_id = 2\nnamespace = "own"\n'
-        'tdl_dir = "sessions"\n'
+    try:
+        assert reopened.executor_choice(1) == "operator:2"
+    finally:
+        reopened.close()
+    from tdl_bot.runtime.engine import EngineServer, RemoteService
+
+    store.save_execution_catalog(accounts.catalog())
+    server = EngineServer(service, SimpleNamespace())
+    remote = RemoteService(
+        SimpleNamespace(
+            allowed_users=frozenset({1, 2, 3}), admin_users=frozenset({1})
+        ),
+        store,
     )
-    (binding,) = read_account_bindings(file, settings)
-    assert binding.tdl_dir == tmp_path / "sessions"
-    assert binding.proxy == settings.tdl_proxy
-    assert "socks5" not in repr(binding)
+
+    async def rpc(method, **args):
+        return await server.dispatch(method, args)
+
+    monkeypatch.setattr(remote, "call", rpc)
+    assert remote.accounts.select(1).key == "operator:2"
+    assert remote.accounts.select(2).key == "operator:2"
+    assert remote.accounts.select(3).key == "shared"
+    app = application(workspace)
+    reply = message(1)
+    await app.execution.account(reply, CommandObject(command="account"))
+    assert "@user2 (UID: 2)" in reply.answer.call_args.args[0]
+    # A new frontend reads the same database selection without opening sessions.
+    assert (await remote.execution_accounts(1))["selected"] == "operator:2"
+    await remote.execution_accounts(1, "4")
+    assert remote.accounts.select(1).key == "shared"
+    await remote.execution_accounts(1, "shared")
+    assert remote.accounts.select(1).key == "shared"
+    await remote.execution_accounts(1, "auto")
+    assert store.executor_choice(1) is None
+    # Former admins cannot keep an override into another person's account.
+    store.seed_members(frozenset({1, 2, 3}), frozenset({1}))
+    await remote.execution_accounts(1, "2")
+    store.set_member_role(1, 2, "admin")
+    store.set_member_role(2, 1, "user")
+    service.policy = remote.policy
+    assert remote.accounts.select(1).key == "shared"
+    assert service.execution_account(1).key == "shared"
+    service.start()
+    await service.close()
+    accounts.select(2).media.upload.assert_not_awaited()
+
+
+async def test_reload_refreshes_accounts_without_code_change(workspace):
+    from tdl_bot.runtime.engine import EngineServer
+
+    service, _, _ = workspace
+    server = EngineServer(service, SimpleNamespace())
+    await server.dispatch("ping", {"version": server.version})
+    assert not server.reload_requested
+    await server.dispatch("ping", {"reload": True})
+    assert server.reload_requested

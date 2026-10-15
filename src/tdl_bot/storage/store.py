@@ -51,6 +51,40 @@ class Store:
         self._db = sqlite3.connect(path)
         SchemaMigrations(self).run(path, migrate=migrate)
 
+    def execution_catalog(self) -> list[dict]:
+        row = self._db.execute(
+            "SELECT value FROM workspace_metadata WHERE key='execution_catalog'"
+        ).fetchone()
+        return json.loads(row[0]) if row else []
+
+    def save_execution_catalog(self, catalog):
+        # Publish identities without authorization keys to frontends.
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO workspace_metadata VALUES (?, ?)",
+                ("execution_catalog", json.dumps(catalog)),
+            )
+
+    def executor_choice(self, operator_id: int) -> str | None:
+        row = self._db.execute(
+            "SELECT value FROM workspace_metadata WHERE key=?",
+            (f"executor:{operator_id}",),
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_executor_choice(self, operator_id: int, key: str | None):
+        with self._db:
+            if key is None:
+                self._db.execute(
+                    "DELETE FROM workspace_metadata WHERE key=?",
+                    (f"executor:{operator_id}",),
+                )
+            else:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO workspace_metadata VALUES (?, ?)",
+                    (f"executor:{operator_id}", key),
+                )
+
     @staticmethod
     def now() -> float:
         return time.time()

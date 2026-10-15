@@ -124,11 +124,15 @@ class EngineServer:
             self.reload_requested = True
             return None
         if method == "ping":
-            if args.get("version") and args["version"] != self.version:
+            if args.get("reload") or (
+                args.get("version") and args["version"] != self.version
+            ):
                 self.reload_requested = True
             return {"version": self.version, "pid": os.getpid()}
         if method in {"submit", "retry"}:
             return (await getattr(service, method)(**args)).payload()
+        if method == "execution_accounts":
+            return await service.execution_accounts(**args)
         if method == "discard_pending":
             return service.discard_pending(**args)
         if method in {"cancel", "cancel_submitted", "reconcile_permissions"}:
@@ -267,10 +271,12 @@ class RemoteMedia:
 
 
 class RemoteAccounts:
-    def __init__(self, runtime, settings):
+    def __init__(self, runtime):
         self.runtime = runtime
-        self.personal = {item.operator_id for item in settings.account_bindings}
         self.shared = self.get("shared")
+
+    def catalog(self):
+        return self.runtime.store.execution_catalog()
 
     def get(self, key):
         owner = int(key.split(":")[1]) if key.startswith("operator:") else None
@@ -281,10 +287,29 @@ class RemoteAccounts:
             tdl=self.runtime.tdl,
         )
 
+    def can_use(self, operator, key, *, admin=False):
+        return key == "shared" or key == f"operator:{operator}" or admin
+
     def select(self, operator):
-        return self.get(
-            f"operator:{operator}" if operator in self.personal else "shared"
+        preferred = (
+            self.runtime.store.executor_choice(operator)
+            if self.runtime.policy.is_admin(operator)
+            else None
         )
+        keys = {item["key"] for item in self.catalog()}
+        key = preferred or (
+            f"operator:{operator}"
+            if f"operator:{operator}" in keys
+            else "shared"
+        )
+        if preferred and preferred not in keys:
+            raise UserError(
+                tr(
+                    "The selected execution account is unavailable. "
+                    "Use /account auto."
+                )
+            )
+        return self.get(key)
 
 
 class RemoteService:
@@ -295,7 +320,7 @@ class RemoteService:
             settings.allowed_users, settings.admin_users, store=store
         )
         self.tdl = RemoteTdl(self)
-        self.accounts = RemoteAccounts(self, settings)
+        self.accounts = RemoteAccounts(self)
 
     async def call(self, method, **args):
         path = await ensure_engine(self.settings)
@@ -306,6 +331,14 @@ class RemoteService:
             raise UserError(
                 tr("The connection restarted. Check /jobs before retrying.")
             ) from None
+
+    def execution_account(self, user_id):
+        return self.accounts.select(user_id)
+
+    async def execution_accounts(self, user_id, choice=None):
+        return await self.call(
+            "execution_accounts", user_id=user_id, choice=choice
+        )
 
     async def submit(self, user_id, url, *, source_message_id=None):
         return Job.restore(
@@ -350,6 +383,9 @@ class RemoteService:
                 include_archived=self.policy.is_admin(user_id)
             )
             if self.policy.can_manage(user_id, item.destination.owner_id)
+            and self.accounts.can_use(
+                user_id, item.executor_key, admin=self.policy.is_admin(user_id)
+            )
         ]
 
     def pending_record(self, user_id, pending_id=None):

@@ -265,7 +265,6 @@ async def test_remote_engine_bootstrap_retry_and_shutdown_lifecycle(
         data_dir=j.service.jobs_dir.parent,
         allowed_users=frozenset({1, 2}),
         admin_users=frozenset({1}),
-        account_bindings=(),
     )
     j.media.resolve_user = AsyncMock(
         return_value=SimpleNamespace(

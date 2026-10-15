@@ -18,6 +18,7 @@ from aiogram.types import (
 )
 from telethon import errors
 
+from tdl_bot.bot.accounts import ExecutionCommands
 from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP
 from tdl_bot.bot.destinations import DestinationCommands
 from tdl_bot.bot.members import MemberCommands
@@ -55,6 +56,7 @@ class BotApplication:
         self.destinations = DestinationCommands(self)
         self.members = MemberCommands(self)
         self.tasks = TaskCommands(self)
+        self.execution = ExecutionCommands(self)
         router = Router()
         router.message.outer_middleware(
             Authorization(self.policy, self.refresh_menu)
