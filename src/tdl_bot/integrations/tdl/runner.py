@@ -4,6 +4,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -13,6 +14,8 @@ from tdl_bot.core.i18n import tr
 from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.integrations.tdl.updates import update
 from tdl_bot.integrations.telegram.client import AccountLock
+
+_LOGGER = logging.getLogger(__name__)
 
 _ACCESS_ERRORS = (
     "CHANNEL_PRIVATE",
@@ -148,7 +151,8 @@ class Tdl:
             "--chat",
             chat,
             "--caption",
-            json.dumps(captions) + "[FileName]",
+            # tdl exposes the basename and extension as separate variables.
+            json.dumps(captions, ensure_ascii=False) + "[FileName + FileExt]",
         ]
         if photo:
             args.append("--photo")
@@ -231,6 +235,12 @@ class Tdl:
                 ) from exc
             output = tail.decode("utf-8", errors="replace")
             if process.returncode:
+                _LOGGER.error(
+                    "tdl command failed operation=%s exit=%s reason=%s",
+                    operation,
+                    process.returncode,
+                    _failure_reason(output),
+                )
                 if operation == "upload":
                     raise UserError(
                         tr(
@@ -253,3 +263,51 @@ class Tdl:
     async def update(self, version: str = "latest") -> str:
         """Install a verified release after active transfers finish."""
         return await update(self, version)
+
+
+def _failure_reason(output: str) -> str:
+    """Classify known failures without logging private native command output."""
+    text = output.lower()
+    reasons = {
+        "caption": (
+            "get caption",
+            "resolve caption",
+            "parse caption",
+            "caption must return",
+        ),
+        "peer_resolution": (
+            "resolve chat",
+            "resolve destination",
+            "get target peer",
+            "failed to get peer",
+        ),
+        "permissions": (
+            "channel_private",
+            "chat_write_forbidden",
+            "chat_admin_required",
+            "user_banned_in_channel",
+        ),
+        "authorization": (
+            "auth_key_unregistered",
+            "auth_key_duplicated",
+            "session_revoked",
+        ),
+        "network": (
+            "connection refused",
+            "connection reset",
+            "context deadline exceeded",
+            "i/o timeout",
+        ),
+        "storage_lock": (
+            "database is used by another process",
+            "database is locked",
+        ),
+    }
+    return next(
+        (
+            reason
+            for reason, markers in reasons.items()
+            if any(marker in text for marker in markers)
+        ),
+        "unclassified",
+    )

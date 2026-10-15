@@ -205,11 +205,13 @@ async def test_subprocess_is_reaped_on_cancel_or_timeout(tmp_path, cancel):
         os.kill(int(pid_path.read_text()), 0)
 
 
-async def test_tdl_permission_errors_are_recognized(tmp_path):
+async def test_tdl_permission_errors_are_recognized(tmp_path, caplog):
     binary = tmp_path / "tdl"
     binary.write_text(
         f"#!{sys.executable}\n"
-        "import sys\nprint('rpc error: CHANNEL_PRIVATE')\nsys.exit(1)\n"
+        "import sys\n"
+        "print('rpc error: CHANNEL_PRIVATE private-caption-token')\n"
+        "sys.exit(1)\n"
     )
     binary.chmod(0o755)
     with pytest.raises(AccessDenied):
@@ -218,6 +220,8 @@ async def test_tdl_permission_errors_are_recognized(tmp_path):
         await Tdl(binary, "default")._run(["upload"], operation="upload")
     # Storage write errors must not become source-access pending retries.
     assert not isinstance(upload_error.value, AccessDenied)
+    assert "operation=upload exit=1 reason=permissions" in caplog.text
+    assert "private-caption-token" not in caplog.text
 
 
 @pytest.mark.parametrize("proxy", ["", "socks5://localhost:1080"])

@@ -177,7 +177,7 @@ async def test_native_upload_command_preserves_session_topic_and_safe_captions(
     run = AsyncMock()
     monkeypatch.setattr(tdl, "_run", run)
     directory = tmp_path / "folder,with comma"
-    captions = {'video,<name>".mp4': "unique-marker:0"}
+    captions = {'video_\N{GRINNING FACE},<name>".mp4': "unique-marker:0"}
     await tdl.upload(
         directory, Target("-1000000123456", 77), captions, photo=True
     )
@@ -190,6 +190,13 @@ async def test_native_upload_command_preserves_session_topic_and_safe_captions(
         str(directory)
     ]
     expression = args[args.index("--caption") + 1]
-    assert json.loads(expression.removesuffix("[FileName]")) == captions
+    assert "\N{GRINNING FACE}" in expression
+    mapping = json.loads(expression.removesuffix("[FileName + FileExt]"))
+    assert mapping == captions
+    for filename, receipt in captions.items():
+        # Match the real tdl exprEnv: FileName excludes the last extension.
+        name = Path(filename)
+        file_name, file_ext = name.stem, name.suffix
+        assert mapping[file_name + file_ext] == receipt
     assert "--rm" not in args and "--photo" in args
     assert run.call_args.kwargs == {"timeout": 44, "operation": "upload"}
