@@ -391,6 +391,16 @@ uv run ruff format --check src tests
 uv run ty check
 ```
 
+完整 pytest 默认统计全部 `tdl_bot` 业务代码的行与分支覆盖率，综合覆盖率
+低于 **85%** 时失败。不会排除 CLI、本机 RPC 或其他低覆盖模块。
+临时只跑某个文件时可用 `uv run pytest tests/test_dispatcher.py --no-cov`；
+提交前仍运行完整检查，不能用局部运行替代覆盖率门槛。
+
+测试侧重权限、状态变化和跨组件流程。`test_dispatcher.py` 使用真实 aiogram
+Dispatcher、中间件、服务、SQLite 和 Unix RPC，仅替换外部 Telegram／下载
+接口；`test_cli.py` 验证启动路由、进程锁、reload／stop 和交互进程退出清理。
+这些均不需要真实 Telegram 凭据，不会向真实聊天发送消息。
+
 Ruff 负责代码规范、导入排序和格式化；ty 负责类型检查与编辑器补全、跳转。
 ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvironment"`
 以保持版本一致。日常编辑建议 `ty.diagnosticMode = "openFilesOnly"`，提交前

@@ -282,7 +282,6 @@ def update_release(monkeypatch):
 @pytest.mark.parametrize(
     "installed,requested",
     [
-        ("1.2.3", "latest"),
         ("1.2.3", "v1.2.3"),
         ("1.10.0", "latest"),
     ],

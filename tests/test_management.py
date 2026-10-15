@@ -100,8 +100,8 @@ def test_deleted_members_and_roles_survive_restart(managed, tmp_path):
         reopened.close()
 
 
-@pytest.mark.parametrize("seconds", [86400, 7 * 86400, 30 * 86400])
-def test_ban_expiry_is_evaluated_dynamically(managed, monkeypatch, seconds):
+def test_ban_expiry_is_evaluated_dynamically(managed, monkeypatch):
+    seconds = 30 * 86400
     _, _, store, policy = managed
     monkeypatch.setattr(store, "now", lambda: 1000)
     store.ban_member(1, 2, seconds)

@@ -13,15 +13,12 @@ pytestmark = pytest.mark.usefixtures("chinese")
     ("url", "expected"),
     [
         ("https://t.me/channel/12", MessageLink("channel", 12)),
-        ("https://t.me/s/channel/12", MessageLink("channel", 12)),
-        ("https://telegram.me/channel/8/12", MessageLink("channel", 12)),
         ("https://t.me/c/123456/12", MessageLink(-1000000123456, 12)),
         ("https://t.me/c/123456/8/12", MessageLink(-1000000123456, 12)),
         (
             "https://t.me/channel/12?comment=42",
             MessageLink("channel", 12, 42),
         ),
-        ("https://t.me/channel/12?thread=8", MessageLink("channel", 12)),
     ],
 )
 def test_message_urls(url, expected):

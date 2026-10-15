@@ -21,6 +21,11 @@ bin/
 /accounts.toml
 .pytest_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+coverage.json
+coverage.xml
+htmlcov/
 
 # Local agent instructions
 /Agents.md

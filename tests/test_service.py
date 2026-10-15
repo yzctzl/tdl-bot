@@ -157,24 +157,6 @@ async def test_start_only_cleans_owned_abandoned_jobs(setup_service):
     await service.close()
 
 
-async def test_progress_reports_exactly_five_stages_in_order(setup_service):
-    service, _, _, _, notify = setup_service
-    service.start()
-    job = await service.submit(
-        1, "https://t.me/channel/20", source_message_id=77
-    )
-    await service.close()
-    assert [call.args[1] for call in notify.call_args_list] == [
-        "1/5 下载任务已加入队列。",
-        "2/5 正在定位媒体组。",
-        "3/5 正在下载 2 个媒体文件。",
-        "4/5 正在上传 2 个媒体文件。",
-        "5/5 完成：已上传 2 个媒体及视频文字。",
-    ]
-    assert all(call.args[0] is job for call in notify.call_args_list)
-    assert job.source_message_id == 77
-
-
 async def test_queued_cancel_releases_slot_and_old_button_cannot_cancel_new_job(
     setup_service,
 ):

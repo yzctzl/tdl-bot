@@ -5,49 +5,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from aiogram.filters import CommandObject
-from aiogram.types import Message, TelegramObject
 
 from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import Authorization, BotApplication, ProgressMessages
+from tdl_bot.bot import BotApplication
 from tdl_bot.errors import JoinPending, UserError
 from tdl_bot.service import Job
 from tdl_bot.store import Store, Target
 from tdl_bot.tdl import UpdateGate
 
 pytestmark = pytest.mark.usefixtures("chinese")
-
-
-@pytest.mark.parametrize(
-    ("user_id", "chat_type", "text", "authorized"),
-    [
-        (1, "private", "/start", True),
-        (2, "private", "/start", False),
-        (2, "private", "/whoami", True),
-        (2, "private", "/whoami@mybot", True),
-        (1, "group", "/update_tdl", False),
-    ],
-)
-async def test_authorization(user_id, chat_type, text, authorized):
-    event = Mock(
-        spec=Message,
-        chat=SimpleNamespace(type=chat_type),
-        from_user=SimpleNamespace(id=user_id),
-        text=text,
-        answer=AsyncMock(),
-    )
-    handler = AsyncMock()
-    await Authorization(AccessPolicy(frozenset({1}), frozenset({1})))(
-        handler, event, {}
-    )
-    assert handler.await_count == int(authorized)
-
-
-async def test_authorization_rejects_non_message_events():
-    handler = AsyncMock()
-    await Authorization(AccessPolicy(frozenset({1}), frozenset({1})))(
-        handler, TelegramObject(), {}
-    )
-    handler.assert_not_awaited()
 
 
 @pytest.mark.parametrize("approval_required", [False, True])
@@ -85,33 +51,6 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
     assert service.retry.call_count == int(not approval_required)
     assert store.pending_items()
     store.close()
-
-
-async def test_progress_uses_one_reply_and_edits_without_extra_messages():
-    bot = SimpleNamespace(
-        send_message=AsyncMock(return_value=SimpleNamespace(message_id=99)),
-        edit_message_text=AsyncMock(),
-    )
-    job = Job(1, "https://t.me/channel/20", Target("me"), source_message_id=77)
-    progress = ProgressMessages(bot)
-    await progress(job, "queued")
-    for text in ("resolve", "download", "upload"):
-        await progress(job, text)
-    await progress(job, "done", finished=True)
-    bot.send_message.assert_awaited_once()
-    assert (
-        bot.send_message.call_args.kwargs["reply_parameters"].message_id == 77
-    )
-    assert bot.edit_message_text.await_count == 4
-    assert all(
-        call.kwargs["message_id"] == 99
-        for call in bot.edit_message_text.call_args_list
-    )
-    button = bot.send_message.call_args.kwargs["reply_markup"].inline_keyboard[
-        0
-    ][0]
-    assert button.callback_data == f"cancel:{job.id}"
-    assert bot.edit_message_text.call_args.kwargs["reply_markup"] is None
 
 
 @pytest.mark.parametrize("invalid", [None, "owner", "stale", "message", "chat"])

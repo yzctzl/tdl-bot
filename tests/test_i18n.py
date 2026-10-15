@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from aiogram.filters import CommandObject
 
 from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.bot import (
@@ -120,59 +119,6 @@ def event(user_id):
     )
 
 
-@pytest.mark.parametrize("code", ["en", "zh"])
-async def test_first_start_requires_explicit_language_choice(bilingual, code):
-    app, store, _ = bilingual
-    user = event(2)
-    assert store.language(2) == "en"
-    assert not store.has_language(2)
-    await app.start(user)
-    prompt = user.answer.call_args
-    assert "Please choose your language" in prompt.args[0]
-    assert "请先选择语言" in prompt.args[0]
-    assert "/target" not in prompt.args[0]
-    buttons = prompt.kwargs["reply_markup"].inline_keyboard
-    assert {
-        button.callback_data: button.text for row in buttons for button in row
-    } == {
-        f"language:{key}": catalog["name"] for key, catalog in CATALOGS.items()
-    }
-    assert not store.has_language(2)
-    query = SimpleNamespace(
-        from_user=SimpleNamespace(id=2),
-        data=f"language:{code}",
-        message=SimpleNamespace(
-            chat=SimpleNamespace(type="private", id=2), message_id=80
-        ),
-        answer=AsyncMock(),
-    )
-    await app.select_language(query)
-    assert store.has_language(2)
-    assert store.language(2) == code
-    assert not store.has_language(1)
-    edited = app.bot.edit_message_text.call_args.kwargs
-    assert edited["chat_id"] == 2
-    assert edited["message_id"] == 80
-    assert edited["reply_markup"] is None
-    assert "/storage" not in edited["text"]
-    expected = (
-        "Send a Telegram message URL" if code == "en" else "发送 Telegram 消息"
-    )
-    assert expected in edited["text"]
-    reopened = Store(
-        app.service.jobs_dir.parent / "state.sqlite3", migrate=False
-    )
-    try:
-        assert reopened.has_language(2)
-        assert reopened.language(2) == code
-    finally:
-        reopened.close()
-    user.answer.reset_mock()
-    await app.start(user)
-    assert expected in user.answer.call_args.args[0]
-    assert "reply_markup" not in user.answer.call_args.kwargs
-
-
 @pytest.mark.parametrize(
     "invalid", ["denied", "group", "owner", "code", "missing"]
 )
@@ -200,38 +146,6 @@ async def test_language_buttons_validate_access_and_private_chat(
     assert query.answer.call_args.kwargs["show_alert"]
     assert not store.has_language(2)
     app.bot.edit_message_text.assert_not_awaited()
-
-
-async def test_language_command_changes_help_and_command_menu(bilingual):
-    app, store, _ = bilingual
-    user = event(2)
-    await app.help(user)
-    assert "Send a Telegram message URL" in user.answer.call_args.args[0]
-    assert "/storage" not in user.answer.call_args.args[0]
-    await app.language(user, CommandObject(command="language", args="zh"))
-    assert "当前语言：简体中文" in user.answer.call_args.args[0]
-    assert store.language(1) == "en"
-    assert store.language(2) == "zh"
-    menu = app.bot.set_my_commands.call_args.args[0]
-    assert (
-        next(item for item in menu if item.command == "language").description
-        == "选择语言"
-    )
-    await app.help(user)
-    assert "发送 Telegram 消息 url" in user.answer.call_args.args[0]
-    await app.language(user, CommandObject(command="language", args="en"))
-    assert "Language: English" in user.answer.call_args.args[0]
-    menu = app.bot.set_my_commands.call_args.args[0]
-    assert (
-        next(item for item in menu if item.command == "language").description
-        == "Choose your language"
-    )
-    with pytest.raises(UserError, match="Unsupported language"):
-        await app.language(user, CommandObject(command="language", args="fr"))
-    assert store.language(2) == "en"
-    admin = event(1)
-    await app.help(admin)
-    assert "/storage" in admin.answer.call_args.args[0]
 
 
 async def test_background_jobs_and_cancellation_use_submitters_language(

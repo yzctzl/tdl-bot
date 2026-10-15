@@ -57,11 +57,14 @@ def metadata(app="builtin", address="149.154.167.51:443"):
     }
 
 
+# App selection and address resolution do not need a Cartesian product.
 @pytest.mark.parametrize(
-    "app, expected_id", [("builtin", 15055931), ("desktop", 2040)]
-)
-@pytest.mark.parametrize(
-    "address", ["149.154.167.51:443", "", "[2001:db8::1]:443"]
+    "app,expected_id,address",
+    [
+        ("builtin", 15055931, "149.154.167.51:443"),
+        ("desktop", 2040, ""),
+        ("builtin", 15055931, "[2001:db8::1]:443"),
+    ],
 )
 def test_imports_existing_key_dc_and_app(app, expected_id, address):
     imported = decode_session(metadata(app, address), "default")
