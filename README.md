@@ -22,6 +22,18 @@ Bot API 没有按任意消息 url 获取历史消息／整个媒体组的接口�
 tdl 负责下载，Telethon 负责按原顺序重新上传完整媒体组，保留原 MIME、视频
 属性、文字和 entities；通过用户账号上传也支持较大的视频。
 
+### Windows 兼容性
+
+当前版本不支持 Windows 原生运行。静态检查发现：启动入口和任务引擎直接
+导入 `fcntl` 并使用 `flock`；进程通信使用 asyncio Unix socket；手动热重启
+依赖 `SIGHUP` 和事件循环的 Unix 信号处理接口。这些依赖尚未提供 Windows
+替代实现，原生启动会先在导入 `fcntl` 时失败。
+
+tdl 更新器能选择 Windows 压缩包，并不代表整个 Bot 支持 Windows。
+Windows 用户可考虑在 WSL2 的 Linux 环境中部署，使用 Linux 版 Python、uv
+和 tdl，并将项目、会话及运行数据放在 WSL 的 Linux 文件系统内。
+本次仅做代码静态检查，未在 Windows 或 WSL 上实测。
+
 ## 安装与登录
 
 在项目根目录执行：
