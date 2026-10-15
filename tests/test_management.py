@@ -594,6 +594,32 @@ async def test_admin_status_shows_all_targets_but_other_users_cannot(managed):
         await app.status(message(3), command("status", "2"))
 
 
+@pytest.mark.parametrize("username", [None, "example_forum"])
+async def test_users_links_bot_dialogue_and_channel_topic(managed, username):
+    app, _, store, _ = managed
+    store.remember_user(1, None, "Admin <owner> & friends")
+    store.set_target(2, Target("-1001234567890", 77), private=True)
+    app.bot.get_me = AsyncMock(
+        return_value=SimpleNamespace(username="example_bot")
+    )
+    app.bot.get_chat = AsyncMock(
+        return_value=SimpleNamespace(title="Forum <test>", username=username)
+    )
+    event = message(1)
+    await app.users(event, command("users"))
+    text = event.answer.call_args.args[0]
+    assert "Admin &lt;owner&gt; &amp; friends" in text
+    assert '<a href="https://t.me/example_bot">Bot 对话</a>' in text
+    url = (
+        "https://t.me/example_forum/77"
+        if username
+        else "https://t.me/c/1234567890/77"
+    )
+    assert f'<a href="{url}">Forum &lt;test&gt; / 话题 77</a>' in text
+    assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
+    assert event.answer.call_args.kwargs["link_preview_options"].is_disabled
+
+
 def test_result_cache_and_profiles_survive_restart(managed, tmp_path):
     _, _, store, _ = managed
     store.remember_user(2, "example", "Test")

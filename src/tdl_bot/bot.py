@@ -809,15 +809,19 @@ class BotApplication:
                 else (f"封禁至 {self._deadline(member.banned_until)}")
             )
             await self._refresh_profile(member.user_id)
-            lines.append(
-                f"{self.store.user_label(member.user_id)} · {role} · {state}"
+            label = escape(self.store.user_label(member.user_id))
+            lines.append(f"{label} · {role} · {state}")
+            target_link = await self._target_link(
+                self.store.recipient(member.user_id).target, member.user_id
             )
-            lines.append(
-                f"当前目标：{self._target_label(self.store.recipient(member.user_id).target)}"
-            )
+            lines.append(f"当前目标：{target_link}")
         if not self.policy.is_admin(message.from_user.id):
             raise UserError("只有管理员可以查看成员列表。")
-        await message.answer("\n".join(lines))
+        await message.answer(
+            "\n".join(lines),
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
 
     async def user_add(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 1)
