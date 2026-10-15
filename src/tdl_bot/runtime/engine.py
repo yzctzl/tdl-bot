@@ -41,7 +41,7 @@ def spawn_process(command: str, **kwargs):
         [
             sys.executable,
             "-c",
-            "from tdl_bot.runtime.cli import main; main()",
+            "from tdl_bot import main; main()",
             command,
         ],
         **kwargs,

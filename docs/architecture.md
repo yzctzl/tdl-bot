@@ -14,6 +14,16 @@ responsibility; imports should use their package paths directly.
 | `runtime` | CLI, manual reload supervision and private engine RPC |
 | `locales` | English and Chinese catalogs; additional languages go here |
 
+The Bot application composes `DestinationCommands`, `MemberCommands` and
+`TaskCommands`; it binds their methods through the command registry. Independent
+middleware and progress adapters keep transport details out of handlers. Shared
+values live in `storage/models.py`, task snapshots in `transfers/jobs.py`, schema
+upgrades in `storage/schema.py`, and binary updates in `integrations/tdl/updates.py`.
+
+The root `cli.py` is a temporary compatibility entry point for supervisors already
+running before this reorganization. New children use the stable package-level
+`main()` entry point, so future internal module moves do not affect spawning.
+
 ## Transfer flow
 
 1. The Bot captures a destination and execution account when accepting a URL.
@@ -57,3 +67,10 @@ receipt API could replace more orchestration without changing Bot handlers.
   across accounts. Native tdl storage and MTProto sessions have different locks.
 - Keep source strings, comments and developer-facing logs in English. Translate
   user messages through `tr()` and keep Chinese text in the locale catalog.
+
+## Small logic improvements
+
+Authorization uses a single indexed member lookup rather than loading all
+members for every check. Uploads reuse the peer returned by destination
+validation. Task and retry list buttons share the same bounded, persisted control
+history, and download verification reuses file sizes between completeness checks.
