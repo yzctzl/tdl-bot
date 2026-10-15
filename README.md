@@ -381,7 +381,8 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `WORKERS` | `2` | 后台任务 worker 数量 |
 | `QUEUE_SIZE` | `20` | 最多排队任务数量 |
 | `DOWNLOAD_TIMEOUT` | `7200` | 单次 tdl 下载超时，秒 |
-| `UPLOAD_CONCURRENCY` | `8` | 大文件上传分片并发窗口，1–32，每片 512 KiB |
+| `UPLOAD_CONCURRENCY` | `8` | tdl 每文件上传线程数；独立 Telethon 模式的分片窗口，1–32 |
+| `UPLOAD_TIMEOUT` | `7200` | 单次 tdl 文件夹上传超时，秒 |
 
 ## 验证
 
@@ -488,16 +489,33 @@ the transfer flow, and the division of work between tdl and Telegram APIs.
 
 ## Upload performance
 
-Large local files use bounded batches of 512 KiB parts over the existing
-Telethon connection. `UPLOAD_CONCURRENCY=8` allows up to 4 MiB of file payload
-per batch instead of waiting for every individual part acknowledgement.
-The shared tdl session lock remains held for each complete batch, preserving
-protocol-layer coordination. Small files use Telethon's regular uploader with
-512 KiB parts; streams and custom upload options retain Telethon's behavior.
-`cryptg` provides native encryption acceleration.
+With `SESSION_SOURCE=tdl` (the default), file bytes are uploaded by the native
+`tdl upload --path <folder>` command using the selected execution account's
+existing namespace, storage and proxy. Personal bindings also use native upload.
+`UPLOAD_CONCURRENCY=8` sets tdl's per-file upload threads; `UPLOAD_TIMEOUT=7200`
+bounds one complete folder upload independently of the download timeout.
 
-The service logs upload size, duration and throughput without file names or
-captions. Compare the same file and network after manually reloading the Bot;
-new upload code takes effect when the resident engine has finished old tasks.
-Actual throughput depends on Telegram, the proxy and the network; the configured
-window is a concurrency bound, not a guaranteed upload rate.
+The inspected tdl upload implementation sends files as separate messages. The
+Bot tags those temporary storage posts with unguessable, per-task receipts,
+verifies every expected file and then assembles an album server-side using the
+uploaded media references. It restores original order, captions and formatting,
+removes spoilers, and records only the final album for reuse and delivery.
+No file bytes are uploaded a second time by Telethon. Folder entries are hard
+links to validated downloads, so preparing the upload does not duplicate videos
+on disk. The native caption expression uses a filename-to-receipt map rather
+than interpreting file names as caption HTML.
+
+Temporary storage posts are removed after success, failure or cancellation.
+Only this task's tagged messages are eligible for removal; unrelated messages
+are untouched. The execution account must be able to delete its staging posts.
+Cleanup failures are logged; a forced engine crash can leave staging posts for
+an administrator to remove. Frontend reloads leave the engine and tdl running.
+
+The explicitly configured standalone `SESSION_SOURCE=telethon` mode retains the
+Telethon uploader because it does not provide an existing native tdl login.
+Its large-file upload window and native `cryptg` acceleration remain available.
+
+Upload logs include transfer size, duration and verified throughput, without
+file names or captions. Use manual reload to adopt the new code after old engine
+tasks finish, then compare the same source and network. Actual throughput depends
+on Telegram, the proxy and the network.

@@ -29,7 +29,8 @@ running before this reorganization. New children use the stable package-level
 1. The Bot captures a destination and execution account when accepting a URL.
 2. The resident engine looks for a saved storage result before reading the source.
 3. A new source album is copied server-side where possible. Protected albums
-   fall back to a native tdl download followed by an MTProto upload.
+   fall back to native tdl download and folder upload, followed by server-side
+   album assembly. Standalone Telethon login retains its own uploader.
 4. Storage copies have spoilers removed, and their IDs are saved before delivery.
 5. The Bot copies the saved album to the user's destination. A failed delivery
    keeps the storage result available for a later request.
@@ -38,22 +39,29 @@ The Bot process can restart independently of the resident engine. Manual reload
 hashes all Python sources recursively and all locale catalogs. New engine code
 is loaded after existing work finishes; frontend restarts do not kill tdl.
 
-## Why not delegate the entire transfer to tdl?
+## Native uploads and server-side album assembly
 
-The bundled tdl source already provides downloads, upload, direct forwarding and
-clone forwarding. We use its download and backup commands rather than duplicate
-its downloader or storage decoder. Session backup is decoded into a memory-only
-Telethon session; existing tdl authorization remains the source of truth.
+Native tdl handles file bytes and its own storage/authorization. Session backup
+is decoded into a memory-only Telethon session for the small MTProto operations
+that surround transfers. Default and personal native sessions use the same path.
 
-In the inspected implementation, forwarding and upload CLI progress do not expose
-a structured destination-message receipt. The forwarding core discards the send
-response, and clone forwarding retains spoilers. Replacing our MTProto adapter
-with those commands would require guessing storage message IDs from history,
-which is unsafe with concurrent jobs and cannot reliably recover a lost reply.
-MTProto calls provide the exact IDs needed by result reuse and delivery history.
+The inspected upload CLI sends files independently, does not return structured
+message IDs, and may exit successfully after a partial upload. We therefore
+upload an isolated folder of hard links into internal storage. A caption
+expression maps each filename to a random per-task marker plus its original
+position. These exact receipts distinguish concurrent jobs and unrelated posts;
+we never infer file identity from the newest message IDs or upload order.
 
-Keep the native tdl interface behind its adapter. A future upstream structured
-receipt API could replace more orchestration without changing Bot handlers.
+Only a complete, unambiguous set with matching document sizes is assembled into
+an album using existing Telegram media references. Telethon transfers captions
+and media references at this step, not the file bytes. Final album IDs enter the
+existing result ledger before Bot delivery. Temporary tagged messages are
+removed even on failure or cancellation; cleanup errors are logged and never
+mask the original transfer failure. A hard engine crash can leave temporary
+storage posts, while ordinary frontend reloads keep the engine alive.
+
+Native forwarding still lacks the exact result receipts and spoiler handling
+required by the direct-copy path, so that path remains an MTProto operation.
 
 ## Boundaries worth preserving
 
