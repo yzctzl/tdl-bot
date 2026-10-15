@@ -199,6 +199,101 @@ The Bot handles final delivery, so execution accounts do not need access to each
 operator's destination. Standalone `SESSION_SOURCE=telethon` keeps its single
 shared execution account.
 
+## Channel dumps and periodic follows
+
+`dump` copies the source history visible to the selected execution account,
+from oldest to newest, processing each album as one unit. Only administrators
+can use it. The upper message ID is captured when the task is created, so a busy
+source does not make a dump run forever. Newer posts can be handled by a separate
+follow task.
+
+`follow` is available to every authorized member. It starts after the latest
+message present at creation, checks every five minutes by default, and copies
+new messages in order. It does not synchronize edits or deletions. Both modes
+include albums, individual media and text, and ignore service notifications.
+Text messages count as individual groups in progress counters.
+
+```text
+/dump @source_channel to @backup_channel
+/dump https://t.me/source_channel
+/follow @source_channel to @backup_channel every 5m
+/follow @source_channel every 60s
+/follow @source_channel to @backup_channel 42 every 10m
+```
+
+Sources accept usernames, Telegram homepages or message links, marked chat IDs,
+and raw channel IDs. Private sources must be accessible to the execution account;
+invite links are checked without automatically joining. Targets accept the same
+chat IDs or usernames as `/target`, plus an optional topic ID. Prepare the target
+channel/group first and give the Bot permission to post there. The Bot also
+needs access to internal storage for final delivery. No channels are created.
+
+Omitting `to` saves only to internal shared storage, with no second delivery.
+Regular users see “Default storage” rather than the internal location. Existing
+results are reused before any new byte transfer; an explicit destination still
+receives every new source post. Starting a new dump after a completed one can
+intentionally send that history again.
+
+Ordinary members may have up to three active follows; paused follows do not
+occupy an active slot, and resuming checks the limit again. Administrators have
+no count limit and can manage other members' tasks. A task retains its original
+execution account and targets; later `/account`, `/target` or `/storage` changes
+apply to new tasks. Removing access or banning the owner pauses affected work.
+Restore the original owner's permissions/session before resuming it.
+
+Use the same controls for both command families:
+
+```text
+/dump
+/dump list 2
+/dump status <id>
+/dump pause <id>
+/dump resume <id>
+/dump cancel <id>
+/follow
+/follow status <id>
+/follow pause <id>
+/follow resume <id>
+/follow cancel <id>
+/follow interval <id> 10m
+```
+
+Lists show five tasks per page. Ordinary members see only their own follows;
+administrators can also see dumps and other members' follows. `remove` is an
+alias for `cancel`. Cancelled tasks retain their history and cannot be resumed.
+Intervals accept seconds, minutes, hours and days (`60s`, `5m`, `1h`, `1d`), with
+a minimum of 60 seconds.
+
+Cursors advance only after a whole unit is successfully saved/delivered. Safe
+network failures back off automatically, and Telegram rate limits respect the
+reported delay. Other errors pause the task. If a write was interrupted or its
+acknowledgement was lost, check the destination and explicitly choose:
+
+```text
+/follow resume <id> retry
+/follow resume <id> skip
+```
+
+The same choices work for `/dump`. `retry` attempts the unfinished unit again;
+`skip` advances past that unit after your inspection. This avoids silently
+repeating uncertain sends. Already delivered messages are retained when a task
+is paused or cancelled; local temporary files are cleaned up.
+
+The resident engine stores task definitions, cursors and uncertain writes in
+SQLite. A frontend reload leaves current work alive. When engine code reloads,
+the current unit finishes and checkpoints before handoff. A frontend health check
+starts the replacement engine even without another user command, so follows
+continue unattended. It does not watch source files or trigger code reloads.
+An engine crash during a write pauses that task for explicit inspection.
+
+History pages are bounded and extend through the final album boundary. Follow
+backlogs are drained in further pages without waiting a full polling interval
+between them. Recently published tail albums get a short settling window.
+At most two backup scans run concurrently, while transfers share existing
+account locks, update gates, result caches and native clone verification.
+Self-copies, reading internal storage as a source, and cycles between this
+workspace's follow routes are rejected.
+
 ## 旧数据库迁移
 
 首次启动新版本时，在原数据库旁创建权限为 0600 的

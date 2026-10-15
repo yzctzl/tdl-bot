@@ -118,3 +118,34 @@ Normal engine startup remains read-only with respect to login: missing sessions
 fail instead of creating an empty database. Login holds the runtime, storage and
 binary locks, so it cannot replace an authorization used by the resident engine.
 Cancellation terminates and reaps the native child before releasing these locks.
+
+## Durable dumps and follows
+
+`storage.backups` stores task snapshots in schema v8; migration from v7 keeps
+membership, result history and delivery history and creates a private backup.
+Creation also retains the initiating Telegram message ID, so a redelivered
+command reuses its original snapshot even after completion.
+`integrations.telegram.history` reads bounded chronological history pages and
+extends them to an album boundary. Checkpoint identities use marked chat IDs;
+public usernames are used only when native tdl needs a resolvable media URL.
+Basic groups retain a Telethon download fallback because they have no tdl URL.
+
+The backup scheduler runs in the resident engine, independently of polling.
+Dump tasks freeze an upper message ID; follows freeze their initial cursor and
+read newer messages on each poll. Both reuse `TransferService.backup_group`,
+including storage caching, direct copies, native clone receipts and final Bot
+delivery. Storage-only tasks skip final delivery. Protected text copies preserve
+entities while removing spoilers. Quiet per-unit jobs do not spam Bot progress.
+
+Before a unit starts, its ending ID and writing phase are committed. The cursor
+is committed only after transfer and delivery complete. Restarting a writing
+phase requires explicit retry/skip resolution. Safe read failures and definite
+rate-limit rejections back off; uncertain sends pause. Pause/cancel awaits child
+termination and cleanup. Membership changes are checked both between units and
+by the engine's permission reconciliation loop.
+
+Reload quiesces the scheduler at unit boundaries, and the engine waits for
+backup work as well as regular jobs and RPC calls. The frontend's health task
+ensures a replacement engine starts after handoff without requiring a new user
+request. This health check never hashes code or watches directories. Shutdown
+stops the frontend health task before draining the resident engine.
