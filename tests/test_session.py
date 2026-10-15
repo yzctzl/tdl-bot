@@ -5,7 +5,7 @@ import base64
 import hashlib
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 import zstandard
@@ -203,29 +203,66 @@ def test_api_credentials_required_only_for_independent_login(
         assert settings.session_source == "tdl"
 
 
-async def test_login_command_only_checks_reused_authorization(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("state", ["existing", "missing", "expired", "failed"])
+async def test_native_login_reuses_or_creates_authorization(
+    tmp_path, monkeypatch, state
 ):
     imported = decode_session(metadata(), "default")
+    missing = UserError("missing authorization")
+    imports = {
+        "existing": [imported],
+        "missing": [missing, imported],
+        "expired": [imported, imported],
+        "failed": [missing, missing],
+    }[state]
     monkeypatch.setattr(
-        "tdl_bot.runtime.cli.load_tdl_session", AsyncMock(return_value=imported)
+        "tdl_bot.runtime.login.load_tdl_session", AsyncMock(side_effect=imports)
     )
-    client = SimpleNamespace(
-        connect=AsyncMock(),
-        start=AsyncMock(),
-        is_user_authorized=AsyncMock(return_value=True),
-        get_me=AsyncMock(return_value=SimpleNamespace(bot=False, id=123)),
-        disconnect=AsyncMock(),
+    clients = []
+
+    def make_client(*args, **kwargs):
+        valid = state != "expired" or bool(clients)
+        client = SimpleNamespace(
+            connect=AsyncMock(),
+            is_user_authorized=AsyncMock(return_value=valid),
+            get_me=AsyncMock(return_value=SimpleNamespace(bot=False, id=123)),
+            disconnect=AsyncMock(),
+        )
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        "tdl_bot.runtime.login.SharedSessionClient", make_client
     )
-    constructor = Mock(return_value=client)
-    monkeypatch.setattr("tdl_bot.runtime.cli.SharedSessionClient", constructor)
+    login, update = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(Tdl, "login", login)
+    monkeypatch.setattr(Tdl, "update", update)
+    binary = tmp_path / "tdl"
+    if state in {"existing", "expired"}:
+        binary.touch()
     settings = Settings(
-        "", 0, "", frozenset(), frozenset(), tmp_path, tmp_path / "tdl"
+        "",
+        0,
+        "",
+        frozenset(),
+        frozenset(),
+        tmp_path,
+        binary,
+        tdl_dir=tmp_path / ".tdl",
     )
-    await run(settings, "login")
-    assert constructor.call_args.args[0] is imported.session
-    client.start.assert_not_awaited()
-    client.connect.assert_awaited_once()
+    if state == "failed":
+        with pytest.raises(UserError):
+            await run(settings, "login")
+    else:
+        await run(settings, "login")
+    if state == "existing":
+        login.assert_not_awaited()
+    else:
+        login.assert_awaited_once_with("qr")
+    assert update.await_count == (state in {"missing", "failed"})
+    for client in clients:
+        client.connect.assert_awaited_once()
+        client.disconnect.assert_awaited_once()
     assert not list(tmp_path.glob("*.session"))
 
 

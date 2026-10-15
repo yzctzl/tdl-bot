@@ -12,15 +12,15 @@
 
 - Python 3.12+、uv，Linux 或 macOS。
 - 由 @BotFather 创建的 Bot token。
-- 已登录 Telegram 用户账号的项目 `./.tdl` 目录。
-- tdl 可执行文件；当前项目中的 `bin/tdl` 可以直接使用。
+- 项目 `./.tdl` 目录中的 Telegram 用户会话，可通过下方登录命令创建。
+- tdl 可执行文件；登录命令会在缺少时下载官方发行包并校验后安装。
 - 默认直接复用 tdl 的已有授权。来源群的读取和入群、目标的写入均使用
   该账号；最终发送使用 Bot，无需让 tdl-bot 再次登录。
 
 Bot API 没有按任意消息 url 获取历史消息／整个媒体组的接口。仅用 aiogram
 不能从历史 url 补齐其余成员，所以使用 Telethon 用户会话读取消息和入群。
-tdl 负责下载，Telethon 负责按原顺序重新上传完整媒体组，保留原 MIME、视频
-属性、文字和 entities；通过用户账号上传也支持较大的视频。
+tdl 通过原生 clone 传输受限媒体，保留原 MIME、视频属性和预览；Telethon
+使用已上传媒体引用按原顺序组建相册，恢复文字和 entities。
 
 ### Windows 兼容性
 
@@ -41,9 +41,23 @@ Windows 用户可考虑在 WSL2 的 Linux 环境中部署，使用 Linux 版 Pyt
 ```bash
 uv sync
 cp .env.example .env
+uv run tdl-bot login
 ```
 
-编辑 `.env`，填写 `BOT_TOKEN` 和 `ADMIN_USER_IDS`，保留默认会话配置：
+登录命令默认使用二维码，直接调用原生 tdl，并显式指定项目的 `.tdl/data`
+和 `default` namespace。缺少 `TDL_BINARY` 时，先下载官方发行包，验证
+SHA-256 和程序版本，再安装到默认的 `bin/tdl`。已有有效授权时仅验证并复用，
+不重新登录。验证码／两步验证交互直接由 tdl 在终端处理，Bot 不收集登录凭据。
+
+验证码登录或导入 Telegram Desktop 会话可分别使用：
+
+```bash
+uv run tdl-bot login --login-method code
+uv run tdl-bot login --login-method desktop
+```
+
+登录成功会显示账号 UID。编辑 `.env`，填写 `BOT_TOKEN` 和
+`ADMIN_USER_IDS`，保留默认会话配置：
 
 ```dotenv
 SESSION_SOURCE=tdl
@@ -53,35 +67,37 @@ TDL_NAMESPACE=default
 
 `ADMIN_USER_IDS` 必须显式填写，使用 Telegram 用户 UID，以逗号分隔。
 首次启动仅初始化这些管理员；普通成员由管理员使用 `/user_add` 添加。
-`ALLOWED_USER_IDS` 已移除，不再作为初始化或授权来源。
-
-成员初始化后，SQLite 是权限的唯一来源：通过 Bot 添加、删除、封禁或修改角色
-即时生效。已有数据库不会因为 `.env` 变化而重新添加成员或重置角色，后续启动
-也无需再次配置 `ADMIN_USER_IDS`。登录命令不要求 Bot token 或管理员 UID，
-可以先完成登录并获取 UID，再填写首次运行所需配置。
-
-已有 `./.tdl/data/default` 会话时直接启动：
+`ALLOWED_USER_IDS` 已移除，不再作为初始化或授权来源。完成配置后启动：
 
 ```bash
 uv run tdl-bot
 ```
 
-`TDL_DIR` 指 tdl 根目录，而不是其中的 `data` 子目录。Bot 显式传入
-`--storage type=bolt,path=<TDL_DIR>/data`，不再依赖 tdl 默认的 `~/.tdl`。
-也支持仅有 `data.kv`、尚未迁移到 `data/` 的旧版 legacy 存储。
-namespace 如有调整，需同步修改 `.env` 的 `TDL_NAMESPACE`。
+管理员随后在 Bot 中使用 `/storage` 配置内部存储；Bot 必须加入该存储频道
+并具有相应权限，执行账号也必须能够向其发送内容。
 
-Bot 启动时调用 tdl 原生 `backup` 接口读取 Bolt 存储，将既有 gotd 授权密钥、
-DC 配置和应用信息转换为 Telethon **内存会话**。临时备份在权限为 0700 的
-目录内，读取后立即删除；不会生成 `data/telegram.session`，也不会修改
-tdl 的授权密钥或要求输入验证码。读取失败时直接报错，不会回退到重新登录。
-`uv run tdl-bot login` 在默认模式下只检查既有授权是否有效。
+成员初始化后，SQLite 是权限的唯一来源。已有数据库不会因为 `.env` 变化而
+重新添加成员或重置角色，后续启动也无需再次配置 `ADMIN_USER_IDS`。
+登录命令不要求 Bot token 或管理员 UID，可以先登录再填写首次运行所需配置。
 
-如果需要检查原 tdl 会话，可以直接执行：
+`TDL_DIR` 指 tdl 根目录，而不是其中的 `data` 子目录；相对路径从运行命令的
+工作目录解析，因此请始终在项目根目录执行。也支持自定义绝对路径、`~` 路径，
+以及仅有 `data.kv` 的旧版 legacy 存储。Bot 不会自动从家目录复制登录信息。
+
+普通的 `tdl login` 仍使用 tdl 自身的默认 `~/.tdl`。要把授权保存在项目内，
+使用上述 `tdl-bot login`，或显式指定相同存储：
 
 ```bash
-bin/tdl --storage type=bolt,path=./.tdl/data --ns default chat ls
+bin/tdl --storage type=bolt,path=./.tdl/data --ns default login --type qr
 ```
+
+tdl 自身仍可能在 `~/.tdl` 创建日志和扩展目录；这不改变显式 storage 指定的
+登录凭据位置。通过 `tdl-bot login` 登录时需先停止服务，进程锁会防止改写
+正在使用的会话。读取、下载和转存等普通运行路径不会创建空会话或触发登录。
+
+Bot 运行时调用 tdl 原生 `backup` 读取授权，将密钥、DC 配置和应用信息转换为
+Telethon 内存会话。临时备份在权限为 0700 的目录内，读取后删除；不会生成
+`data/telegram.session`，也不会在启动失败时自动登录。
 
 共享授权需要 tdl 和 Telethon 使用相同的网络出口；配置 `TDL_PROXY` 时两者
 同步使用该代理（支持 socks5、socks4、http）。运行期间避免在不同网络出口
@@ -156,13 +172,18 @@ new tasks. Accepted tasks and retries retain their original execution account;
 a missing original account never silently falls back to another identity.
 Overrides stop applying when an operator loses administrator rights.
 
-Sign in through tdl itself, using a distinct namespace under the configured
-storage directory. For example, when `TDL_DIR=.tdl` uses Bolt storage:
+Add another account in a distinct namespace while the service is stopped:
 
 ```sh
-bin/tdl --storage type=bolt,path=.tdl/data --ns personal login
-uv run tdl-bot reload
+uv run tdl-bot stop
+uv run tdl-bot login --namespace personal
+uv run tdl-bot
 ```
+
+`--namespace` affects only that login and does not change the configured shared
+namespace. If you use tdl directly while the Bot is running, log in to a new,
+unused namespace with the same explicit storage path, then manually reload.
+Do not reauthenticate an account being used by running jobs.
 
 Manual reload discovers newly logged-in or logged-out sessions after existing
 engine work finishes. No directory watcher or Bot login flow is involved.

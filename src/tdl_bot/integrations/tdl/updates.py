@@ -63,6 +63,8 @@ async def update(tdl, version: str = "latest") -> str:
                 )
 
             async def unnecessary() -> bool:
+                if not tdl.binary.is_file():
+                    return False
                 current = version_number(await tdl.version())
                 return current == desired or (
                     version == "latest" and current > desired

@@ -54,8 +54,8 @@ class Tdl:
         self._process_lock = storage_lock or self.account_lock
         self.gate = UpdateGate()
 
-    def storage_args(self) -> list[str]:
-        """Select an existing namespace without creating an empty database."""
+    def storage_args(self, *, create: bool = False) -> list[str]:
+        """Only explicit login may create storage for a new namespace."""
         if self.data_dir is None:
             return []
         if not self.namespace or Path(self.namespace).name != self.namespace:
@@ -68,6 +68,8 @@ class Tdl:
             driver, path = "bolt", bolt
         elif not bolt.exists() and legacy.is_file():
             driver, path = "legacy", legacy
+        elif create:
+            driver, path = "bolt", bolt
         else:
             raise UserError(
                 tr(
@@ -81,6 +83,43 @@ class Tdl:
             [f"type={driver}", f"path={path}"]
         )
         return ["--storage", output.getvalue()]
+
+    async def login(self, method: str = "qr"):
+        """Run native login on the terminal without capturing credentials."""
+        if method not in {"qr", "code", "desktop"}:
+            raise ValueError("Unsupported native login method")
+        args = [
+            *self.storage_args(create=True),
+            "--ns",
+            self.namespace,
+            "login",
+            "--type",
+            method,
+        ]
+        environment = os.environ.copy()
+        if self.proxy is not None:
+            environment["TDL_PROXY"] = self.proxy
+        async with self.account_lock, self._process_lock:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    str(self.binary), *args, env=environment
+                )
+            except OSError as exc:
+                raise UserError(
+                    tr("Cannot start tdl. Check TDL_BINARY.")
+                ) from exc
+            try:
+                code = await process.wait()
+            except asyncio.CancelledError:
+                await _terminate(process)
+                raise
+            if code:
+                raise UserError(
+                    tr(
+                        "tdl login failed. Check the terminal output "
+                        "and try again."
+                    )
+                )
 
     async def backup(self, destination: Path) -> None:
         """Read existing account metadata through tdl's backup interface."""
@@ -218,16 +257,7 @@ class Tdl:
                     asyncio.shield(reader), timeout or self.timeout
                 )
             except (TimeoutError, asyncio.CancelledError) as exc:
-                if process.returncode is None:
-                    try:
-                        process.terminate()
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        await asyncio.wait_for(process.wait(), 5)
-                    except TimeoutError:
-                        process.kill()
-                        await process.wait()
+                await _terminate(process)
                 await reader
                 if isinstance(exc, asyncio.CancelledError):
                     raise
@@ -322,3 +352,21 @@ def _failure_reason(output: str) -> str:
         ),
         "unclassified",
     )
+
+
+async def _terminate(process):
+    """Reap terminal and background children before releasing session locks."""
+    if process.returncode is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(process.wait(), 5)
+    except TimeoutError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        await process.wait()

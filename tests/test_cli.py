@@ -143,3 +143,33 @@ async def test_frontend_reconnects_and_closes_resources_without_stopping_engine(
     assert bot.set_my_commands.await_count >= 2
     exchange.assert_awaited_once()
     assert exchange.call_args.args[1]["method"] == "ping"
+
+
+@pytest.mark.parametrize("namespace", ["personal", "../outside"])
+def test_login_uses_project_storage_without_requiring_an_existing_namespace(
+    settings, monkeypatch, namespace
+):
+    run = AsyncMock()
+    monkeypatch.setattr(cli, "run", run)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "tdl-bot",
+            "login",
+            "--namespace",
+            namespace,
+            "--login-method",
+            "code",
+        ],
+    )
+    if namespace.startswith(".."):
+        with pytest.raises(SystemExit):
+            cli.main()
+        run.assert_not_awaited()
+    else:
+        cli.main()
+        configured, command = run.call_args.args
+        assert command == "login" and configured.tdl_namespace == namespace
+        assert configured.tdl_dir == settings.tdl_dir
+        assert settings.tdl_namespace == "default"
+        assert run.call_args.kwargs == {"login_method": "code"}

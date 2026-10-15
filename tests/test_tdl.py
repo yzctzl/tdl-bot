@@ -101,12 +101,13 @@ def test_digest_and_archive_validation():
         extract_binary(make_archive(b"evil", "../../tdl"), "asset.tar.gz")
 
 
-@pytest.mark.parametrize("corrupt", [False, True])
+@pytest.mark.parametrize("state", ["update", "install", "corrupt"])
 async def test_update_installs_only_verified_release(
-    tmp_path, monkeypatch, corrupt
+    tmp_path, monkeypatch, state
 ):
     binary = tmp_path / "tdl"
-    binary.write_bytes(b"original")
+    if state != "install":
+        binary.write_bytes(b"original")
     script = f"#!{sys.executable}\nprint('Version: 1.2.3')\n".encode()
     archive = make_archive(script)
     checksum = hashlib.sha256(archive).hexdigest()
@@ -144,7 +145,7 @@ async def test_update_installs_only_verified_release(
     async def fetch(session, url, limit):
         if url == "tdl_checksums.txt":
             return f"{checksum} {name}".encode()
-        return archive + b"corrupt" if corrupt else archive
+        return archive + b"corrupt" if state == "corrupt" else archive
 
     monkeypatch.setattr(
         "tdl_bot.integrations.tdl.updates.aiohttp.ClientSession", Session
@@ -157,7 +158,7 @@ async def test_update_installs_only_verified_release(
         return await actual_version(path) if path else "Version: 1.0.0"
 
     monkeypatch.setattr(tdl, "version", version)
-    if corrupt:
+    if state == "corrupt":
         with pytest.raises(UserError, match="SHA-256"):
             await tdl.update("v1.2.3")
         assert binary.read_bytes() == b"original"
@@ -331,6 +332,7 @@ async def test_waiting_update_rechecks_version_before_fetching(
     tmp_path, monkeypatch, update_release
 ):
     _, fetch = update_release
+    (tmp_path / "tdl").touch()
     tdl = Tdl(tmp_path / "tdl", "shared")
     checked = asyncio.Event()
     calls = 0
@@ -400,3 +402,54 @@ async def test_version_uses_disposable_storage_instead_of_account(
     assert await tdl.version() == "Version: 1.2.3"
     assert not observed[0].exists()
     assert not (tmp_path / ".tdl").exists()
+
+
+@pytest.mark.parametrize("state", ["success", "failure", "cancel"])
+async def test_native_login_inherits_terminal_and_reaps_cancelled_process(
+    tmp_path, monkeypatch, state
+):
+    import csv
+    import json
+
+    binary, output = tmp_path / "tdl", tmp_path / "result"
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys, json, time\n"
+        f"open({str(output)!r}, 'w').write(json.dumps(\n"
+        "{'pid': os.getpid(), 'args': sys.argv[1:], "
+        "'proxy': os.getenv('TDL_PROXY')}))\n"
+        + (
+            "time.sleep(60)\n"
+            if state == "cancel"
+            else f"sys.exit({2 if state == 'failure' else 0})\n"
+        )
+    )
+    binary.chmod(0o755)
+    spawn = AsyncMock(wraps=asyncio.create_subprocess_exec)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setenv("TDL_PROXY", "socks5://unrelated:1080")
+    directory = tmp_path / "project,with comma" / ".tdl"
+    tdl = Tdl(binary, "personal", data_dir=directory, proxy="")
+    task = asyncio.create_task(tdl.login("code"))
+    if state == "cancel":
+        async with asyncio.timeout(3):
+            while not output.exists():  # noqa: ASYNC110 - subprocess IPC
+                await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    elif state == "failure":
+        with pytest.raises(UserError):
+            await task
+    else:
+        await task
+    result = json.loads(output.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(result["pid"], 0)
+    assert result["proxy"] == ""
+    assert next(csv.reader([result["args"][1]])) == [
+        "type=bolt",
+        f"path={directory / 'data'}",
+    ]
+    assert result["args"][2:] == ["--ns", "personal", "login", "--type", "code"]
+    assert not {"stdin", "stdout", "stderr"} & spawn.call_args.kwargs.keys()

@@ -8,6 +8,7 @@ import os
 import signal
 from collections.abc import Awaitable
 from contextlib import ExitStack, contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -40,6 +41,7 @@ from tdl_bot.runtime.engine import (
     ensure_engine,
     exchange,
 )
+from tdl_bot.runtime.login import native_login
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.transfers.service import TransferService
@@ -67,7 +69,7 @@ def instance_lock(path: Path):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-async def run(settings: Settings, command: str) -> None:
+async def run(settings: Settings, command: str, *, login_method="qr") -> None:
     """Run user-account login or the aiogram polling service."""
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     storage_locks = {settings.tdl_dir: AccountLock()}
@@ -81,6 +83,9 @@ async def run(settings: Settings, command: str) -> None:
         upload_timeout=settings.upload_timeout,
         upload_threads=settings.upload_concurrency,
     )
+    if command == "login" and settings.session_source == "tdl":
+        await native_login(tdl, settings.data_dir, login_method)
+        return
     proxy = proxy_settings(settings.tdl_proxy)
     if settings.session_source == "tdl":
         imported = await load_tdl_session(tdl, settings.data_dir)
@@ -102,18 +107,8 @@ async def run(settings: Settings, command: str) -> None:
         )
     if command == "login":
         try:
-            if settings.session_source == "tdl":
-                await client.connect()
-                if not await client.is_user_authorized():
-                    raise UserError(
-                        tr(
-                            "The existing tdl session has expired. Check "
-                            "the original tdl login."
-                        )
-                    )
-            else:
-                # Inside this running loop, start() returns a coroutine.
-                await cast(Awaitable[TelegramClient], client.start())
+            # Inside this running loop, start() returns a coroutine.
+            await cast(Awaitable[TelegramClient], client.start())
             # input_peer defaults to False, so get_me returns User or None.
             me = cast(types.User | None, await client.get_me())
             if me is None:
@@ -332,7 +327,18 @@ def main() -> None:
         action="store_true",
         help=tr("Legacy option; reloads are now manual by default"),
     )
+    parser.add_argument(
+        "--namespace", help=tr("Namespace to sign in to (login only)")
+    )
+    parser.add_argument(
+        "--login-method",
+        choices=["qr", "code", "desktop"],
+        default="qr",
+        help=tr("Native tdl login method (default: qr)"),
+    )
     args = parser.parse_args()
+    if args.namespace and args.command != "login":
+        parser.error("--namespace is only valid with login")
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -342,6 +348,8 @@ def main() -> None:
     os.umask(0o077)
     try:
         settings = Settings.from_env(login_only=args.command == "login")
+        if args.namespace:
+            settings = replace(settings, tdl_namespace=args.namespace)
         settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         if args.command == "stop":
             pid_file = settings.data_dir / "frontend.pid"
@@ -389,7 +397,7 @@ def main() -> None:
                     settings.tdl_namespace,
                     data_dir=settings.tdl_dir,
                 )
-                tdl.storage_args()
+                tdl.storage_args(create=args.command == "login")
                 # Discovery covers the whole storage directory. Claim it once
                 # rather than taking a changing set of namespace locks.
                 stack.enter_context(
@@ -400,7 +408,12 @@ def main() -> None:
                         settings.tdl_dir / f".bot-{settings.tdl_namespace}.lock"
                     )
                 )
-            asyncio.run(run(settings, args.command))
+            if args.command == "login":
+                asyncio.run(
+                    run(settings, args.command, login_method=args.login_method)
+                )
+            else:
+                asyncio.run(run(settings, args.command))
     except (ValueError, UserError) as exc:
         parser.exit(1, f"{exc}\n")
     except KeyboardInterrupt:

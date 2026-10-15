@@ -101,3 +101,20 @@ Manual reload requests a new engine generation even without a code change,
 allowing login/logout discovery after active work drains. No background watcher
 reads or changes tdl sessions. Separate namespaces share a storage lock and
 an update gate, while each account retains its own RPC lock.
+
+## Initial setup and native login
+
+First initialization requires explicit ADMIN_USER_IDS. Those UIDs become the
+initial members and administrators; later permission changes use SQLite only.
+Login is allowed before Bot credentials and administrators are configured.
+
+The explicit login command delegates QR, code and Desktop login to native tdl
+with the same namespace and storage arguments used by transfers. Only this path
+may create a missing namespace. Its child inherits the terminal for interaction;
+credentials are not piped into Python. Existing valid authorization is reused.
+Missing binaries are installed through the verified official-release updater.
+
+Normal engine startup remains read-only with respect to login: missing sessions
+fail instead of creating an empty database. Login holds the runtime, storage and
+binary locks, so it cannot replace an authorization used by the resident engine.
+Cancellation terminates and reaps the native child before releasing these locks.
