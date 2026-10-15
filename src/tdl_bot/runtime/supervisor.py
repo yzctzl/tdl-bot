@@ -6,7 +6,7 @@ import os
 import signal
 from pathlib import Path
 
-from tdl_bot.runtime import spawn_process
+from tdl_bot.runtime.engine import spawn_process
 
 
 async def _stop_child(child, waiter):

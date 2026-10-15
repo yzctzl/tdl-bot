@@ -6,11 +6,11 @@ import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.delivery import MissingResult
-from tdl_bot.service import Job, TransferService
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.integrations.telegram.delivery import MissingResult
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import Job, TransferService
 
 
 def test_history_preserves_all_results_and_aliases_across_restart(tmp_path):

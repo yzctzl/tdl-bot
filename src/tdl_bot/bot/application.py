@@ -27,14 +27,14 @@ from aiogram.types import (
 )
 from telethon import errors
 
-from tdl_bot.accounts import AccessPolicy
-from tdl_bot.config import Settings
-from tdl_bot.delivery import Delivery
-from tdl_bot.errors import JoinPending, UserError
-from tdl_bot.i18n import CATALOGS, localized, saved_label, tr, use_language
-from tdl_bot.links import JoinLink
-from tdl_bot.service import Job
-from tdl_bot.store import PendingTransfer, Store, Target
+from tdl_bot.core.config import Settings
+from tdl_bot.core.errors import JoinPending, UserError
+from tdl_bot.core.i18n import CATALOGS, localized, saved_label, tr, use_language
+from tdl_bot.core.links import JoinLink
+from tdl_bot.integrations.telegram.delivery import Delivery
+from tdl_bot.storage.store import PendingTransfer, Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy
+from tdl_bot.transfers.service import Job
 
 _LOGGER = logging.getLogger(__name__)
 # A single registry drives both routing and Telegram's command hints.

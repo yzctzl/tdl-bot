@@ -479,3 +479,8 @@ ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvir
 - v5 迁移保留现有缓存和原表。以前被旧版覆盖的记录、没有保存的最终消息 ID
   无法自动补回；新记录从本版开始完整保存。Telegram 写入响应丢失时仍需检查
   接收位置，不能将本地历史当作远程发送恰好一次的保证。
+
+## Source architecture
+
+See [the architecture guide](docs/architecture.md) for package boundaries,
+the transfer flow, and the division of work between tdl and Telegram APIs.

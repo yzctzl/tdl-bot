@@ -10,12 +10,12 @@ import pytest
 from aiogram.filters import CommandObject
 from aiogram.types import BotCommandScopeChat, Message
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import _COMMANDS, Authorization, BotApplication
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.service import TransferService
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.bot.application import _COMMANDS, Authorization, BotApplication
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import TransferService
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -64,7 +64,7 @@ def managed(tmp_path, monkeypatch):
     async def validate(self, target, operator, *, storage=False):
         return target
 
-    monkeypatch.setattr("tdl_bot.bot.Delivery.validate", validate)
+    monkeypatch.setattr("tdl_bot.bot.application.Delivery.validate", validate)
     app = BotApplication(bot, SimpleNamespace(), store, tdl, service)
     yield app, service, store, policy
     store.close()
@@ -518,7 +518,7 @@ def test_archive_upgrade_keeps_v2_members_and_creates_private_backup(tmp_path):
 def test_config_uses_persisted_members_instead_of_stale_env(
     managed, tmp_path, monkeypatch
 ):
-    from tdl_bot.config import Settings
+    from tdl_bot.core.config import Settings
 
     _, _, store, _ = managed
     store.set_member_role(1, 3, "admin")

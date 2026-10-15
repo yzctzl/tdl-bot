@@ -10,8 +10,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.tdl import Tdl, UpdateGate, extract_binary, verify_checksum
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.integrations.tdl.runner import (
+    Tdl,
+    UpdateGate,
+    extract_binary,
+    verify_checksum,
+)
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -106,7 +111,9 @@ async def test_update_installs_only_verified_release(
     archive = make_archive(script)
     checksum = hashlib.sha256(archive).hexdigest()
     name = "tdl_Linux_64bit.tar.gz"
-    monkeypatch.setattr("tdl_bot.tdl.release_asset_name", lambda: name)
+    monkeypatch.setattr(
+        "tdl_bot.integrations.tdl.runner.release_asset_name", lambda: name
+    )
 
     class Response:
         async def __aenter__(self):
@@ -139,8 +146,10 @@ async def test_update_installs_only_verified_release(
             return f"{checksum} {name}".encode()
         return archive + b"corrupt" if corrupt else archive
 
-    monkeypatch.setattr("tdl_bot.tdl.aiohttp.ClientSession", Session)
-    monkeypatch.setattr("tdl_bot.tdl._fetch", fetch)
+    monkeypatch.setattr(
+        "tdl_bot.integrations.tdl.runner.aiohttp.ClientSession", Session
+    )
+    monkeypatch.setattr("tdl_bot.integrations.tdl.runner._fetch", fetch)
     tdl = Tdl(binary, "default")
     actual_version = tdl.version
 
@@ -223,7 +232,7 @@ async def test_executor_proxy_overrides_inherited_proxy(
 
 
 async def test_shared_storage_lock_preserves_each_account_rpc_lock(tmp_path):
-    from tdl_bot.client import AccountLock
+    from tdl_bot.integrations.telegram.client import AccountLock
 
     started = tmp_path / "started"
     binary = tmp_path / "tdl"
@@ -273,9 +282,11 @@ def update_release(monkeypatch):
         def get(self, url):
             return Response()
 
-    monkeypatch.setattr("tdl_bot.tdl.aiohttp.ClientSession", Session)
+    monkeypatch.setattr(
+        "tdl_bot.integrations.tdl.runner.aiohttp.ClientSession", Session
+    )
     fetch = AsyncMock()
-    monkeypatch.setattr("tdl_bot.tdl._fetch", fetch)
+    monkeypatch.setattr("tdl_bot.integrations.tdl.runner._fetch", fetch)
     return state, fetch
 
 

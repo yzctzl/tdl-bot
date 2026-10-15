@@ -20,9 +20,9 @@ import zstandard
 from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
 
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
-from tdl_bot.tdl import Tdl
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
+from tdl_bot.integrations.tdl.runner import Tdl
 
 _APPS = {
     "builtin": (15055931, "021d433426cbb920eeb95164498fe3d3"),

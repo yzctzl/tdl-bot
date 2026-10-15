@@ -15,25 +15,28 @@ from aiogram import Bot
 from telethon import TelegramClient
 from telethon.tl import types
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import BotApplication, ProgressMessages
-from tdl_bot.client import AccountLock, SharedSessionClient
-from tdl_bot.config import Settings
-from tdl_bot.delivery import Delivery
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
-from tdl_bot.runtime import (
+from tdl_bot.bot.application import BotApplication, ProgressMessages
+from tdl_bot.core.config import Settings
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
+from tdl_bot.integrations.tdl.runner import Tdl
+from tdl_bot.integrations.tdl.session import load_tdl_session, proxy_settings
+from tdl_bot.integrations.telegram.client import (
+    AccountLock,
+    SharedSessionClient,
+)
+from tdl_bot.integrations.telegram.delivery import Delivery
+from tdl_bot.integrations.telegram.media import TelegramMedia
+from tdl_bot.runtime.engine import (
     EngineServer,
     RemoteService,
     code_version,
     ensure_engine,
     exchange,
 )
-from tdl_bot.service import TransferService
-from tdl_bot.session import load_tdl_session, proxy_settings
-from tdl_bot.store import Store
-from tdl_bot.tdl import Tdl
-from tdl_bot.telegram import TelegramMedia
+from tdl_bot.storage.store import Store
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import TransferService
 
 
 @contextmanager
@@ -362,7 +365,7 @@ def main() -> None:
                 raise UserError(tr("No Bot supervisor is running."))
             return
         if args.command == "run":
-            from tdl_bot.reload import supervise
+            from tdl_bot.runtime.supervisor import supervise
 
             with instance_lock(settings.data_dir / ".supervisor.lock"):
                 asyncio.run(supervise(settings.data_dir))

@@ -2,9 +2,9 @@
 
 import pytest
 
-from tdl_bot.errors import UserError
-from tdl_bot.links import JoinLink, MessageLink
-from tdl_bot.store import Store, Target
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.links import JoinLink, MessageLink
+from tdl_bot.storage.store import Store, Target
 
 pytestmark = pytest.mark.usefixtures("chinese")
 

@@ -16,9 +16,9 @@ from pathlib import Path
 
 import aiohttp
 
-from tdl_bot.client import AccountLock
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.i18n import tr
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.core.i18n import tr
+from tdl_bot.integrations.telegram.client import AccountLock
 
 _RELEASE_API = "https://api.github.com/repos/iyear/tdl/releases"
 _ACCESS_ERRORS = (

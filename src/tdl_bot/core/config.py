@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from tdl_bot.i18n import tr
+from tdl_bot.core.i18n import tr
 
 
 @dataclass(frozen=True)

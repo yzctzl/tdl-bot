@@ -21,7 +21,7 @@ def _fields(text):
 
 def _load_catalogs():
     catalogs = {}
-    for path in sorted(Path(__file__).with_name("locales").glob("*.json")):
+    for path in sorted((Path(__file__).parents[1] / "locales").glob("*.json")):
         catalog = json.loads(path.read_text(encoding="utf-8"))
         for source, translated in catalog["messages"].items():
             if _fields(source) != _fields(translated):

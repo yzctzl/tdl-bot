@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from aiogram.filters import CommandObject
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import BotApplication
-from tdl_bot.errors import JoinPending, UserError
-from tdl_bot.service import Job
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.core.errors import JoinPending, UserError
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import Job
 
 pytestmark = pytest.mark.usefixtures("chinese")
 

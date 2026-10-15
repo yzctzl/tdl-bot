@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram.types import ChatMemberMember, MessageId, User
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.delivery import Delivery, MissingResult
-from tdl_bot.errors import UserError
-from tdl_bot.runtime import EngineServer, RemoteService, exchange
-from tdl_bot.service import Job, TransferService
-from tdl_bot.store import Destination, Store, Target
-from tdl_bot.tdl import Tdl, UpdateGate
+from tdl_bot.core.errors import UserError
+from tdl_bot.integrations.tdl.runner import Tdl, UpdateGate
+from tdl_bot.integrations.telegram.delivery import Delivery, MissingResult
+from tdl_bot.runtime.engine import EngineServer, RemoteService, exchange
+from tdl_bot.storage.store import Destination, Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import Job, TransferService
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -110,7 +110,7 @@ async def test_frontend_reconnect_keeps_real_tdl_pid_and_can_cancel(
         async def ensure(settings):
             return socket
 
-        monkeypatch.setattr("tdl_bot.runtime.ensure_engine", ensure)
+        monkeypatch.setattr("tdl_bot.runtime.engine.ensure_engine", ensure)
         first_store = Store(path)
         opened_stores.append(first_store)
         first = RemoteService(settings, first_store)
@@ -253,7 +253,7 @@ async def test_supervisor_reloads_only_on_explicit_request(
     import signal
     import subprocess
 
-    from tdl_bot.reload import supervise
+    from tdl_bot.runtime.supervisor import supervise
 
     loop = asyncio.get_running_loop()
     handlers = {}
@@ -264,7 +264,7 @@ async def test_supervisor_reloads_only_on_explicit_request(
     from unittest.mock import Mock
 
     version = Mock(return_value="new")
-    monkeypatch.setattr("tdl_bot.runtime.code_version", version)
+    monkeypatch.setattr("tdl_bot.runtime.engine.code_version", version)
     children = []
 
     def spawn(command, **kwargs):
@@ -275,7 +275,7 @@ async def test_supervisor_reloads_only_on_explicit_request(
         children.append(process)
         return process
 
-    monkeypatch.setattr("tdl_bot.reload.spawn_process", spawn)
+    monkeypatch.setattr("tdl_bot.runtime.supervisor.spawn_process", spawn)
     unrelated = await asyncio.to_thread(
         subprocess.Popen, [sys.executable, "-c", "import time; time.sleep(60)"]
     )
@@ -463,7 +463,7 @@ async def test_storage_inaccessible_is_actionable_for_admin_and_hidden_for_user(
     from aiogram.exceptions import TelegramBadRequest
     from aiogram.methods import CopyMessages
 
-    from tdl_bot.delivery import api_reason
+    from tdl_bot.integrations.telegram.delivery import api_reason
 
     bot = delivery_bot(copy_messages=AsyncMock())
     method = CopyMessages(

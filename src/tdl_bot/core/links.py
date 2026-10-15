@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
 
 _HOSTS = {"t.me", "telegram.me", "telegram.dog"}
 _USERNAME = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{3,31}\Z")

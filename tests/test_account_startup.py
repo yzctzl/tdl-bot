@@ -7,11 +7,11 @@ import pytest
 from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
 
-from tdl_bot.cli import run
-from tdl_bot.client import AccountLock
-from tdl_bot.config import AccountBinding, Settings
-from tdl_bot.errors import UserError
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.core.config import AccountBinding, Settings
+from tdl_bot.core.errors import UserError
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.integrations.telegram.client import AccountLock
+from tdl_bot.runtime.cli import run
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -30,7 +30,7 @@ async def test_account_startup_validates_and_disconnects_all_clients(
     shared = imported(1)
     personal = imported(1 if failure == "duplicate" else 2)
     imports = AsyncMock(side_effect=[shared, personal])
-    monkeypatch.setattr("tdl_bot.cli.load_tdl_session", imports)
+    monkeypatch.setattr("tdl_bot.runtime.cli.load_tdl_session", imports)
     clients = []
 
     def make_client(session, *args, **kwargs):
@@ -56,7 +56,7 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         clients.append(client)
         return client
 
-    monkeypatch.setattr("tdl_bot.cli.SharedSessionClient", make_client)
+    monkeypatch.setattr("tdl_bot.runtime.cli.SharedSessionClient", make_client)
     tdls = []
 
     def make_tdl(binary, namespace, *args, **kwargs):
@@ -70,14 +70,16 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         tdls.append(tdl)
         return tdl
 
-    monkeypatch.setattr("tdl_bot.cli.Tdl", make_tdl)
+    monkeypatch.setattr("tdl_bot.runtime.cli.Tdl", make_tdl)
     bot = SimpleNamespace(session=SimpleNamespace(close=AsyncMock()))
     constructor = Mock(return_value=bot)
-    monkeypatch.setattr("tdl_bot.cli.Bot", constructor)
-    monkeypatch.setattr("tdl_bot.cli.ProgressMessages", lambda bot: AsyncMock())
+    monkeypatch.setattr("tdl_bot.runtime.cli.Bot", constructor)
+    monkeypatch.setattr(
+        "tdl_bot.runtime.cli.ProgressMessages", lambda bot: AsyncMock()
+    )
     engine = SimpleNamespace(serve=AsyncMock())
     engine_constructor = Mock(return_value=engine)
-    monkeypatch.setattr("tdl_bot.cli.EngineServer", engine_constructor)
+    monkeypatch.setattr("tdl_bot.runtime.cli.EngineServer", engine_constructor)
     settings = Settings(
         "configured",
         0,

@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tdl_bot import cli
-from tdl_bot.config import Settings
-from tdl_bot.errors import UserError
-from tdl_bot.store import Store
+from tdl_bot.core.config import Settings
+from tdl_bot.core.errors import UserError
+from tdl_bot.runtime import cli
+from tdl_bot.storage.store import Store
 
 
 @pytest.fixture
@@ -83,7 +83,9 @@ def test_cli_routes_to_correct_process_with_isolated_locks(
     }
     monkeypatch.setattr(cli, "run", operations["run"])
     monkeypatch.setattr(cli, "frontend", operations["frontend"])
-    monkeypatch.setattr("tdl_bot.reload.supervise", operations["supervise"])
+    monkeypatch.setattr(
+        "tdl_bot.runtime.supervisor.supervise", operations["supervise"]
+    )
     monkeypatch.setattr("sys.argv", ["tdl-bot", command])
     cli.main()
     if command == "engine":

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tdl_bot.i18n import use_language
+from tdl_bot.core.i18n import use_language
 
 
 @pytest.fixture

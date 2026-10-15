@@ -16,9 +16,9 @@ from aiogram.types import (
     ChatMemberOwner,
 )
 
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
-from tdl_bot.store import Target
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
+from tdl_bot.storage.store import Target
 
 _LOGGER = logging.getLogger(__name__)
 

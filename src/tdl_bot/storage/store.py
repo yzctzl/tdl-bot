@@ -7,8 +7,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class Store:
 
     def has_language(self, user_id: int) -> bool:
         """Distinguish a deliberate choice from the English fallback."""
-        from tdl_bot.i18n import CATALOGS
+        from tdl_bot.core.i18n import CATALOGS
 
         row = self._db.execute(
             "SELECT value FROM workspace_metadata WHERE key=?",
@@ -66,7 +66,7 @@ class Store:
 
     def language(self, user_id: int | None) -> str:
         """Default to English independently of the Telegram client locale."""
-        from tdl_bot.i18n import CATALOGS, DEFAULT_LANGUAGE
+        from tdl_bot.core.i18n import CATALOGS, DEFAULT_LANGUAGE
 
         row = self._db.execute(
             "SELECT value FROM workspace_metadata WHERE key=?",
@@ -75,7 +75,7 @@ class Store:
         return row[0] if row and row[0] in CATALOGS else DEFAULT_LANGUAGE
 
     def set_language(self, user_id: int, language: str) -> None:
-        from tdl_bot.i18n import CATALOGS
+        from tdl_bot.core.i18n import CATALOGS
 
         if language not in CATALOGS:
             raise ValueError("Unsupported language")

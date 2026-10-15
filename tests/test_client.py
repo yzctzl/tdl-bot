@@ -9,7 +9,11 @@ from telethon.sessions import MemorySession
 from telethon.tl import functions
 from telethon.tl.alltlobjects import LAYER
 
-from tdl_bot.client import AccountLock, LayerRequest, SharedSessionClient
+from tdl_bot.integrations.telegram.client import (
+    AccountLock,
+    LayerRequest,
+    SharedSessionClient,
+)
 
 pytestmark = pytest.mark.usefixtures("chinese")
 

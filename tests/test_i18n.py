@@ -8,26 +8,26 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import (
+from tdl_bot.bot.application import (
     _ADMIN_HELP,
     _COMMANDS,
     _HELP,
     BotApplication,
     ProgressMessages,
 )
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import (
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import (
     CATALOGS,
     current_language,
     saved_label,
     tr,
     use_language,
 )
-from tdl_bot.runtime import EngineServer, code_version, exchange
-from tdl_bot.service import Job, TransferService
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.runtime.engine import EngineServer, code_version, exchange
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import Job, TransferService
 
 
 def test_default_and_unknown_languages_are_english():
@@ -228,15 +228,23 @@ async def test_buttons_and_error_replies_use_saved_language(bilingual):
 
 def test_catalog_changes_are_detected_for_manual_reload(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "tdl_bot.runtime.__file__", str(tmp_path / "runtime.py")
+        "tdl_bot.runtime.engine.__file__",
+        str(tmp_path / "runtime" / "engine.py"),
     )
-    (tmp_path / "runtime.py").write_text("# engine")
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "runtime" / "engine.py").write_text("# engine")
     directory = tmp_path / "locales"
     directory.mkdir()
     catalog = directory / "zh.json"
     catalog.write_text('{"name": "Chinese"}')
     before = code_version()
     catalog.write_text('{"name": "Simplified Chinese"}')
+    assert code_version() != before
+    before = code_version()
+    nested = tmp_path / "transfers"
+    nested.mkdir()
+    source = nested / "service.py"
+    source.write_text("# updated transfer logic")
     assert code_version() != before
 
 
@@ -276,7 +284,7 @@ async def test_rpc_errors_preserve_request_language(
 def test_all_user_templates_have_chinese_translations():
     messages = CATALOGS["zh"]["messages"]
     sources = {_HELP, _ADMIN_HELP, *(row[2] for row in _COMMANDS)}
-    for path in Path("src/tdl_bot").glob("*.py"):
+    for path in Path("src/tdl_bot").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if (
                 isinstance(node, ast.Call)

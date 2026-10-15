@@ -10,13 +10,13 @@ from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.types import Chat, ChatFullInfo, ChatMemberMember, Message, User
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import BotApplication, ProgressMessages
-from tdl_bot.links import JoinLink
-from tdl_bot.runtime import EngineServer, RemoteService
-from tdl_bot.service import TransferService
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.bot.application import BotApplication, ProgressMessages
+from tdl_bot.core.links import JoinLink
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.runtime.engine import EngineServer, RemoteService
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import TransferService
 
 
 class TelegramTransport(BaseSession):
@@ -286,7 +286,7 @@ async def test_remote_engine_bootstrap_retry_and_shutdown_lifecycle(
         engines.append(asyncio.create_task(engine.serve()))
         return SimpleNamespace(poll=lambda: None)
 
-    monkeypatch.setattr("tdl_bot.runtime.spawn_process", spawn)
+    monkeypatch.setattr("tdl_bot.runtime.engine.spawn_process", spawn)
     remote = RemoteService(settings, j.store)
     try:
         media = remote.accounts.shared.media

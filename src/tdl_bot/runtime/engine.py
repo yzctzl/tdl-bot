@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-from tdl_bot.accounts import AccessPolicy
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import current_language, tr, use_language
-from tdl_bot.links import JoinLink
-from tdl_bot.service import Job
-from tdl_bot.store import Store, Target
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import current_language, tr, use_language
+from tdl_bot.core.links import JoinLink
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy
+from tdl_bot.transfers.service import Job
 
 _LOGGER = logging.getLogger(__name__)
 _LIMIT = 1024 * 1024
@@ -25,8 +25,8 @@ _LIMIT = 1024 * 1024
 
 def code_version() -> str:
     digest = hashlib.sha256()
-    root = Path(__file__).parent
-    for path in sorted([*root.glob("*.py"), *root.glob("locales/*.json")]):
+    root = Path(__file__).parents[1]
+    for path in sorted([*root.rglob("*.py"), *root.glob("locales/*.json")]):
         digest.update(path.relative_to(root).as_posix().encode())
         try:
             digest.update(path.read_bytes())
@@ -37,7 +37,12 @@ def code_version() -> str:
 
 def spawn_process(command: str, **kwargs):
     return subprocess.Popen(
-        [sys.executable, "-c", "from tdl_bot.cli import main; main()", command],
+        [
+            sys.executable,
+            "-c",
+            "from tdl_bot.runtime.cli import main; main()",
+            command,
+        ],
         **kwargs,
     )
 

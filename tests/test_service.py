@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.service import Job, TransferService
-from tdl_bot.store import Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.storage.store import Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import Job, TransferService
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -290,7 +290,7 @@ async def test_deleted_cache_falls_back_to_source(setup_service):
 
 
 def test_media_fingerprint_respects_caption_and_media_identity():
-    from tdl_bot.service import _media_fingerprint
+    from tdl_bot.transfers.service import _media_fingerprint
 
     message = SimpleNamespace(
         document=SimpleNamespace(id=11),

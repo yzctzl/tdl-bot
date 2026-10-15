@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram.filters import CommandObject
 
-from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.bot import BotApplication
-from tdl_bot.config import Settings, read_account_bindings
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.service import TransferService
-from tdl_bot.store import Destination, Store, Target
-from tdl_bot.tdl import UpdateGate
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.core.config import Settings, read_account_bindings
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.storage.store import Destination, Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.service import TransferService
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -333,7 +333,7 @@ async def test_target_switching_and_admin_override(workspace, monkeypatch):
     async def validate(self, target, operator, *, storage=False):
         return target
 
-    monkeypatch.setattr("tdl_bot.bot.Delivery.validate", validate)
+    monkeypatch.setattr("tdl_bot.bot.application.Delivery.validate", validate)
     app = application(workspace)
     await app.target(
         message(2), CommandObject(command="target", args="private @mine 42")

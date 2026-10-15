@@ -10,11 +10,15 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import zstandard
 
-from tdl_bot.cli import run
-from tdl_bot.config import Settings
-from tdl_bot.errors import UserError
-from tdl_bot.session import decode_session, load_tdl_session, proxy_settings
-from tdl_bot.tdl import Tdl
+from tdl_bot.core.config import Settings
+from tdl_bot.core.errors import UserError
+from tdl_bot.integrations.tdl.runner import Tdl
+from tdl_bot.integrations.tdl.session import (
+    decode_session,
+    load_tdl_session,
+    proxy_settings,
+)
+from tdl_bot.runtime.cli import run
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -204,7 +208,7 @@ async def test_login_command_only_checks_reused_authorization(
 ):
     imported = decode_session(metadata(), "default")
     monkeypatch.setattr(
-        "tdl_bot.cli.load_tdl_session", AsyncMock(return_value=imported)
+        "tdl_bot.runtime.cli.load_tdl_session", AsyncMock(return_value=imported)
     )
     client = SimpleNamespace(
         connect=AsyncMock(),
@@ -214,7 +218,7 @@ async def test_login_command_only_checks_reused_authorization(
         disconnect=AsyncMock(),
     )
     constructor = Mock(return_value=client)
-    monkeypatch.setattr("tdl_bot.cli.SharedSessionClient", constructor)
+    monkeypatch.setattr("tdl_bot.runtime.cli.SharedSessionClient", constructor)
     settings = Settings(
         "", 0, "", frozenset(), frozenset(), tmp_path, tmp_path / "tdl"
     )

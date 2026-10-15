@@ -17,12 +17,12 @@ from uuid import uuid4
 
 from telethon import errors
 
-from tdl_bot.accounts import AccessPolicy, AccountPool
-from tdl_bot.delivery import MissingResult
-from tdl_bot.errors import AccessDenied, UserError
-from tdl_bot.i18n import job_language, render, tr, use_language
-from tdl_bot.links import MessageLink
-from tdl_bot.store import Destination, PendingTransfer, Store, Target
+from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.core.i18n import job_language, render, tr, use_language
+from tdl_bot.core.links import MessageLink
+from tdl_bot.integrations.telegram.delivery import MissingResult
+from tdl_bot.storage.store import Destination, PendingTransfer, Store, Target
+from tdl_bot.transfers.accounts import AccessPolicy, AccountPool
 
 _LOGGER = logging.getLogger(__name__)
 Notify = Callable[..., Awaitable[None]]

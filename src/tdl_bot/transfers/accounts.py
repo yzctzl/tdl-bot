@@ -2,11 +2,11 @@
 
 from dataclasses import dataclass
 
-from tdl_bot.errors import UserError
-from tdl_bot.i18n import tr
-from tdl_bot.store import Store
-from tdl_bot.tdl import Tdl
-from tdl_bot.telegram import TelegramMedia
+from tdl_bot.core.errors import UserError
+from tdl_bot.core.i18n import tr
+from tdl_bot.integrations.tdl.runner import Tdl
+from tdl_bot.integrations.telegram.media import TelegramMedia
+from tdl_bot.storage.store import Store
 
 
 @dataclass(frozen=True)
