@@ -96,6 +96,42 @@ bin/tdl --storage type=bolt,path=./.tdl/data --ns default chat ls
 仅此模式会生成 `data/telegram.session`，并要求其账号与 tdl 下载账号一致。
 请保护 `.env` 和 `.tdl` 会话目录。
 
+## 语言选择
+
+Bot 默认使用英文，不自动跟随 Telegram 客户端的语言。每个操作账号可以
+独立选择语言，设置保存在当前工作空间数据库中，重启后保留：
+
+```text
+/language
+/language en
+/language zh
+```
+
+不带参数时显示当前语言和可用选项。选择后，帮助、命令提示、按钮、任务进度
+和错误提示使用对应语言；管理员查看其他成员时使用管理员自己的界面语言。
+媒体原文和视频文字保留原有内容。
+
+### 添加其他语言
+
+翻译目录为 `src/tdl_bot/locales/`。英文源文案作为翻译键；新增一个以语言
+代码命名的 JSON 文件，例如 `fr.json`，即可将它加入 `/language` 的选项：
+
+```json
+{
+  "name": "Français",
+  "messages": {
+    "Cancel": "Annuler",
+    "Your user ID: {p0}": "Votre identifiant : {p0}"
+  }
+}
+```
+
+可参考 `zh.json` 补全翻译。保留源文案中的占位符名称，例如 `{p0}`、
+`{name}`；程序加载时检查占位符是否一致。缺少翻译时回退到英文。
+新增界面文案使用 `tr("English source", ...)`，并添加对应翻译。
+修改代码或语言目录后执行 `uv run tdl-bot reload`；后台引擎在现有任务完成后
+切换到新版本，具体行为见下方热重启说明。
+
 ## 专属执行账号（可选）
 
 操作账号指给 Bot 发消息的账号；执行账号指下载、读取历史、入群和上传使用的
@@ -191,6 +227,7 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 | --- | --- |
 | `/start`、`/help` | 使用说明 |
 | `/whoami` | 显示自己的 Telegram 用户 ID |
+| `/language [en\|zh]` | 查看或设置自己的界面语言；默认英文 |
 | `/target bot` / `/target <chat> [topic_id]` | 设置最终接收位置；默认 Bot 对话 |
 | `/storage [chat] [topic_id]` | 仅管理员查看／配置内部存储 |
 | `/target for <账号 ID> [chat] [topic_id]` | 管理员查看／设置其他账号的个人目标 |
