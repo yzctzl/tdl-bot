@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 
 
 @dataclass(frozen=True)
@@ -81,10 +82,20 @@ class Store:
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
             if version > 7:
-                raise UserError("数据库版本比当前程序更新，请使用匹配的版本。")
+                raise UserError(
+                    tr(
+                        "The database is newer than this program. Use a "
+                        "matching version."
+                    )
+                )
             if not migrate:
                 if version < 5:
-                    raise UserError("请等待任务引擎初始化数据库后再连接。")
+                    raise UserError(
+                        tr(
+                            "Wait for the task engine to initialize the "
+                            "database before connecting."
+                        )
+                    )
                 return
             if version == 0:
                 tables = {
@@ -232,7 +243,10 @@ class Store:
             fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             raise UserError(
-                "已有迁移备份但数据库尚未迁移，请先检查备份后重试。"
+                tr(
+                    "A migration backup already exists but migration is "
+                    "incomplete. Check the backup before retrying."
+                )
             ) from None
         os.close(fd)
         try:
@@ -373,7 +387,12 @@ class Store:
             ).fetchone():
                 return
             if not operators or not admins or not admins <= operators:
-                raise UserError("首次初始化成员需要有效的操作账号和管理员。")
+                raise UserError(
+                    tr(
+                        "Initial membership requires valid operators and "
+                        "administrators."
+                    )
+                )
             self._db.executemany(
                 "INSERT INTO workspace_members (user_id, role) VALUES (?, ?)",
                 [
@@ -420,7 +439,7 @@ class Store:
             or actor.role != "admin"
             or not actor.active(self.now())
         ):
-            raise UserError("只有管理员可以管理账号。")
+            raise UserError(tr("Only administrators can manage accounts."))
 
     def _protect_admin(self, user_id: int) -> None:
         member = self.member(user_id)
@@ -430,7 +449,12 @@ class Store:
                 for item in self.members()
             )
             if count <= 1:
-                raise UserError("不能封禁、删除或降级最后一个有效管理员。")
+                raise UserError(
+                    tr(
+                        "You cannot ban, remove, or demote the last active "
+                        "administrator."
+                    )
+                )
 
     def _member_event(self, actor_id: int, user_id: int, action: str) -> None:
         self._db.execute(
@@ -443,9 +467,9 @@ class Store:
     def add_member(self, actor_id: int, user_id: int) -> None:
         self._require_admin(actor_id)
         if user_id <= 0:
-            raise UserError("账号 ID 必须为正整数。")
+            raise UserError(tr("Account ID must be a positive integer."))
         if self.member(user_id):
-            raise UserError("该账号已在成员列表中。")
+            raise UserError(tr("This account is already a member."))
         with self._db:
             self._db.execute(
                 "INSERT INTO workspace_members (user_id, role) "
@@ -458,10 +482,15 @@ class Store:
     def remove_member(self, actor_id: int, user_id: int) -> None:
         self._require_admin(actor_id)
         if self.member(user_id) is None:
-            raise UserError("该账号不在成员列表中。")
+            raise UserError(tr("This account is not a member."))
         self._protect_admin(user_id)
         if actor_id == user_id:
-            raise UserError("不能在 Bot 内删除自己的管理员账号。")
+            raise UserError(
+                tr(
+                    "You cannot remove your own administrator account "
+                    "through the Bot."
+                )
+            )
         with self._db:
             self._db.execute(
                 "DELETE FROM workspace_members WHERE user_id=?", (user_id,)
@@ -471,12 +500,16 @@ class Store:
     def ban_member(self, actor_id: int, user_id: int, seconds: int) -> None:
         self._require_admin(actor_id)
         if self.member(user_id) is None:
-            raise UserError("该账号不在成员列表中。")
+            raise UserError(tr("This account is not a member."))
         if seconds not in {86400, 7 * 86400, 30 * 86400}:
-            raise UserError("封禁时长必须是一天、一周或 30 天。")
+            raise UserError(
+                tr("Ban duration must be one day, one week, or 30 days.")
+            )
         self._protect_admin(user_id)
         if actor_id == user_id:
-            raise UserError("不能封禁自己的管理员账号。")
+            raise UserError(
+                tr("You cannot ban your own administrator account.")
+            )
         with self._db:
             self._db.execute(
                 "UPDATE workspace_members SET banned_until=? WHERE user_id=?",
@@ -487,7 +520,7 @@ class Store:
     def unban_member(self, actor_id: int, user_id: int) -> None:
         self._require_admin(actor_id)
         if self.member(user_id) is None:
-            raise UserError("该账号不在成员列表中。")
+            raise UserError(tr("This account is not a member."))
         with self._db:
             self._db.execute(
                 "UPDATE workspace_members SET banned_until=0 WHERE user_id=?",
@@ -498,7 +531,9 @@ class Store:
     def set_member_role(self, actor_id: int, user_id: int, role: str) -> None:
         self._require_admin(actor_id)
         if role not in {"user", "admin"} or self.member(user_id) is None:
-            raise UserError("请指定已有成员和 user／admin 角色。")
+            raise UserError(
+                tr("Specify an existing member and the user or admin role.")
+            )
         if role == "user":
             self._protect_admin(user_id)
         with self._db:
@@ -562,7 +597,12 @@ class Store:
     def select_target(self, operator_id: int, *, private: bool) -> None:
         """Switch scope only if a destination already exists."""
         if self.target_for(operator_id if private else None) is None:
-            raise UserError("该范围尚未设置目标，请在命令后提供聊天／频道。")
+            raise UserError(
+                tr(
+                    "No destination is configured for this scope. Provide "
+                    "a chat or channel."
+                )
+            )
         with self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO workspace_preferences VALUES (?, ?)",
@@ -602,7 +642,7 @@ class Store:
         """Persist distinct failures without replacing another pending url."""
         destination = destination or self.destination(operator_id)
         if destination is None:
-            raise UserError("待重试任务缺少上传目标。")
+            raise UserError(tr("The retry task has no upload destination."))
         with self._db:
             self._db.execute("BEGIN IMMEDIATE")
             existing = self._db.execute(
@@ -705,7 +745,11 @@ class Store:
             "SELECT username, name FROM user_profiles WHERE user_id=?",
             (user_id,),
         ).fetchone()
-        label = (f"@{row[0]}" if row[0] else row[1]) if row else "用户名未知"
+        label = (
+            (f"@{row[0]}" if row[0] else row[1])
+            if row
+            else tr("Username unknown")
+        )
         return f"{label} (UID: {user_id})"
 
     def saved_results(self, urls, executor_key, *, internal_only=False):

@@ -31,6 +31,7 @@ from tdl_bot.accounts import AccessPolicy
 from tdl_bot.config import Settings
 from tdl_bot.delivery import Delivery
 from tdl_bot.errors import JoinPending, UserError
+from tdl_bot.i18n import CATALOGS, localized, saved_label, tr, use_language
 from tdl_bot.links import JoinLink
 from tdl_bot.service import Job
 from tdl_bot.store import PendingTransfer, Store, Target
@@ -38,52 +39,60 @@ from tdl_bot.store import PendingTransfer, Store, Target
 _LOGGER = logging.getLogger(__name__)
 # A single registry drives both routing and Telegram's command hints.
 _COMMANDS = (
-    ("start", "help", "开始使用", False),
-    ("help", "help", "查看用法", False),
-    ("whoami", "whoami", "查看自己的账号 ID", False),
-    ("target", "target", "设置接收位置：Bot 对话／群／频道", False),
-    ("status", "status", "查看目标与任务状态", False),
-    ("jobs", "jobs", "查看可管理的任务", False),
-    ("cancel", "cancel_command", "取消活动任务：任务编号", False),
-    ("pending", "pending", "查看待重试列表", False),
-    ("retry", "retry", "重试：待重试编号", False),
-    ("retry_cancel", "retry_cancel", "移除待重试记录：编号", False),
-    ("join", "join", "加入来源群：群链接 待重试编号", False),
-    ("storage", "storage", "配置内部存储（管理员）", True),
-    ("update_tdl", "update", "检查并更新 tdl", True),
-    ("users", "users", "查看成员与封禁状态", True),
-    ("user_add", "user_add", "添加普通账号：UID/@用户名", True),
-    ("user_remove", "user_remove", "删除账号：UID/@用户名", True),
-    ("user_ban", "user_ban", "封禁账号：UID/@用户名 1d/1w/1m", True),
-    ("user_unban", "user_unban", "解除封禁：UID/@用户名", True),
-    ("user_role", "user_role", "设置角色：UID/@用户名 user/admin", True),
-    ("user_history", "user_history", "查看账号管理记录：UID/@用户名", True),
+    ("language", "language", "Choose your language", False),
+    ("start", "help", "Get started", False),
+    ("help", "help", "Show help", False),
+    ("whoami", "whoami", "Show your account ID", False),
+    (
+        "target",
+        "target",
+        "Set destination: Bot dialogue, group, or channel",
+        False,
+    ),
+    ("status", "status", "View destination and task status", False),
+    ("jobs", "jobs", "List tasks you can manage", False),
+    ("cancel", "cancel_command", "Cancel an active task: task ID", False),
+    ("pending", "pending", "List pending retries", False),
+    ("retry", "retry", "Retry a task: retry ID", False),
+    ("retry_cancel", "retry_cancel", "Remove a pending retry: ID", False),
+    ("join", "join", "Join source group: group link and retry ID", False),
+    ("storage", "storage", "Configure internal storage (admin)", True),
+    ("update_tdl", "update", "Check and update tdl", True),
+    ("users", "users", "List members and ban status", True),
+    ("user_add", "user_add", "Add a regular account: UID/@username", True),
+    ("user_remove", "user_remove", "Remove an account: UID/@username", True),
+    ("user_ban", "user_ban", "Ban an account: UID/@username 1d/1w/1m", True),
+    ("user_unban", "user_unban", "Unban an account: UID/@username", True),
+    ("user_role", "user_role", "Set role: UID/@username user/admin", True),
+    (
+        "user_history",
+        "user_history",
+        "View account history: UID/@username",
+        True,
+    ),
 )
 _HELP = (
-    "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字\n"
-    "/target <chat> [topic_id] 设置接收群／频道\n"
-    "/target bot 接收到此对话（默认）\n"
-    "/status 查看接收位置与任务状态\n"
-    "/jobs 查看活动任务，/cancel <编号> 取消\n"
-    "/pending 查看待重试记录，/retry [编号] 重试\n"
-    "/retry_cancel <编号> 删除待重试记录\n"
-    "/join <群 url> [编号] 入群后重试\n"
-    "普通账号最多保存 3 条待重试记录。\n"
-    "/status 查看状态，/whoami 查看自己的账号 ID"
+    "Send a Telegram message URL to process its entire media group and "
+    "captions.\n/target <chat> [topic_id] Set a destination group or "
+    "channel\n/target bot Receive in this dialogue (default)\n/status View "
+    "destination and task status\n/jobs List active tasks; /cancel <id> "
+    "Cancel a task\n/pending List retries; /retry [id] Retry a "
+    "task\n/retry_cancel <id> Remove a retry\n/join <group_url> [id] Join "
+    "and retry\nRegular accounts can keep up to 3 pending "
+    "retries.\n/status View status; /whoami View your account "
+    "ID\n/language [en|zh] Choose your language"
 )
 _ADMIN_HELP = (
-    "\n\n管理员：\n"
-    "/storage <chat> [topic_id] 配置内部存储\n"
-    "/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n"
-    "/users 查看成员\n"
-    "/user_add <UID或@用户名> 添加普通账号\n"
-    "/user_remove <UID或@用户名> 删除账号\n"
-    "/user_ban <UID或@用户名> <1d|1w|1m> 封禁一天／周／30天\n"
-    "/user_unban <UID或@用户名> 解封\n"
-    "/user_role <UID或@用户名> <user|admin> 设置角色\n"
-    "/user_history <UID或@用户名> 查看管理记录\n"
-    "/status <UID或@用户名> 查看其他账号的接收位置\n"
-    "/update_tdl [latest|v0.20.4] 检查并更新 tdl"
+    "\n\nAdministrators:\n/storage <chat> [topic_id] Configure internal "
+    "storage\n/target for <UID|@username> [chat] [topic_id] Manage a "
+    "personal destination\n/users List members\n/user_add <UID|@username> "
+    "Add a regular account\n/user_remove <UID|@username> Remove an "
+    "account\n/user_ban <UID|@username> <1d|1w|1m> Ban for a day, week, or "
+    "30 days\n/user_unban <UID|@username> Unban an account\n/user_role "
+    "<UID|@username> <user|admin> Set a role\n/user_history "
+    "<UID|@username> View account management history\n/status "
+    "<UID|@username> View another account's destination\n/update_tdl "
+    "[latest|v0.20.4] Check and update tdl"
 )
 
 
@@ -105,7 +114,7 @@ class ProgressMessages:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="取消", callback_data=f"cancel:{job.id}"
+                            text=tr("Cancel"), callback_data=f"cancel:{job.id}"
                         )
                     ]
                 ]
@@ -159,9 +168,18 @@ class Authorization(BaseMiddleware):
         if command and command[0].split("@")[0] == "/whoami":
             return await handler(event, data)
         if not self.policy.is_allowed(event.from_user.id):
-            await event.answer(
-                "当前账号未获授权或处于封禁中。使用 /whoami 获取账号 ID。"
+            language = (
+                self.policy.store.language(event.from_user.id)
+                if self.policy.store is not None
+                else "en"
             )
+            with use_language(language):
+                await event.answer(
+                    tr(
+                        "This account is unauthorized or banned. Use "
+                        "/whoami to get your account ID."
+                    )
+                )
             return None
         if self.refresh_menu:
             await self.refresh_menu(event.from_user.id)
@@ -186,7 +204,7 @@ class BotApplication:
         self.tdl = tdl
         self.service = service
         self.policy = service.policy
-        self._menu_roles: dict[int, str] = {}
+        self._menu_roles: dict[int, tuple[str, str]] = {}
         self._menu_lock = asyncio.Lock()
         self._update: asyncio.Task | None = None
         self._controls: dict[tuple[int, int], set[str]] = store.controls()
@@ -210,7 +228,7 @@ class BotApplication:
     @staticmethod
     def command_menu(*, admin: bool = False, allowed: bool = True):
         return [
-            BotCommand(command=name, description=description)
+            BotCommand(command=name, description=tr(description))
             for name, _, description, admin_only in _COMMANDS
             if (allowed and (admin or not admin_only)) or name == "whoami"
         ]
@@ -235,45 +253,79 @@ class BotApplication:
                 if self.policy.is_allowed(operator_id)
                 else "denied"
             )
-            if self._menu_roles.get(operator_id) == role:
+            language = self.store.language(operator_id)
+            menu_key = (role, language)
+            if self._menu_roles.get(operator_id) == menu_key:
                 return
             try:
-                await self.bot.set_my_commands(
-                    self.command_menu(
-                        admin=role == "admin", allowed=role != "denied"
-                    ),
-                    scope=BotCommandScopeChat(chat_id=operator_id),
-                )
+                with use_language(language):
+                    await self.bot.set_my_commands(
+                        self.command_menu(
+                            admin=role == "admin", allowed=role != "denied"
+                        ),
+                        scope=BotCommandScopeChat(chat_id=operator_id),
+                    )
             except Exception:
                 # The member may not have opened a private bot chat yet.
                 # Retry on their next message; permissions stay current.
-                _LOGGER.warning("无法同步账号命令菜单。")
+                _LOGGER.warning("Cannot synchronize account command menu.")
             else:
-                self._menu_roles[operator_id] = role
+                self._menu_roles[operator_id] = menu_key
 
     async def close(self) -> None:
         """Wait for an already authorized binary update to complete."""
         if self._update:
             await self._update
 
+    @localized
     async def help(self, message: Message) -> None:
         """Show the command reference."""
         assert message.from_user is not None
-        text = _HELP
+        text = tr(_HELP)
         if self.policy.is_admin(message.from_user.id):
-            text += _ADMIN_HELP
+            text += tr(_ADMIN_HELP)
         await message.answer(text)
 
+    @localized
+    async def language(self, message: Message, command: CommandObject) -> None:
+        """Persist a language choice and refresh this chat's command hints."""
+        assert message.from_user is not None
+        user_id = message.from_user.id
+        code = (command.args or "").strip().lower()
+        if code:
+            if code not in CATALOGS:
+                raise UserError(
+                    tr(
+                        "Unsupported language. Use /language to see "
+                        "available languages."
+                    )
+                )
+            self.store.set_language(user_id, code)
+            await self.refresh_menu(user_id)
+        with use_language(self.store.language(user_id)):
+            name = CATALOGS[self.store.language(user_id)]["name"]
+            options = "\n".join(
+                f"/language {key} — {catalog['name']}"
+                for key, catalog in CATALOGS.items()
+            )
+            await message.answer(
+                tr("Language: {name}\n{options}", name=name, options=options)
+            )
+
+    @localized
     async def whoami(self, message: Message) -> None:
         """Show a private-chat user's ID without account privileges."""
         assert message.from_user is not None
-        await message.answer(f"你的用户 ID：{message.from_user.id}")
+        await message.answer(tr("Your user ID: {p0}", p0=message.from_user.id))
 
+    @localized
     async def storage(self, message: Message, command: CommandObject) -> None:
         assert message.from_user is not None
         actor = message.from_user.id
         if not self.policy.is_admin(actor):
-            raise UserError("只有管理员可以配置内部存储。")
+            raise UserError(
+                tr("Only administrators can configure internal storage.")
+            )
         args = (command.args or "").split()
         if args:
             target = self._parse_target(args)
@@ -282,16 +334,27 @@ class BotApplication:
             )
             await self.service.accounts.shared.media.validate_target(target)
             if not self.policy.is_admin(actor):
-                raise UserError("只有管理员可以配置内部存储。")
+                raise UserError(
+                    tr("Only administrators can configure internal storage.")
+                )
             self.store.set_target(actor, target)
         else:
             target = self.store.internal_target()
-        link = await self._target_link(target, actor) if target else "尚未设置"
+        link = (
+            await self._target_link(target, actor)
+            if target
+            else tr("Not configured")
+        )
         if not self.policy.is_admin(actor):
-            raise UserError("只有管理员可以查看内部存储。")
-        text = f"内部存储：{link}"
+            raise UserError(
+                tr("Only administrators can view internal storage.")
+            )
+        text = tr("Internal storage: {p0}", p0=link)
         if args:
-            text += "\n已保存；已接收的任务继续使用原位置。"
+            text += tr(
+                "\nSaved. Already accepted tasks will keep their original "
+                "location."
+            )
         await message.answer(
             text,
             parse_mode="HTML",
@@ -301,14 +364,17 @@ class BotApplication:
     @staticmethod
     def _parse_target(args):
         if len(args) not in (1, 2):
-            raise UserError("请提供聊天／频道及可选的话题 ID。")
+            raise UserError(
+                tr("Provide a chat or channel and an optional topic ID.")
+            )
         topic = None
         if len(args) == 2:
             if not args[1].isdigit() or int(args[1]) <= 0:
-                raise UserError("topic_id 必须为正整数。")
+                raise UserError(tr("topic_id must be a positive integer."))
             topic = int(args[1])
         return Target(args[0], topic)
 
+    @localized
     async def target(self, message: Message, command: CommandObject) -> None:
         """Configure only the final recipient, never the internal storage."""
         assert message.from_user is not None
@@ -320,25 +386,40 @@ class BotApplication:
             return
         if args[0] == "get":
             raise UserError(
-                "请直接使用 /target 查看接收位置，"
-                "或 /target <群／频道> 设置接收位置。"
+                tr(
+                    "Use /target to view your destination or /target "
+                    "<group_or_channel> to set one."
+                )
             )
         if args[0] == "shared":
             raise UserError(
-                "请使用 /target bot 或 /target <群／频道> 设置接收位置。"
+                tr(
+                    "Use /target bot or /target <group_or_channel> to set "
+                    "your destination."
+                )
             )
         if args[0] == "for":
             if not self.policy.is_admin(actor):
-                raise UserError("只有管理员可以设置其他账号的接收位置。")
+                raise UserError(
+                    tr(
+                        "Only administrators can set another account's "
+                        "destination."
+                    )
+                )
             if len(args) < 2:
                 raise UserError(
-                    "用法：/target for <UID或@用户名> [chat] [topic_id]"
+                    tr("Usage: /target for <UID|@username> [chat] [topic_id]")
                 )
             owner = await self._resolve_user(args[1])
             if not self.policy.is_admin(actor):
-                raise UserError("只有管理员可以查看其他账号的接收位置。")
+                raise UserError(
+                    tr(
+                        "Only administrators can view another account's "
+                        "receiving location."
+                    )
+                )
             if not self.policy.is_known(owner):
-                raise UserError("目标账号不在成员列表中。")
+                raise UserError(tr("The target account is not a member."))
             args = args[2:]
             if not args:
                 await self._show_target(message, owner)
@@ -352,7 +433,7 @@ class BotApplication:
                 self._parse_target(args), owner
             )
         if not self.policy.can_manage(actor, owner):
-            raise UserError("当前账号无权修改接收位置。")
+            raise UserError(tr("You cannot change this destination."))
         self.store.set_target(owner, target, private=True)
         await self._show_target(message, owner, saved=True)
 
@@ -360,22 +441,25 @@ class BotApplication:
         assert message.from_user is not None
         actor = message.from_user.id
         if not self.policy.can_manage(actor, owner):
-            raise UserError("当前账号无权查看该接收位置。")
+            raise UserError(tr("You cannot view this destination."))
         target = self.store.recipient(owner).target
         link = await self._target_link(target, owner)
         if not self.policy.can_manage(actor, owner):
-            raise UserError("当前账号无权查看该接收位置。")
-        text = f"接收位置：{link}"
+            raise UserError(tr("You cannot view this destination."))
+        text = tr("Destination: {p0}", p0=link)
         if owner != actor:
-            text = f"账号：{self._user_link(owner)}\n" + text
+            text = tr("Account: {p0}\n", p0=self._user_link(owner)) + text
         if saved:
-            text += "\n已保存；已排队任务仍使用原来的接收位置。"
+            text += tr(
+                "\nSaved. Queued tasks will keep their original destination."
+            )
         await message.answer(
             text,
             parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
+    @localized
     async def status(
         self, message: Message, command: CommandObject | None = None
     ) -> None:
@@ -385,30 +469,57 @@ class BotApplication:
         operator = actor
         if command and command.args:
             if not self.policy.is_admin(actor):
-                raise UserError("只有管理员可以查看其他账号的目标。")
+                raise UserError(
+                    tr(
+                        "Only administrators can view another account's "
+                        "destination."
+                    )
+                )
             operator = await self._resolve_user(command.args.strip())
             if not self.policy.is_admin(actor):
-                raise UserError("只有管理员可以查看其他账号的目标。")
+                raise UserError(
+                    tr(
+                        "Only administrators can view another account's "
+                        "destination."
+                    )
+                )
         target = self.store.recipient(operator).target
         executor = self.service.accounts.select(operator)
-        account = "自己的执行账号" if executor.owner_id else "默认执行账号"
+        account = (
+            tr("Personal execution account")
+            if executor.owner_id
+            else tr("Default execution account")
+        )
         quota = (
-            "不限"
+            tr("Unlimited")
             if self.policy.is_admin(operator)
             else f"{self.store.pending_count(operator)}/3"
         )
         target_link = await self._target_link(target, operator)
         # Re-check after network rendering before exposing another account.
         if operator != actor and not self.policy.is_admin(actor):
-            raise UserError("只有管理员可以查看其他账号的目标。")
+            raise UserError(
+                tr(
+                    "Only administrators can view another account's "
+                    "destination."
+                )
+            )
         await message.answer(
-            f"账号：{self._user_link(operator)}\n"
-            f"接收位置：{target_link}\n执行账号：{account}\n"
-            f"可管理任务：{len(self.service.jobs(operator))}；"
-            f"待重试：{len(self.service.pending_items(operator))}\n"
-            f"自己的待重试名额：{quota}\n"
-            "使用 /target bot 接收到此对话，"
-            "/target &lt;群／频道&gt; 设置其他位置。",
+            tr(
+                (
+                    "Account: {p0}\nDestination: {p1}\nExecution account: "
+                    "{p2}\nManageable tasks: {p3}; pending retries: "
+                    "{p4}\nYour pending retry quota: {p5}\nUse /target bot "
+                    "to receive here, or /target &lt;group_or_channel&gt; "
+                    "to choose another destination."
+                ),
+                p0=self._user_link(operator),
+                p1=target_link,
+                p2=account,
+                p3=len(self.service.jobs(operator)),
+                p4=len(self.service.pending_items(operator)),
+                p5=quota,
+            ),
             parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
@@ -416,9 +527,9 @@ class BotApplication:
     @staticmethod
     def _target_label(target: Target | None) -> str:
         if target is None:
-            return "尚未设置"
+            return tr("Not configured")
         return target.chat + (
-            f"；话题：{target.topic_id}" if target.topic_id else ""
+            tr("; topic: {p0}", p0=target.topic_id) if target.topic_id else ""
         )
 
     def _user_link(self, operator: int) -> str:
@@ -448,7 +559,7 @@ class BotApplication:
         url = None
         username = getattr(chat, "username", None)
         if target.chat == str(operator):
-            label = "Bot 对话"
+            label = tr("Bot dialogue")
             username = None
             get_me = getattr(self.bot, "get_me", None)
             if get_me is not None:
@@ -468,7 +579,7 @@ class BotApplication:
         elif chat:
             url = getattr(chat, "invite_link", None)
         if target.topic_id:
-            label += f" / 话题 {target.topic_id}"
+            label += tr(" / Topic {p0}", p0=target.topic_id)
         return (
             f'<a href="{escape(url, quote=True)}">{escape(label)}</a>'
             if url
@@ -512,9 +623,10 @@ class BotApplication:
         if args is None or not args.strip():
             return 1
         if not args.strip().isdigit() or int(args) <= 0:
-            raise UserError("页码必须为正整数。")
+            raise UserError(tr("Page number must be a positive integer."))
         return int(args)
 
+    @localized
     async def jobs(self, message: Message, command: CommandObject) -> None:
         """List manageable transfers with buttons usable across accounts."""
         assert message.from_user is not None
@@ -523,23 +635,29 @@ class BotApplication:
         page = self._page(command.args)
         selected = jobs[(page - 1) * 10 : page * 10]
         if not selected:
-            await message.answer("当前页没有可管理的任务。")
+            await message.answer(tr("No manageable tasks on this page."))
             return
-        lines = [f"任务列表（第 {page} 页，共 {len(jobs)} 个）："]
+        lines = [tr("Tasks (page {p0}, {p1} total):", p0=page, p1=len(jobs))]
         buttons = []
         for job in selected:
             scope = (
-                "共享" if job.owner_id is None else f"个人（{job.owner_id}）"
+                tr("Shared")
+                if job.owner_id is None
+                else tr("Personal ({p0})", p0=job.owner_id)
             )
-            lines.append(f"{job.id[:8]} · {scope} · {job.stage}")
+            lines.append(f"{job.id[:8]} · {scope} · {saved_label(job.stage)}")
             lines.append(
-                f"目标：{job.target.chat[:80]}；"
-                f"话题：{job.target.topic_id or '默认'}\n{job.url[:120]}"
+                tr(
+                    "Destination: {p0}; topic: {p1}\n{p2}",
+                    p0=job.target.chat[:80],
+                    p1=job.target.topic_id or tr("Default"),
+                    p2=job.url[:120],
+                )
             )
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text=f"取消 {job.id[:8]}",
+                        text=tr("Cancel {p0}", p0=job.id[:8]),
                         callback_data=f"cancel:{job.id}",
                     )
                 ]
@@ -560,21 +678,31 @@ class BotApplication:
     def _pending_lines(item: PendingTransfer) -> list[str]:
         lines = []
         scope = (
-            "共享"
+            tr("Shared")
             if item.destination.owner_id is None
-            else f"个人（{item.destination.owner_id}）"
+            else tr("Personal ({p0})", p0=item.destination.owner_id)
         )
-        account = "共享账号" if item.executor_key == "shared" else "专属账号"
-        archive = " · 归档（仅管理员）" if item.archived else ""
+        account = (
+            tr("Shared account")
+            if item.executor_key == "shared"
+            else tr("Personal account")
+        )
+        archive = (
+            tr(" · Archived (administrators only)") if item.archived else ""
+        )
         lines.append(
             f"{item.id} · {scope} · {account}{archive} · {item.url[:180]}"
         )
         lines.append(
-            f"目标：{item.destination.target.chat[:80]}；"
-            f"话题：{item.destination.target.topic_id or '默认'}"
+            tr(
+                "Destination: {p0}; topic: {p1}",
+                p0=item.destination.target.chat[:80],
+                p1=item.destination.target.topic_id or tr("Default"),
+            )
         )
         return lines
 
+    @localized
     async def pending(self, message: Message, command: CommandObject) -> None:
         """List permission retries without exposing private records to peers."""
         assert message.from_user is not None
@@ -582,21 +710,27 @@ class BotApplication:
         page = self._page(command.args)
         selected = items[(page - 1) * 10 : page * 10]
         if not selected:
-            await message.answer("当前页没有待重试任务。")
+            await message.answer(tr("No pending retries on this page."))
             return
-        lines = [f"待重试列表（第 {page} 页，共 {len(items)} 个）："]
+        lines = [
+            tr(
+                "Pending retries (page {p0}, {p1} total):",
+                p0=page,
+                p1=len(items),
+            )
+        ]
         buttons = []
         for item in selected:
             lines.extend(self._pending_lines(item))
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text=f"移除待重试 {item.id}",
+                        text=tr("Remove retry {p0}", p0=item.id),
                         callback_data=f"retry_cancel:{item.id}",
                     )
                 ]
             )
-        lines.append("使用 /retry <编号> 或 /join <群 url> <编号>。")
+        lines.append(tr("Use /retry <id> or /join <group_url> <id>."))
         reply = await message.answer(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -613,15 +747,21 @@ class BotApplication:
         if not value:
             return None
         if not value.isdigit() or int(value) <= 0:
-            raise UserError("待重试编号必须为正整数，请使用 /pending 查看。")
+            raise UserError(
+                tr(
+                    "Retry ID must be a positive integer. Use /pending to "
+                    "view retries."
+                )
+            )
         return int(value)
 
+    @localized
     async def join(self, message: Message, command: CommandObject) -> None:
         """Join with the failed task's executor, then retry its snapshot."""
         assert message.from_user is not None
         args = (command.args or "").split()
         if len(args) not in (1, 2):
-            raise UserError("用法：/join <群 url> [待重试编号]")
+            raise UserError(tr("Usage: /join <group_url> [retry_id]"))
         operator = message.from_user.id
         item = self.service.pending_record(
             operator, self._pending_id(args[1] if len(args) == 2 else None)
@@ -639,6 +779,7 @@ class BotApplication:
             operator, item.id, source_message_id=message.message_id
         )
 
+    @localized
     async def retry(self, message: Message, command: CommandObject) -> None:
         assert message.from_user is not None
         await self.service.retry(
@@ -647,17 +788,29 @@ class BotApplication:
             source_message_id=message.message_id,
         )
 
+    @localized
     async def cancel_command(
         self, message: Message, command: CommandObject
     ) -> None:
         assert message.from_user is not None
         job_id = (command.args or "").strip()
         if not self.service.current_job(message.from_user.id, job_id):
-            raise UserError("任务不存在或无权管理，请使用 /jobs 查看任务编号。")
-        reply = await message.answer("正在取消并清理……")
+            raise UserError(
+                tr(
+                    "Task not found or access denied. Use /jobs to find "
+                    "the task ID."
+                )
+            )
+        reply = await message.answer(tr("Cancelling and cleaning up…"))
         await self.service.cancel(message.from_user.id, job_id)
-        await reply.edit_text("取消处理完成；原任务进度消息已更新。")
+        await reply.edit_text(
+            tr(
+                "Cancellation complete. The original task progress message "
+                "has been updated."
+            )
+        )
 
+    @localized
     async def cancel(self, query: CallbackQuery) -> None:
         """Check management permissions and validate the button source."""
         if (
@@ -665,7 +818,9 @@ class BotApplication:
             or query.message is None
             or query.message.chat.type != "private"
         ):
-            await query.answer("无权取消此任务。", show_alert=True)
+            await query.answer(
+                tr("You cannot cancel this task."), show_alert=True
+            )
             return
         job_id = (query.data or "").removeprefix("cancel:")
         job = self.service.current_job(query.from_user.id, job_id)
@@ -683,42 +838,53 @@ class BotApplication:
                 )
             )
         ):
-            await query.answer("任务已结束或按钮已失效。")
+            await query.answer(tr("Task ended or button expired."))
             return
         # Acknowledge immediately; tdl process termination/cleanup can take
         # several seconds. The terminal result edits the original reply.
-        await query.answer("正在取消……")
+        await query.answer(tr("Cancelling…"))
         await self.service.cancel(query.from_user.id, job_id)
 
     @staticmethod
     def _user_id(value: str) -> int:
         if not value.isdigit() or int(value) <= 0:
-            raise UserError("账号 ID 必须为正整数。")
+            raise UserError(tr("Account ID must be a positive integer."))
         return int(value)
 
     def _admin_args(self, message: Message, command: CommandObject, count: int):
         assert message.from_user is not None
         if not self.policy.is_admin(message.from_user.id):
-            raise UserError("只有管理员可以管理账号。")
+            raise UserError(tr("Only administrators can manage accounts."))
         args = (command.args or "").split()
         if len(args) != count:
             raise UserError(
-                f"/{command.command} 需要 {count} 个参数，请查看 /help。"
+                tr(
+                    "/{p0} requires {p1} arguments. See /help.",
+                    p0=command.command,
+                    p1=count,
+                )
             )
         return message.from_user.id, args
 
+    @localized
     async def retry_cancel(
         self, message: Message, command: CommandObject
     ) -> None:
         assert message.from_user is not None
         pending_id = self._pending_id((command.args or "").strip())
         if pending_id is None:
-            raise UserError("用法：/retry_cancel <待重试编号>")
+            raise UserError(tr("Usage: /retry_cancel <retry_id>"))
         result = self.service.discard_pending(message.from_user.id, pending_id)
         if isawaitable(result):
             await result
-        await message.answer("待重试记录已移除；不会执行入群、下载或上传。")
+        await message.answer(
+            tr(
+                "Pending retry removed. No joining, downloading, or "
+                "uploading will occur."
+            )
+        )
 
+    @localized
     async def cancel_retry(self, query: CallbackQuery) -> None:
         if (
             not self.policy.is_allowed(query.from_user.id)
@@ -726,7 +892,9 @@ class BotApplication:
             or query.message.chat.type != "private"
             or query.message.chat.id != query.from_user.id
         ):
-            await query.answer("无权管理此记录。", show_alert=True)
+            await query.answer(
+                tr("You cannot manage this record."), show_alert=True
+            )
             return
         try:
             pending_id = self._pending_id(
@@ -736,7 +904,7 @@ class BotApplication:
                 (query.from_user.id, query.message.message_id), set()
             )
             if pending_id is None or f"retry:{pending_id}" not in controls:
-                raise UserError("按钮已失效，请重新使用 /pending。")
+                raise UserError(tr("Button expired. Use /pending again."))
             result = self.service.discard_pending(
                 query.from_user.id, pending_id
             )
@@ -746,7 +914,7 @@ class BotApplication:
             await query.answer(str(exc), show_alert=True)
             return
         controls.discard(f"retry:{pending_id}")
-        await query.answer("待重试记录已移除。")
+        await query.answer(tr("Pending retry removed."))
         remaining = [
             item
             for item in self.service.pending_items(query.from_user.id)
@@ -759,7 +927,7 @@ class BotApplication:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text=f"移除待重试 {item.id}",
+                            text=tr("Remove retry {p0}", p0=item.id),
                             callback_data=f"retry_cancel:{item.id}",
                         )
                     ]
@@ -769,11 +937,11 @@ class BotApplication:
             if remaining
             else None
         )
-        lines = [f"已移除待重试记录 {pending_id}。"]
+        lines = [tr("Removed pending retry {p0}.", p0=pending_id)]
         for item in remaining:
             lines.extend(self._pending_lines(item))
         if not remaining:
-            lines.append("此列表已没有待重试记录。")
+            lines.append(tr("No pending retries remain in this list."))
         try:
             await self.bot.edit_message_text(
                 chat_id=query.from_user.id,
@@ -782,7 +950,9 @@ class BotApplication:
                 reply_markup=markup,
             )
         except Exception:
-            _LOGGER.warning("记录已移除，但无法刷新列表。")
+            _LOGGER.warning(
+                "Record removed, but the list could not be refreshed."
+            )
 
     @staticmethod
     def _deadline(timestamp: float) -> str:
@@ -790,23 +960,35 @@ class BotApplication:
             timestamp, ZoneInfo("Asia/Tokyo")
         ).strftime("%Y-%m-%d %H:%M JST")
 
+    @localized
     async def users(self, message: Message, command: CommandObject) -> None:
         assert message.from_user is not None
         if not self.policy.is_admin(message.from_user.id):
-            raise UserError("只有管理员可以查看成员列表。")
+            raise UserError(tr("Only administrators can view the member list."))
         members = self.store.members()
         page = self._page(command.args)
         selected = members[(page - 1) * 10 : page * 10]
         if not selected:
-            await message.answer("当前页没有成员。")
+            await message.answer(tr("No members on this page."))
             return
-        lines = [f"成员列表（第 {page} 页，共 {len(members)} 个）："]
+        lines = [
+            tr("Members (page {p0}, {p1} total):", p0=page, p1=len(members))
+        ]
         for member in selected:
-            role = "管理员" if member.role == "admin" else "普通账号"
+            role = (
+                tr("Administrator")
+                if member.role == "admin"
+                else tr("Regular account")
+            )
             state = (
-                "正常"
+                tr("Active")
                 if member.active(self.store.now())
-                else (f"封禁至 {self._deadline(member.banned_until)}")
+                else (
+                    tr(
+                        "Banned until {p0}",
+                        p0=self._deadline(member.banned_until),
+                    )
+                )
             )
             await self._refresh_profile(member.user_id)
             label = escape(self.store.user_label(member.user_id))
@@ -814,24 +996,29 @@ class BotApplication:
             target_link = await self._target_link(
                 self.store.recipient(member.user_id).target, member.user_id
             )
-            lines.append(f"当前目标：{target_link}")
+            lines.append(tr("Current destination: {p0}", p0=target_link))
         if not self.policy.is_admin(message.from_user.id):
-            raise UserError("只有管理员可以查看成员列表。")
+            raise UserError(tr("Only administrators can view the member list."))
         await message.answer(
             "\n".join(lines),
             parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
+    @localized
     async def user_add(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 1)
         user_id = await self._resolve_user(args[0])
         self.store.add_member(actor, user_id)
         await self.refresh_menu(user_id)
         await message.answer(
-            f"{self.store.user_label(user_id)}：普通账号已添加，权限已生效。"
+            tr(
+                "{p0}: Regular account added. Access is now active.",
+                p0=self.store.user_label(user_id),
+            )
         )
 
+    @localized
     async def user_remove(
         self, message: Message, command: CommandObject
     ) -> None:
@@ -841,24 +1028,41 @@ class BotApplication:
         await self.service.cancel_submitted(actor, user_id)
         await self.refresh_menu(user_id)
         await message.answer(
-            f"{self.store.user_label(user_id)}：账号已删除，活动任务已取消并清理。"
-            "历史目标和重试记录保留给管理员。"
+            tr(
+                (
+                    "{p0}: Account removed; active tasks cancelled and "
+                    "cleaned up. Previous destinations and retries remain "
+                    "available to administrators."
+                ),
+                p0=self.store.user_label(user_id),
+            )
         )
 
+    @localized
     async def user_ban(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 2)
         durations = {"1d": 86400, "1w": 7 * 86400, "1m": 30 * 86400}
         duration = durations.get(args[1])
         if duration is None:
-            raise UserError("封禁时长请使用 1d、1w 或 1m（30 天）。")
+            raise UserError(
+                tr("Use 1d, 1w, or 1m (30 days) for the ban duration.")
+            )
         user_id = await self._resolve_user(args[0])
         self.store.ban_member(actor, user_id, duration)
         await self.service.cancel_submitted(actor, user_id)
         await self.refresh_menu(user_id)
         await message.answer(
-            f"{self.store.user_label(user_id)}：封禁已生效，活动任务已取消并清理；到期自动恢复权限。"
+            tr(
+                (
+                    "{p0}: Account banned; active tasks cancelled and "
+                    "cleaned up. Access will be restored automatically "
+                    "when the ban expires."
+                ),
+                p0=self.store.user_label(user_id),
+            )
         )
 
+    @localized
     async def user_unban(
         self, message: Message, command: CommandObject
     ) -> None:
@@ -866,8 +1070,11 @@ class BotApplication:
         user_id = await self._resolve_user(args[0])
         self.store.unban_member(actor, user_id)
         await self.refresh_menu(user_id)
-        await message.answer(f"{self.store.user_label(user_id)}：封禁已解除。")
+        await message.answer(
+            tr("{p0}: Account unbanned.", p0=self.store.user_label(user_id))
+        )
 
+    @localized
     async def user_role(self, message: Message, command: CommandObject) -> None:
         actor, args = self._admin_args(message, command, 2)
         user_id = await self._resolve_user(args[0])
@@ -875,9 +1082,10 @@ class BotApplication:
         await self.service.reconcile_permissions()
         await self.refresh_menu(user_id)
         await message.answer(
-            f"{self.store.user_label(user_id)}：账号角色已更新。"
+            tr("{p0}: Account role updated.", p0=self.store.user_label(user_id))
         )
 
+    @localized
     async def user_history(
         self, message: Message, command: CommandObject
     ) -> None:
@@ -885,14 +1093,14 @@ class BotApplication:
         user_id = await self._resolve_user(args[0])
         rows = self.store.member_history(actor, user_id)
         names = {
-            "add": "添加普通账号",
-            "remove": "删除账号",
-            "unban": "解除封禁",
-            "role:user": "设为普通账号",
-            "role:admin": "设为管理员",
-            "ban:86400": "封禁一天",
-            "ban:604800": "封禁一周",
-            "ban:2592000": "封禁 30 天",
+            "add": tr("Add regular account"),
+            "remove": tr("Remove account"),
+            "unban": tr("Unban account"),
+            "role:user": tr("Set regular account role"),
+            "role:admin": tr("Set administrator role"),
+            "ban:86400": tr("Ban for one day"),
+            "ban:604800": tr("Ban for one week"),
+            "ban:2592000": tr("Ban for 30 days"),
         }
         text = "\n".join(
             f"{self._deadline(created)} · {self.store.user_label(admin)} · "
@@ -901,18 +1109,24 @@ class BotApplication:
         )
         await message.answer(
             f"{self.store.user_label(user_id)}\n"
-            + (text or "没有账号管理记录。")
+            + (text or tr("No account management history."))
         )
 
+    @localized
     async def update(self, message: Message, command: CommandObject) -> None:
         """Schedule an administrator-requested update without blocking input."""
         assert message.from_user is not None
         if not self.policy.is_admin(message.from_user.id):
-            raise UserError("只有管理员可以更新 tdl。")
+            raise UserError(tr("Only administrators can update tdl."))
         if self._update and not self._update.done():
-            raise UserError("已有 tdl 更新任务，请等待完成。")
+            raise UserError(
+                tr("A tdl update is already running. Wait for it to finish.")
+            )
         await message.answer(
-            "正在检查 tdl 版本；需要更新时将等待活动任务结束。"
+            tr(
+                "Checking the tdl version. If an update is needed, it will "
+                "wait for active tasks to finish."
+            )
         )
         self._update = asyncio.create_task(
             self._perform_update(
@@ -920,25 +1134,30 @@ class BotApplication:
             )
         )
 
+    @localized
     async def _perform_update(self, user_id: int, version: str) -> None:
         """Complete an update and report errors even if notification fails."""
         try:
             result = await self.tdl.update(version)
             text = (
                 result
-                if result.startswith("无需更新")
-                else f"tdl 更新完成：\n{result}"
+                if result.startswith(tr("No update needed"))
+                else tr("tdl update completed:\n{p0}", p0=result)
             )
         except UserError as exc:
             text = str(exc)
         except Exception as exc:
-            _LOGGER.error("更新失败：%s", type(exc).__name__)
-            text = "tdl 更新失败，请检查服务器配置后重试。"
+            _LOGGER.error("Update failed: %s", type(exc).__name__)
+            text = tr(
+                "tdl update failed. Check the server configuration before "
+                "retrying."
+            )
         try:
             await self.bot.send_message(user_id, text)
         except Exception:
-            _LOGGER.warning("无法发送 tdl 更新结果。")
+            _LOGGER.warning("Cannot send tdl update result.")
 
+    @localized
     async def url(self, message: Message) -> None:
         """Treat ordinary text as one url or a pending group invitation."""
         assert message.from_user is not None
@@ -958,16 +1177,23 @@ class BotApplication:
             user_id, text, source_message_id=message.message_id
         )
 
+    @localized
     async def error(self, event: ErrorEvent) -> bool:
         """Translate known errors without exposing session data to users."""
         message = event.update.message
         if isinstance(event.exception, UserError):
             text = str(event.exception)
         elif isinstance(event.exception, errors.FloodWaitError):
-            text = f"Telegram 限流，请 {event.exception.seconds} 秒后重试。"
+            text = tr(
+                "Telegram rate limit. Retry in {p0} seconds.",
+                p0=event.exception.seconds,
+            )
         else:
-            _LOGGER.error("命令失败：%s", type(event.exception).__name__)
-            text = "命令失败，请检查网络、群 url 或目标权限后重试。"
+            _LOGGER.error("Command failed: %s", type(event.exception).__name__)
+            text = tr(
+                "Command failed. Check the network, group URL, and "
+                "destination permissions before retrying."
+            )
         if message:
             await message.answer(text)
         return True

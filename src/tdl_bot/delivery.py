@@ -17,6 +17,7 @@ from aiogram.types import (
 )
 
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 from tdl_bot.store import Target
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +38,12 @@ class MissingResult(UserError):
 
 class PartialDelivery(UserError):
     def __init__(self, message_ids):
-        super().__init__("部分媒体未能发送，请检查接收位置后再重试。")
+        super().__init__(
+            tr(
+                "Some media could not be delivered. Check the destination "
+                "before retrying."
+            )
+        )
         self.message_ids = message_ids
 
 
@@ -59,7 +65,10 @@ class Delivery:
             if chat.type == "private":
                 if storage or chat.id != operator:
                     raise UserError(
-                        "只能选择你与 Bot 的私聊，或有权限的群／频道。"
+                        tr(
+                            "Choose your own Bot dialogue or a group or "
+                            "channel you can access."
+                        )
                     )
             else:
                 me = await self.bot.get_me()
@@ -70,7 +79,10 @@ class Delivery:
                         or not member.can_post_messages
                     ):
                         raise UserError(
-                            "请将 Bot 加入目标频道并授予发布消息权限。"
+                            tr(
+                                "Add the Bot to the destination channel "
+                                "and grant permission to post messages."
+                            )
                         )
                 elif not isinstance(
                     member,
@@ -80,7 +92,12 @@ class Delivery:
                         ChatMemberMember,
                     ),
                 ):
-                    raise UserError("请将 Bot 加入目标群并授予发送媒体权限。")
+                    raise UserError(
+                        tr(
+                            "Add the Bot to the destination group and "
+                            "grant permission to send media."
+                        )
+                    )
                 if isinstance(member, ChatMemberMember) and chat.permissions:
                     permissions = chat.permissions
                     if any(
@@ -93,7 +110,12 @@ class Delivery:
                             "can_send_audios",
                         )
                     ):
-                        raise UserError("Bot 在该群没有完整的媒体发送权限。")
+                        raise UserError(
+                            tr(
+                                "The Bot does not have permission to send "
+                                "all media types in this group."
+                            )
+                        )
                 if not storage:
                     actor = await self.bot.get_chat_member(chat.id, operator)
                     if not isinstance(
@@ -104,23 +126,41 @@ class Delivery:
                             ChatMemberMember,
                         ),
                     ):
-                        raise UserError("你没有该接收位置的访问权限。")
+                        raise UserError(
+                            tr("You do not have access to this destination.")
+                        )
             if storage and chat.has_protected_content:
-                raise UserError("内部存储不能开启禁止保存／转发。")
+                raise UserError(
+                    tr("Internal storage must allow saving and forwarding.")
+                )
             return Target(str(chat.id), target.topic_id)
         except TelegramAPIError as exc:
             raise UserError(
-                "无法使用该接收位置，请检查 Bot 是否已加入及其权限。"
+                tr(
+                    "Cannot use this destination. Check that the Bot has "
+                    "joined and has permission."
+                )
             ) from exc
 
     def _storage_error(self, job, detail: str) -> UserError:
         if self.policy is not None and self.policy.is_admin(job.user_id):
             return UserError(
-                f"内部存储不可用：{detail}。"
-                "请将当前 Bot 加入存储群／频道，并用 /storage 确认目标配置；"
-                "修正后重新发送链接，可复用已保存媒体。"
+                tr(
+                    (
+                        "Internal storage is unavailable: {p0}. Add this "
+                        "Bot to the storage group or channel and check "
+                        "/storage. After fixing it, send the link again to "
+                        "reuse saved media."
+                    ),
+                    p0=detail,
+                )
             )
-        return UserError("服务暂不可用，请联系管理员检查配置后重新发送链接。")
+        return UserError(
+            tr(
+                "Service unavailable. Ask an administrator to check the "
+                "configuration, then send the link again."
+            )
+        )
 
     async def prepare(self, job):
         """Check Bot source access before copying or doing new transfer work."""
@@ -135,21 +175,32 @@ class Delivery:
             member = await self.bot.get_chat_member(chat.id, me.id)
         except TelegramRetryAfter as exc:
             raise UserError(
-                f"Telegram 限流，请 {exc.retry_after} 秒后重试。"
+                tr(
+                    "Telegram rate limit. Retry in {p0} seconds.",
+                    p0=exc.retry_after,
+                )
             ) from exc
         except TelegramAPIError as exc:
             _LOGGER.warning(
-                "媒体发送失败 stage=source error=%s reason=%s",
+                "Media delivery failed stage=source error=%s reason=%s",
                 type(exc).__name__,
                 api_reason(exc),
             )
             raise self._storage_error(
-                job, "Bot 无法访问，或目标 ID 不正确"
+                job,
+                tr(
+                    "The Bot cannot access it, or the destination ID is "
+                    "incorrect"
+                ),
             ) from exc
         if member.status in {"left", "kicked"}:
-            raise self._storage_error(job, "Bot 尚未加入或已被移除")
+            raise self._storage_error(
+                job, tr("The Bot has not joined or has been removed")
+            )
         if chat.has_protected_content:
-            raise self._storage_error(job, "已开启禁止保存／转发")
+            raise self._storage_error(
+                job, tr("Saving or forwarding is restricted")
+            )
         return chat.id
 
     async def __call__(self, job, ids):
@@ -166,44 +217,66 @@ class Delivery:
             )
         except TelegramAPIError as exc:
             _LOGGER.warning(
-                "媒体发送失败 stage=copy error=%s reason=%s",
+                "Media delivery failed stage=copy error=%s reason=%s",
                 type(exc).__name__,
                 api_reason(exc),
             )
             if isinstance(exc, TelegramRetryAfter):
-                text = f"Telegram 限流，请 {exc.retry_after} 秒后重试。"
+                text = tr(
+                    "Telegram rate limit. Retry in {p0} seconds.",
+                    p0=exc.retry_after,
+                )
             elif isinstance(exc, TelegramForbiddenError):
-                text = (
-                    "Bot 无权发送到接收位置。请解除屏蔽并发送 /start，"
-                    "或检查目标群／频道中的 Bot 权限。"
+                text = tr(
+                    "The Bot cannot send to this destination. Unblock it "
+                    "and send /start, or check its group or channel "
+                    "permissions."
                 )
             elif isinstance(exc, TelegramBadRequest):
                 reason = exc.message.lower()
                 if "message to copy not found" in reason:
                     raise MissingResult(
-                        "结果已失效，需要重新处理来源。"
+                        tr(
+                            "The saved result is unavailable. The source "
+                            "needs to be processed again."
+                        )
                     ) from exc
                 if "thread" in reason or "topic" in reason:
-                    text = "接收话题不存在或已关闭，请用 /target 重新设置话题。"
+                    text = tr(
+                        "The destination topic does not exist or is "
+                        "closed. Set another topic with /target."
+                    )
                 elif "chat not found" in reason:
-                    text = (
-                        "Bot 无法访问接收位置，"
-                        "请用 /target bot 或重新设置群／频道。"
+                    text = tr(
+                        "The Bot cannot access this destination. Use "
+                        "/target bot or choose another group or channel."
                     )
                 elif (
                     "not enough rights" in reason or "write_forbidden" in reason
                 ):
-                    text = (
-                        "没有接收位置的发送权限，"
-                        "将 Bot 加入目标群／频道后重试。"
+                    text = tr(
+                        "No permission to send to this destination. Add "
+                        "the Bot to the destination group or channel and "
+                        "retry."
                     )
                 else:
-                    text = "Telegram 拒绝复制媒体，请联系管理员查看服务日志。"
+                    text = tr(
+                        "Telegram refused to copy the media. Ask an "
+                        "administrator to check the service logs."
+                    )
             else:
-                text = "发送失败，请联系管理员查看服务日志后重试。"
+                text = tr(
+                    "Delivery failed. Ask an administrator to check the "
+                    "service logs before retrying."
+                )
             raise UserError(text) from exc
         if not result:
-            raise MissingResult("结果已失效，需要重新处理来源。")
+            raise MissingResult(
+                tr(
+                    "The saved result is unavailable. The source needs to "
+                    "be processed again."
+                )
+            )
         if len(result) != len(ids):
             raise PartialDelivery([m.message_id for m in result])
         return [m.message_id for m in result]

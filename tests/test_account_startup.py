@@ -13,6 +13,8 @@ from tdl_bot.config import AccountBinding, Settings
 from tdl_bot.errors import UserError
 from tdl_bot.tdl import UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 @pytest.mark.parametrize(
     "failure", [None, "identity", "expired", "duplicate", "connect"]

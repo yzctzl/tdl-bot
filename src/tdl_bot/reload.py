@@ -49,7 +49,9 @@ async def supervise(data_dir: Path):
             # Stop only polling; the resident engine and tdl are untouched.
             await _stop_child(child, waiter)
             if not stopping.is_set():
-                logging.info("重启 Bot 交互进程，任务执行进程继续运行。")
+                logging.info(
+                    "Restarting Bot frontend; the task engine remains running."
+                )
                 await asyncio.sleep(0.5 if restart.is_set() else 3)
     finally:
         if child is not None and waiter is not None:

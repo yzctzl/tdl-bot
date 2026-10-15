@@ -14,6 +14,8 @@ from tdl_bot.service import Job
 from tdl_bot.store import Store, Target
 from tdl_bot.tdl import UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 @pytest.mark.parametrize(
     ("user_id", "chat_type", "text", "authorized"),
@@ -51,6 +53,8 @@ async def test_authorization_rejects_non_message_events():
 @pytest.mark.parametrize("approval_required", [False, True])
 async def test_join_retries_only_after_membership(tmp_path, approval_required):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     store.set_target(1, Target("me"))
     store.set_pending(1, "https://t.me/c/123456/10")
     media = SimpleNamespace(join=AsyncMock())
@@ -115,6 +119,8 @@ async def test_cancel_callback_checks_owner_token_and_progress_message(
     tmp_path, invalid
 ):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     job = Job(
         1, "https://t.me/channel/20", Target("me"), progress_message_id=99
     )
@@ -149,6 +155,8 @@ async def test_cancel_callback_checks_owner_token_and_progress_message(
 
 async def test_update_requires_admin(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     tdl = SimpleNamespace(update=AsyncMock())
     application = BotApplication(
         SimpleNamespace(),

@@ -9,6 +9,7 @@ from telethon.tl import functions, types
 from telethon.tl.custom.message import Message
 
 from tdl_bot.errors import AccessDenied, JoinPending, UserError
+from tdl_bot.i18n import tr
 from tdl_bot.links import JoinLink, MessageLink
 from tdl_bot.store import Target
 
@@ -51,7 +52,10 @@ class TelegramMedia:
                     if dialog.id == peer:
                         return dialog.input_entity
             raise AccessDenied(
-                "下载账号尚未加入该群，或无法解析该聊天。"
+                tr(
+                    "The download account has not joined this group or "
+                    "cannot resolve the chat."
+                )
             ) from None
 
     async def resolve(self, link: MessageLink) -> MediaGroup:
@@ -87,7 +91,9 @@ class TelegramMedia:
                     != utils.get_peer_id(peer)
                 ]
                 if not candidates:
-                    raise UserError("无法定位该频道的讨论群。")
+                    raise UserError(
+                        tr("Cannot find this channel's discussion group.")
+                    )
                 chat_id = utils.get_peer_id(candidates[0].peer_id)
                 link = MessageLink(chat_id, link.comment_id)
                 peer = await self._peer(chat_id)
@@ -97,9 +103,19 @@ class TelegramMedia:
                 await self.client.get_messages(peer, ids=link.message_id),
             )
             if not anchor or isinstance(anchor, types.MessageEmpty):
-                raise UserError("消息不存在、已删除，或入群前的历史不可见。")
+                raise UserError(
+                    tr(
+                        "The message does not exist, was deleted, or its "
+                        "history is hidden from new members."
+                    )
+                )
             if not anchor.photo and not anchor.document:
-                raise UserError("该消息不包含可下载的图片、视频或文件。")
+                raise UserError(
+                    tr(
+                        "This message has no downloadable photo, video, or "
+                        "file."
+                    )
+                )
             messages = [anchor]
             if anchor.grouped_id is not None:
                 for reverse in (False, True):
@@ -112,7 +128,9 @@ class TelegramMedia:
                             messages.append(message)
             return MediaGroup(link, sorted(messages, key=lambda item: item.id))
         except _ACCESS_ERRORS as exc:
-            raise AccessDenied("下载账号没有访问该群的权限。") from exc
+            raise AccessDenied(
+                tr("The download account cannot access this group.")
+            ) from exc
 
     async def join(self, link: JoinLink) -> None:
         """Join an explicitly supplied chat; report approval requirements."""
@@ -123,7 +141,9 @@ class TelegramMedia:
                 )
             else:
                 if not link.username:
-                    raise UserError("请提供群主页或邀请 url。")
+                    raise UserError(
+                        tr("Provide a group homepage or invite URL.")
+                    )
                 # Telethon resolves usernames before serializing the request.
                 await self.client(
                     functions.channels.JoinChannelRequest(link.username)  # ty: ignore[invalid-argument-type]
@@ -131,13 +151,18 @@ class TelegramMedia:
         except errors.UserAlreadyParticipantError:
             return
         except errors.InviteRequestSentError as exc:
-            raise JoinPending("已申请入群，获批准后使用 /retry 重试。") from exc
+            raise JoinPending(
+                tr("Join request submitted. Use /retry after approval.")
+            ) from exc
         except (
             errors.InviteHashExpiredError,
             errors.InviteHashInvalidError,
         ) as exc:
             raise UserError(
-                "群邀请 url 无效或已过期，请提供新的邀请。"
+                tr(
+                    "The group invite URL is invalid or expired. Provide a "
+                    "new invite."
+                )
             ) from exc
 
     async def validate_target(self, target: Target) -> None:
@@ -146,7 +171,10 @@ class TelegramMedia:
             await self.target_peer(target)
         except (AccessDenied, *_ACCESS_ERRORS) as exc:
             raise UserError(
-                "上传账号无法访问该目标，请确认聊天 ID 和权限。"
+                tr(
+                    "The upload account cannot access this destination. "
+                    "Check the chat ID and permissions."
+                )
             ) from exc
 
     async def target_peer(self, target: Target):
@@ -171,9 +199,13 @@ class TelegramMedia:
             errors.UsernameNotOccupiedError,
             errors.UsernameInvalidError,
         ) as exc:
-            raise UserError("无法解析用户，请检查 @用户名或使用 UID。") from exc
+            raise UserError(
+                tr("Cannot resolve the user. Check @username or use a UID.")
+            ) from exc
         if not isinstance(entity, types.User) or entity.bot or entity.deleted:
-            raise UserError("请指定真实用户，不能使用频道、群或 Bot。")
+            raise UserError(
+                tr("Specify a real user, not a channel, group, or Bot.")
+            )
         return entity
 
     async def copy_messages(self, chat: str, ids: list[int], target: Target):
@@ -182,7 +214,12 @@ class TelegramMedia:
         try:
             destination = await self.target_peer(target)
         except (AccessDenied, *_ACCESS_ERRORS) as exc:
-            raise UserError("无法写入目标，请联系管理员检查服务权限。") from exc
+            raise UserError(
+                tr(
+                    "Cannot write to the destination. Ask an administrator "
+                    "to check service permissions."
+                )
+            ) from exc
         existing = cast(
             list[Message | types.MessageEmpty | None],
             await self.client.get_messages(source, ids=ids),
@@ -209,7 +246,12 @@ class TelegramMedia:
             )
         ]
         if len(messages) != len(ids):
-            raise UserError("转发未返回完整媒体组，请检查目标后重试。")
+            raise UserError(
+                tr(
+                    "Forwarding did not return the entire media group. "
+                    "Check the destination before retrying."
+                )
+            )
         return [message.id for message in messages]
 
     async def copy_group(self, group: MediaGroup, target: Target):
@@ -313,7 +355,12 @@ class TelegramMedia:
             len(result) if isinstance(result, list) else int(result is not None)
         )
         if count != len(files):
-            raise UserError("上传未返回完整媒体组，请检查目标后重试。")
+            raise UserError(
+                tr(
+                    "Uploading did not return the entire media group. "
+                    "Check the destination before retrying."
+                )
+            )
 
         messages = result if isinstance(result, list) else [result]
         return [message.id for message in messages if hasattr(message, "id")]

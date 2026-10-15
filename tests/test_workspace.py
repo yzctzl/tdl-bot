@@ -16,6 +16,8 @@ from tdl_bot.service import TransferService
 from tdl_bot.store import Destination, Store, Target
 from tdl_bot.tdl import UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 def legacy_database(path, targets):
     db = sqlite3.connect(path)
@@ -42,6 +44,8 @@ def test_migration_shares_single_destination_and_preserves_all_retries(
     path = tmp_path / "state.sqlite3"
     legacy_database(path, [(1, "me", 42), (2, "me", 42)])
     store = Store(path)
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     assert store.destination(3) == Destination(Target("me", 42))
     assert len(store.pending_items()) == 2
     assert all(
@@ -64,6 +68,8 @@ def test_migration_keeps_conflicting_targets_personal(tmp_path):
     path = tmp_path / "state.sqlite3"
     legacy_database(path, [(1, "me", None), (2, "@other", 42)])
     store = Store(path)
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     assert store.destination(1) == Destination(Target("me"), 1)
     assert store.destination(2) == Destination(Target("@other", 42), 2)
     assert store.target(3) is None
@@ -99,6 +105,8 @@ def test_migration_transaction_rolls_back_on_failure(tmp_path, monkeypatch):
 @pytest.fixture
 def workspace(tmp_path):
     store = Store(tmp_path / "workspace.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     store.set_target(1, Target("me"))
     group = SimpleNamespace(
         messages=[SimpleNamespace(id=10, document=None)],

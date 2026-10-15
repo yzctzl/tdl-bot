@@ -21,6 +21,7 @@ from tdl_bot.client import AccountLock, SharedSessionClient
 from tdl_bot.config import Settings
 from tdl_bot.delivery import Delivery
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 from tdl_bot.runtime import (
     EngineServer,
     RemoteService,
@@ -45,7 +46,12 @@ def instance_lock(path: Path):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise UserError("已有进程使用该 data 目录或 tdl 程序。") from exc
+            raise UserError(
+                tr(
+                    "Another process is using this data directory or tdl "
+                    "binary."
+                )
+            ) from exc
         try:
             yield
         finally:
@@ -88,7 +94,10 @@ async def run(settings: Settings, command: str) -> None:
                 await client.connect()
                 if not await client.is_user_authorized():
                     raise UserError(
-                        "tdl 的已有会话已失效，请检查原 tdl 登录状态。"
+                        tr(
+                            "The existing tdl session has expired. Check "
+                            "the original tdl login."
+                        )
                     )
             else:
                 # Inside this running loop, start() returns a coroutine.
@@ -96,14 +105,18 @@ async def run(settings: Settings, command: str) -> None:
             # input_peer defaults to False, so get_me returns User or None.
             me = cast(types.User | None, await client.get_me())
             if me is None:
-                raise UserError("无法获取已登录账号的信息。")
+                raise UserError(tr("Cannot retrieve the signed-in account."))
             if me.bot:
                 raise UserError(
-                    "必须使用 Telegram 用户账号登录，而不是 Bot token。"
+                    tr("Sign in with a Telegram user account, not a Bot token.")
                 )
             print(
-                f"用户会话可用，账号 ID：{me.id}，"
-                f"来源：{settings.session_source}。"
+                tr(
+                    "User session is available. Account ID: {p0}; source: "
+                    "{p1}.",
+                    p0=me.id,
+                    p1=settings.session_source,
+                )
             )
         finally:
             await client.disconnect()
@@ -117,20 +130,29 @@ async def run(settings: Settings, command: str) -> None:
         await client.connect()
         if not await client.is_user_authorized():
             if settings.session_source == "tdl":
-                raise UserError("tdl 的已有会话已失效，请检查原 tdl 登录状态。")
-            raise UserError("请先运行 uv run tdl-bot login 完成用户账号登录。")
+                raise UserError(
+                    tr(
+                        "The existing tdl session has expired. Check the "
+                        "original tdl login."
+                    )
+                )
+            raise UserError(tr("Run uv run tdl-bot login to sign in first."))
         me = cast(types.User | None, await client.get_me())
         if me is None:
-            raise UserError("无法获取已登录账号的信息。")
+            raise UserError(tr("Cannot retrieve the signed-in account."))
         if me.bot:
-            raise UserError("Telethon 会话必须属于用户账号。")
+            raise UserError(
+                tr("The Telethon session must belong to a user account.")
+            )
         await tdl.version()
         media = TelegramMedia(client)
         shared = Executor("shared", tdl, media)
         personal = []
         session = client.session
         if session is None or session.auth_key is None:
-            raise UserError("执行账号缺少有效的授权密钥。")
+            raise UserError(
+                tr("The execution account has no valid authorization key.")
+            )
         keys = {session.auth_key.key}
         for binding in settings.account_bindings:
             if (binding.tdl_dir, binding.namespace) == (
@@ -139,10 +161,15 @@ async def run(settings: Settings, command: str) -> None:
             ):
                 if me.id != binding.operator_id:
                     raise UserError(
-                        "专属执行会话的账号与绑定的操作账号不一致。"
+                        tr(
+                            "The personal execution session does not match "
+                            "its bound operator account."
+                        )
                     )
                 if binding.proxy != settings.tdl_proxy:
-                    raise UserError("同一会话不能绑定不同代理。")
+                    raise UserError(
+                        tr("The same session cannot use different proxies.")
+                    )
                 personal.append(
                     Executor(
                         f"operator:{binding.operator_id}",
@@ -167,7 +194,10 @@ async def run(settings: Settings, command: str) -> None:
             key = imported.session.auth_key.key
             if key in keys:
                 raise UserError(
-                    "执行会话重复，请绑定原目录和 namespace，避免使用会话副本。"
+                    tr(
+                        "Duplicate execution sessions. Bind the original "
+                        "directory and namespace instead of session copies."
+                    )
                 )
             keys.add(key)
             own = SharedSessionClient(
@@ -180,14 +210,24 @@ async def run(settings: Settings, command: str) -> None:
             clients.append(own)
             await own.connect()
             if not await own.is_user_authorized():
-                raise UserError("专属 tdl 会话已失效，请检查账号绑定。")
+                raise UserError(
+                    tr(
+                        "The personal tdl session has expired. Check the "
+                        "account binding."
+                    )
+                )
             own_user = cast(types.User | None, await own.get_me())
             if (
                 own_user is None
                 or own_user.bot
                 or own_user.id != binding.operator_id
             ):
-                raise UserError("专属执行会话的账号与绑定的操作账号不一致。")
+                raise UserError(
+                    tr(
+                        "The personal execution session does not match its "
+                        "bound operator account."
+                    )
+                )
             personal.append(
                 Executor(
                     f"operator:{binding.operator_id}",
@@ -220,7 +260,9 @@ async def run(settings: Settings, command: str) -> None:
     finally:
         try:
             if service:
-                logging.info("等待已接收的下载／上传任务结束……")
+                logging.info(
+                    "Waiting for accepted downloads and uploads to finish…"
+                )
                 await service.close()
         finally:
             if store:
@@ -289,7 +331,7 @@ def main() -> None:
     parser.add_argument(
         "--no-reload",
         action="store_true",
-        help="兼容旧参数；现在默认仅手动 reload",
+        help=tr("Legacy option; reloads are now manual by default"),
     )
     args = parser.parse_args()
     logging.basicConfig(
@@ -317,7 +359,7 @@ def main() -> None:
             return
         if args.command == "reload":
             if not signal_supervisor(settings.data_dir, signal.SIGHUP):
-                raise UserError("没有运行中的 Bot 监控进程。")
+                raise UserError(tr("No Bot supervisor is running."))
             return
         if args.command == "run":
             from tdl_bot.reload import supervise

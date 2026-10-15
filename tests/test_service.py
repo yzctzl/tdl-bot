@@ -12,10 +12,14 @@ from tdl_bot.service import Job, TransferService
 from tdl_bot.store import Store, Target
 from tdl_bot.tdl import UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 @pytest.fixture
 def setup_service(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     store.set_target(1, Target("me"))
     messages = [
         SimpleNamespace(id=10, document=None),

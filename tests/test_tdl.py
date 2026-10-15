@@ -13,6 +13,8 @@ import pytest
 from tdl_bot.errors import AccessDenied, UserError
 from tdl_bot.tdl import Tdl, UpdateGate, extract_binary, verify_checksum
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 async def test_update_waits_for_active_job_and_precedes_new_jobs():
     gate = UpdateGate()

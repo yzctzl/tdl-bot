@@ -11,6 +11,8 @@ from telethon.tl.alltlobjects import LAYER
 
 from tdl_bot.client import AccountLock, LayerRequest, SharedSessionClient
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 async def test_account_lock_serializes_tasks_and_allows_nested_rpc():
     lock = AccountLock()

@@ -1,11 +1,34 @@
 """Language defaults, catalog integrity, persistence, and async isolation."""
 
+import ast
 import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.filters import CommandObject
 
-from tdl_bot.i18n import CATALOGS, current_language, tr, use_language
-from tdl_bot.store import Store
+from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.bot import (
+    _ADMIN_HELP,
+    _COMMANDS,
+    _HELP,
+    BotApplication,
+    ProgressMessages,
+)
+from tdl_bot.errors import UserError
+from tdl_bot.i18n import (
+    CATALOGS,
+    current_language,
+    saved_label,
+    tr,
+    use_language,
+)
+from tdl_bot.runtime import EngineServer, code_version, exchange
+from tdl_bot.service import Job, TransferService
+from tdl_bot.store import Store, Target
+from tdl_bot.tdl import UpdateGate
 
 
 def test_default_and_unknown_languages_are_english():
@@ -47,3 +70,224 @@ async def test_concurrent_languages_and_parameter_values_are_isolated():
     ]
     assert current_language() == "en"
     assert set(CATALOGS) >= {"en", "zh"}
+
+
+@pytest.fixture
+def bilingual(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    store.set_target(1, Target("me"))
+    policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
+    bot = SimpleNamespace(
+        set_my_commands=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=90)),
+        edit_message_text=AsyncMock(),
+    )
+
+    async def download(urls, directory):
+        (directory / "10_photo.jpg").write_bytes(b"photo")
+
+    tdl = SimpleNamespace(
+        gate=UpdateGate(), download=AsyncMock(side_effect=download)
+    )
+    media = SimpleNamespace(
+        resolve=AsyncMock(
+            return_value=SimpleNamespace(
+                messages=[SimpleNamespace(id=10, document=None)],
+                urls=["https://t.me/example/10"],
+            )
+        ),
+        upload=AsyncMock(return_value=[100]),
+    )
+    service = TransferService(
+        AccountPool(Executor("shared", tdl, media)),
+        store,
+        tmp_path / "jobs",
+        AsyncMock(),
+        policy=policy,
+        workers=2,
+    )
+    service.jobs_dir.mkdir()
+    app = BotApplication(bot, SimpleNamespace(), store, tdl, service)
+    yield app, store, service
+    store.close()
+
+
+def event(user_id):
+    return SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        message_id=70,
+        answer=AsyncMock(),
+    )
+
+
+async def test_language_command_changes_help_and_command_menu(bilingual):
+    app, store, _ = bilingual
+    user = event(2)
+    await app.help(user)
+    assert "Send a Telegram message URL" in user.answer.call_args.args[0]
+    assert "/storage" not in user.answer.call_args.args[0]
+    await app.language(user, CommandObject(command="language", args="zh"))
+    assert "当前语言：简体中文" in user.answer.call_args.args[0]
+    assert store.language(1) == "en"
+    assert store.language(2) == "zh"
+    menu = app.bot.set_my_commands.call_args.args[0]
+    assert (
+        next(item for item in menu if item.command == "language").description
+        == "选择语言"
+    )
+    await app.help(user)
+    assert "发送 Telegram 消息 url" in user.answer.call_args.args[0]
+    await app.language(user, CommandObject(command="language", args="en"))
+    assert "Language: English" in user.answer.call_args.args[0]
+    menu = app.bot.set_my_commands.call_args.args[0]
+    assert (
+        next(item for item in menu if item.command == "language").description
+        == "Choose your language"
+    )
+    with pytest.raises(UserError, match="Unsupported language"):
+        await app.language(user, CommandObject(command="language", args="fr"))
+    assert store.language(2) == "en"
+    admin = event(1)
+    await app.help(admin)
+    assert "/storage" in admin.answer.call_args.args[0]
+
+
+async def test_background_jobs_and_cancellation_use_submitters_language(
+    bilingual,
+):
+    _, store, service = bilingual
+    store.set_language(2, "zh")
+    service.start()
+    try:
+        one = await service.submit(1, "https://t.me/example/10")
+        # Bot handlers supply this context to the initial queue reply.
+        with use_language("zh"):
+            two = await service.submit(2, "https://t.me/example/20")
+        await asyncio.wait_for(
+            asyncio.gather(one.done.wait(), two.done.wait()), 5
+        )
+        messages = {
+            user: [
+                call.args[1]
+                for call in service.notify.call_args_list
+                if call.args[0].user_id == user
+            ]
+            for user in (1, 2)
+        }
+        assert messages[1][0] == "1/5 Download task queued."
+        assert messages[2][0] == "1/5 下载任务已加入队列。"
+        assert any("5/5 Complete" in text for text in messages[1])
+        assert any("5/5 完成" in text for text in messages[2])
+        await service._cancelled(Job(2, "https://t.me/example/30", Target("2")))
+        assert "已取消" in service.notify.call_args.args[1]
+    finally:
+        await service.close()
+
+
+async def test_progress_rechecks_language_after_preference_change(bilingual):
+    _, store, service = bilingual
+    job = Job(2, "https://t.me/example/10", Target("2"))
+    text = tr("3/5 Downloading {p0} media files.", p0=2)
+    store.set_language(2, "zh")
+    await service._notify(job, text)
+    assert service.notify.call_args.args[1] == "3/5 正在下载 2 个媒体文件。"
+    with use_language("zh"):
+        assert saved_label("Queued") == "排队中"
+    assert saved_label("排队中") == "Queued"
+
+
+async def test_buttons_and_error_replies_use_saved_language(bilingual):
+    app, store, service = bilingual
+    store.set_language(2, "zh")
+    service.notify = ProgressMessages(app.bot)
+    for user_id, cancel, expired, failure in (
+        (1, "Cancel", "Task ended or button expired.", "Command failed."),
+        (2, "取消", "任务已结束或按钮已失效。", "命令失败"),
+    ):
+        job = Job(user_id, "https://t.me/example/10", Target(str(user_id)))
+        await service._notify(job, tr("1/5 Download task queued."))
+        markup = app.bot.send_message.call_args.kwargs["reply_markup"]
+        assert markup.inline_keyboard[0][0].text == cancel
+        query = SimpleNamespace(
+            from_user=SimpleNamespace(id=user_id),
+            message=SimpleNamespace(
+                chat=SimpleNamespace(type="private", id=user_id),
+                message_id=90,
+            ),
+            data="cancel:missing",
+            answer=AsyncMock(),
+        )
+        await app.cancel(query)
+        assert query.answer.call_args.args[0] == expired
+        user = event(user_id)
+        await app.error(
+            SimpleNamespace(
+                update=SimpleNamespace(message=user),
+                exception=RuntimeError("private diagnostic"),
+            )
+        )
+        assert failure in user.answer.call_args.args[0]
+        assert "private diagnostic" not in user.answer.call_args.args[0]
+
+
+def test_catalog_changes_are_detected_for_manual_reload(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tdl_bot.runtime.__file__", str(tmp_path / "runtime.py")
+    )
+    (tmp_path / "runtime.py").write_text("# engine")
+    directory = tmp_path / "locales"
+    directory.mkdir()
+    catalog = directory / "zh.json"
+    catalog.write_text('{"name": "Chinese"}')
+    before = code_version()
+    catalog.write_text('{"name": "Simplified Chinese"}')
+    assert code_version() != before
+
+
+@pytest.mark.parametrize("unexpected", [False, True])
+async def test_rpc_errors_preserve_request_language(
+    tmp_path, monkeypatch, unexpected
+):
+    engine = EngineServer(None, None)
+
+    async def dispatch(method, args):
+        await asyncio.sleep(0)
+        if unexpected:
+            raise RuntimeError("not for users")
+        raise UserError(tr("You cannot manage this task."))
+
+    monkeypatch.setattr(engine, "dispatch", dispatch)
+    path = tmp_path / "rpc.sock"
+    server = await asyncio.start_unix_server(engine.client, path)
+
+    async def call(language):
+        with use_language(language), pytest.raises(UserError) as error:
+            await exchange(path, {"method": "test", "args": {}})
+        return str(error.value)
+
+    async with server:
+        english, chinese = await asyncio.gather(call("en"), call("zh"))
+    if unexpected:
+        assert (
+            english == "Task engine operation failed. Check the service logs."
+        )
+        assert chinese == "任务引擎操作失败，请检查服务日志。"
+    else:
+        assert english == "You cannot manage this task."
+        assert chinese == "无权管理此任务。"
+
+
+def test_all_user_templates_have_chinese_translations():
+    messages = CATALOGS["zh"]["messages"]
+    sources = {_HELP, _ADMIN_HELP, *(row[2] for row in _COMMANDS)}
+    for path in Path("src/tdl_bot").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "tr"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
+                sources.add(node.args[0].value)
+    assert sources <= messages.keys()

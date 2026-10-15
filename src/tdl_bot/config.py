@@ -9,6 +9,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from tdl_bot.i18n import tr
+
 
 @dataclass(frozen=True)
 class AccountBinding:
@@ -67,7 +69,9 @@ class Settings:
                 if value.strip()
             )
             if any(value <= 0 for value in result):
-                raise ValueError(f"{name} 必须包含正整数用户 ID。")
+                raise ValueError(
+                    tr("{p0} must contain positive integer user IDs.", p0=name)
+                )
             return result
 
         token = os.getenv("BOT_TOKEN", "").strip()
@@ -92,13 +96,15 @@ class Settings:
             )
         source = os.getenv("SESSION_SOURCE", "tdl").strip()
         if source not in {"tdl", "telethon"}:
-            raise ValueError("SESSION_SOURCE 必须是 tdl 或 telethon。")
+            raise ValueError(tr("SESSION_SOURCE must be tdl or telethon."))
         if source == "telethon" and (api_id <= 0 or not api_hash):
-            raise ValueError("请设置 TELEGRAM_API_ID 和 TELEGRAM_API_HASH。")
+            raise ValueError(tr("Set TELEGRAM_API_ID and TELEGRAM_API_HASH."))
         if not login_only and (not token or not allowed):
-            raise ValueError("请设置 BOT_TOKEN 和 ALLOWED_USER_IDS。")
+            raise ValueError(tr("Set BOT_TOKEN and ALLOWED_USER_IDS."))
         if not admins <= allowed:
-            raise ValueError("ADMIN_USER_IDS 必须属于 ALLOWED_USER_IDS。")
+            raise ValueError(
+                tr("ADMIN_USER_IDS must be a subset of ALLOWED_USER_IDS.")
+            )
         settings = cls(
             bot_token=token,
             api_id=api_id,
@@ -122,7 +128,10 @@ class Settings:
             <= 0
         ):
             raise ValueError(
-                "WORKERS、QUEUE_SIZE、DOWNLOAD_TIMEOUT 必须为正数。"
+                tr(
+                    "WORKERS, QUEUE_SIZE, and DOWNLOAD_TIMEOUT must be "
+                    "positive."
+                )
             )
         account_file = Path(
             os.getenv("ACCOUNTS_FILE", str(settings.data_dir / "accounts.toml"))
@@ -135,7 +144,12 @@ class Settings:
                 account_bindings=read_account_bindings(account_file, settings),
             )
         elif os.getenv("ACCOUNTS_FILE", "").strip():
-            raise ValueError("ACCOUNTS_FILE 指定的账号配置文件不存在。")
+            raise ValueError(
+                tr(
+                    "The account configuration file specified by "
+                    "ACCOUNTS_FILE does not exist."
+                )
+            )
         return settings
 
 
@@ -163,7 +177,9 @@ def persisted_members(path: Path):
                 frozenset(row[0] for row in rows if row[1] == "admin"),
             )
     except sqlite3.Error as exc:
-        raise ValueError("无法读取已初始化的成员数据库。") from exc
+        raise ValueError(
+            tr("Cannot read the initialized membership database.")
+        ) from exc
 
 
 def read_account_bindings(
@@ -205,6 +221,8 @@ def read_account_bindings(
         return tuple(result)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ValueError(
-            "账号配置无效：请检查 accounts 列表、授权账号、目录"
-            "和唯一 namespace。"
+            tr(
+                "Invalid account configuration. Check the accounts list, "
+                "allowed users, directories, and unique namespaces."
+            )
         ) from exc

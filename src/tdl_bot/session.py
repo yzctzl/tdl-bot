@@ -21,6 +21,7 @@ from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
 
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 from tdl_bot.tdl import Tdl
 
 _APPS = {
@@ -72,7 +73,12 @@ def _read_backup(path: Path, namespace: str) -> TdlSession:
             raise ValueError("backup exceeds limit")
         return decode_session(json.loads(raw), namespace)
     except (OSError, ValueError, zstandard.ZstdError) as exc:
-        raise UserError("无法读取 tdl 会话备份，请检查存储是否完整。") from exc
+        raise UserError(
+            tr(
+                "Cannot read the tdl session backup. Check the storage "
+                "integrity."
+            )
+        ) from exc
 
 
 def decode_session(metadata: dict, namespace: str) -> TdlSession:
@@ -129,8 +135,11 @@ def decode_session(metadata: dict, namespace: str) -> TdlSession:
         return TdlSession(session, api_id, api_hash)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise UserError(
-            "tdl namespace 缺少有效会话，或会话格式不受支持；"
-            "请检查 TDL_DIR、TDL_NAMESPACE 和原 tdl 登录状态。"
+            tr(
+                "The tdl namespace has no valid session or uses an "
+                "unsupported format. Check TDL_DIR, TDL_NAMESPACE, and the "
+                "original tdl login."
+            )
         ) from exc
 
 
@@ -156,5 +165,5 @@ def proxy_settings(url: str) -> dict | None:
         }
     except ValueError as exc:
         raise UserError(
-            "TDL_PROXY 必须是 socks5、socks4 或 http 的代理 url。"
+            tr("TDL_PROXY must be a socks5, socks4, or http proxy URL.")
         ) from exc

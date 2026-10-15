@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from tdl_bot.accounts import AccessPolicy
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import current_language, tr, use_language
 from tdl_bot.links import JoinLink
 from tdl_bot.service import Job
 from tdl_bot.store import Store, Target
@@ -24,8 +25,9 @@ _LIMIT = 1024 * 1024
 
 def code_version() -> str:
     digest = hashlib.sha256()
-    for path in sorted(Path(__file__).parent.glob("*.py")):
-        digest.update(path.name.encode())
+    root = Path(__file__).parent
+    for path in sorted([*root.glob("*.py"), *root.glob("locales/*.json")]):
+        digest.update(path.relative_to(root).as_posix().encode())
         try:
             digest.update(path.read_bytes())
         except FileNotFoundError:
@@ -43,6 +45,7 @@ def spawn_process(command: str, **kwargs):
 async def exchange(path: Path, request):
     reader, writer = await asyncio.open_unix_connection(str(path), limit=_LIMIT)
     try:
+        request = {**request, "language": current_language()}
         writer.write(json.dumps(request).encode() + b"\n")
         await writer.drain()
         response = json.loads(await reader.readline())
@@ -75,7 +78,9 @@ async def ensure_engine(settings):
             else:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         if process is not None and process.poll() is not None and not busy:
-            raise UserError("任务引擎启动失败，请检查 data/engine.log。")
+            raise UserError(
+                tr("Task engine failed to start. Check data/engine.log.")
+            )
         if process is None and not busy:
             with (settings.data_dir / "engine.log").open(
                 "ab", buffering=0
@@ -89,7 +94,12 @@ async def ensure_engine(settings):
                     start_new_session=True,
                 )
         await asyncio.sleep(0.2)
-    raise UserError("任务引擎启动超时，请检查 data/engine.log 与旧进程。")
+    raise UserError(
+        tr(
+            "Task engine startup timed out. Check data/engine.log and "
+            "existing processes."
+        )
+    )
 
 
 class EngineServer:
@@ -138,20 +148,33 @@ class EngineServer:
                         "last_name",
                     )
                 }
-        raise UserError("不支持的本机操作。")
+        raise UserError(tr("Unsupported local operation."))
 
     async def client(self, reader, writer):
         self.calls += 1
+        language = "en"
         try:
             try:
                 request = json.loads(await reader.readline())
-                result = await self.dispatch(request["method"], request["args"])
+                language = request.get("language", "en")
+                with use_language(language):
+                    result = await self.dispatch(
+                        request["method"], request["args"]
+                    )
                 response = {"result": result}
             except UserError as exc:
                 response = {"error": str(exc)}
             except Exception as exc:
-                _LOGGER.warning("本机操作失败：%s", type(exc).__name__)
-                response = {"error": "任务引擎操作失败，请检查服务日志。"}
+                _LOGGER.warning(
+                    "Local operation failed: %s", type(exc).__name__
+                )
+                with use_language(language):
+                    response = {
+                        "error": tr(
+                            "Task engine operation failed. "
+                            "Check the service logs."
+                        )
+                    }
             try:
                 writer.write(json.dumps(response).encode() + b"\n")
                 await writer.drain()
@@ -275,7 +298,7 @@ class RemoteService:
         except (OSError, ValueError, KeyError):
             # Never blindly retry a write whose acknowledgement was lost.
             raise UserError(
-                "连接已重启，请使用 /jobs 检查任务状态后重试。"
+                tr("The connection restarted. Check /jobs before retrying.")
             ) from None
 
     async def submit(self, user_id, url, *, source_message_id=None):
@@ -330,7 +353,7 @@ class RemoteService:
         for item in items:
             if item.id == pending_id:
                 return item
-        raise UserError("请使用 /pending 查看你有权管理的待重试编号。")
+        raise UserError(tr("Use /pending to find a retry ID you can manage."))
 
     async def discard_pending(self, user_id, pending_id):
         await self.call(

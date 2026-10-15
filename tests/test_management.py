@@ -17,10 +17,14 @@ from tdl_bot.service import TransferService
 from tdl_bot.store import Store, Target
 from tdl_bot.tdl import UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 @pytest.fixture
 def managed(tmp_path, monkeypatch):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2, 3}), frozenset({1}), store=store)
     store.set_target(1, Target("me"))
     group = SimpleNamespace(
@@ -301,7 +305,7 @@ async def test_adding_member_without_open_chat_retries_menu_later(managed):
     handler = AsyncMock()
     await Authorization(policy, app.refresh_menu)(handler, event, {})
     handler.assert_awaited_once()
-    assert app._menu_roles[4] == "user"
+    assert app._menu_roles[4] == ("user", "zh")
 
 
 @pytest.mark.parametrize("action", ["user_ban", "user_remove"])
@@ -454,6 +458,8 @@ async def test_removed_admin_menu_is_cleared_again_after_restart(managed):
 
 def test_seed_archives_old_ordinary_overflow_without_losing_urls(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     try:
         store.set_target(1, Target("me"))
         for number in range(1, 6):
@@ -472,6 +478,8 @@ def test_seed_archives_old_ordinary_overflow_without_losing_urls(tmp_path):
 def test_archive_upgrade_keeps_v2_members_and_creates_private_backup(tmp_path):
     path = tmp_path / "state.sqlite3"
     store = Store(path)
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     store.set_target(1, Target("me"))
     for number in range(5):

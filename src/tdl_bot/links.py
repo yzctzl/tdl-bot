@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 
 _HOSTS = {"t.me", "telegram.me", "telegram.dog"}
 _USERNAME = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{3,31}\Z")
@@ -28,23 +29,27 @@ class MessageLink:
         private = path[0] == "c"
         if private:
             if len(path) not in (3, 4) or not path[1].isdigit():
-                raise UserError("私密消息 url 格式无效。")
+                raise UserError(tr("Invalid private message URL format."))
             channel_id = int(path[1])
             if not 0 < channel_id < 1_000_000_000_000:
-                raise UserError("私密聊天 ID 无效。")
+                raise UserError(tr("Invalid private chat ID."))
             peer: str | int = -(1_000_000_000_000 + channel_id)
             numbers = path[2:]
         else:
             if len(path) not in (2, 3) or not _USERNAME.fullmatch(path[0]):
-                raise UserError("请发送 Telegram 消息 url，而不是群主页。")
+                raise UserError(
+                    tr("Send a Telegram message URL, not a group homepage.")
+                )
             peer = path[0]
             numbers = path[1:]
         if any(not value.isdigit() or int(value) <= 0 for value in numbers):
-            raise UserError("消息 ID 和话题 ID 必须为正整数。")
+            raise UserError(
+                tr("Message and topic IDs must be positive integers.")
+            )
         query = parse_qs(parts.query)
         comment = query.get("comment", [None])[0]
         if comment is not None and (not comment.isdigit() or int(comment) <= 0):
-            raise UserError("评论消息 ID 无效。")
+            raise UserError(tr("Invalid comment message ID."))
         return cls(peer, int(numbers[-1]), int(comment) if comment else None)
 
     def url_for(self, message_id: int) -> str:
@@ -75,7 +80,9 @@ class JoinLink:
             return cls(username=path[0])
         if invite and re.fullmatch(r"[a-zA-Z0-9_-]+", invite):
             return cls(invite_hash=invite)
-        raise UserError("请发送群主页或 https://t.me/+… 邀请 url。")
+        raise UserError(
+            tr("Send a group homepage or an https://t.me/+… invite URL.")
+        )
 
 
 def _parts(url: str):
@@ -90,7 +97,12 @@ def _parts(url: str):
             and parts.port in {None, 80, 443}
         )
     except ValueError as exc:
-        raise UserError("url 格式无效。") from exc
+        raise UserError(tr("Invalid URL format.")) from exc
     if not valid:
-        raise UserError("仅支持 tdl 的 Telegram 消息 url（t.me 等域名）。")
+        raise UserError(
+            tr(
+                "Only Telegram message URLs supported by tdl (such as "
+                "t.me) are accepted."
+            )
+        )
     return parts

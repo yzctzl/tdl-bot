@@ -6,6 +6,8 @@ from tdl_bot.errors import UserError
 from tdl_bot.links import JoinLink, MessageLink
 from tdl_bot.store import Store, Target
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 @pytest.mark.parametrize(
     ("url", "expected"),

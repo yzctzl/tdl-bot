@@ -13,6 +13,8 @@ from tdl_bot.links import JoinLink, MessageLink
 from tdl_bot.store import Target
 from tdl_bot.telegram import TelegramMedia
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 def media_message(message_id, group_id=42, text="", entities=None):
     return SimpleNamespace(

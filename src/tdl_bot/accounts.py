@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from tdl_bot.errors import UserError
+from tdl_bot.i18n import tr
 from tdl_bot.store import Store
 from tdl_bot.tdl import Tdl
 from tdl_bot.telegram import TelegramMedia
@@ -33,7 +34,9 @@ class AccountPool:
                 or executor.owner_id is None
                 or executor.owner_id in self._personal
             ):
-                raise ValueError("执行账号配置重复。")
+                raise ValueError(
+                    tr("Duplicate execution account configuration.")
+                )
             executor.tdl.gate = shared.tdl.gate
             self._executors[executor.key] = executor
             self._personal[executor.owner_id] = executor
@@ -46,7 +49,12 @@ class AccountPool:
         """Keep retries on their original identity, with no silent fallback."""
         executor = self._executors.get(key)
         if executor is None:
-            raise UserError("任务原执行账号未配置，请恢复账号绑定后再重试。")
+            raise UserError(
+                tr(
+                    "The task's original execution account is not "
+                    "configured. Restore its binding before retrying."
+                )
+            )
         return executor
 
 

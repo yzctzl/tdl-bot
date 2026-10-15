@@ -16,6 +16,8 @@ from tdl_bot.errors import UserError
 from tdl_bot.session import decode_session, load_tdl_session, proxy_settings
 from tdl_bot.tdl import Tdl
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 def metadata(app="builtin", address="149.154.167.51:443"):
     key = bytes(range(256))

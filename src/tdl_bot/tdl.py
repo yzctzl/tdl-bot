@@ -18,6 +18,7 @@ import aiohttp
 
 from tdl_bot.client import AccountLock
 from tdl_bot.errors import AccessDenied, UserError
+from tdl_bot.i18n import tr
 
 _RELEASE_API = "https://api.github.com/repos/iyear/tdl/releases"
 _ACCESS_ERRORS = (
@@ -104,7 +105,9 @@ class Tdl:
         if self.data_dir is None:
             return []
         if not self.namespace or Path(self.namespace).name != self.namespace:
-            raise UserError("TDL_NAMESPACE 必须是单个 namespace 名称。")
+            raise UserError(
+                tr("TDL_NAMESPACE must be a single namespace name.")
+            )
         bolt = self.data_dir / "data"
         legacy = self.data_dir / "data.kv"
         if (bolt / self.namespace).is_file():
@@ -113,8 +116,11 @@ class Tdl:
             driver, path = "legacy", legacy
         else:
             raise UserError(
-                "TDL_DIR 中没有指定 namespace 的会话，请检查目录和 "
-                "TDL_NAMESPACE。Bot 不会创建空会话或自动重新登录。"
+                tr(
+                    "TDL_DIR has no session for this namespace. Check the "
+                    "directory and TDL_NAMESPACE. The Bot will not create "
+                    "an empty session or sign in automatically."
+                )
             )
         output = io.StringIO()
         csv.writer(output, lineterminator="").writerow(
@@ -196,7 +202,9 @@ class Tdl:
                     env=environment,
                 )
             except OSError as exc:
-                raise UserError("无法启动 tdl，请检查 TDL_BINARY。") from exc
+                raise UserError(
+                    tr("Cannot start tdl. Check TDL_BINARY.")
+                ) from exc
             tail = bytearray()
 
             async def drain() -> None:
@@ -225,13 +233,23 @@ class Tdl:
                 await reader
                 if isinstance(exc, asyncio.CancelledError):
                     raise
-                raise UserError("tdl 下载超时，临时文件已清理。") from exc
+                raise UserError(
+                    tr(
+                        "tdl download timed out. Temporary files have been "
+                        "cleaned up."
+                    )
+                ) from exc
             output = tail.decode("utf-8", errors="replace")
             if process.returncode:
                 if any(marker in output.upper() for marker in _ACCESS_ERRORS):
-                    raise AccessDenied("tdl 下载账号没有访问该群的权限。")
+                    raise AccessDenied(
+                        tr("The tdl download account cannot access this group.")
+                    )
                 raise UserError(
-                    "tdl 执行失败，请检查账号登录、网络和消息是否可下载。"
+                    tr(
+                        "tdl failed. Check account login, network access, "
+                        "and whether the message can be downloaded."
+                    )
                 )
             return output.strip()
 
@@ -251,7 +269,9 @@ class Tdl:
         if version != "latest" and not re.fullmatch(
             r"v?\d+\.\d+\.\d+", version
         ):
-            raise UserError("版本格式应为 latest 或 v0.20.4。")
+            raise UserError(
+                tr("Version must be latest or a version such as v0.20.4.")
+            )
         suffix = (
             "latest" if version == "latest" else f"tags/v{version.lstrip('v')}"
         )
@@ -266,10 +286,20 @@ class Tdl:
                     release = await response.json()
                 tag = release["tag_name"].lstrip("v")
                 if not re.fullmatch(r"\d+\.\d+\.\d+", tag):
-                    raise UserError("release 版本格式无效，现有程序保留。")
+                    raise UserError(
+                        tr(
+                            "Invalid release version. The existing binary "
+                            "was retained."
+                        )
+                    )
                 desired = tuple(int(part) for part in tag.split("."))
                 if version != "latest" and tag != version.lstrip("v"):
-                    raise UserError("release 版本与请求不一致，现有程序保留。")
+                    raise UserError(
+                        tr(
+                            "Release version does not match the requested "
+                            "version. The existing binary was retained."
+                        )
+                    )
 
                 async def unnecessary() -> bool:
                     current = version_number(await self.version())
@@ -279,18 +309,35 @@ class Tdl:
 
                 # No writer lease or assets are needed for an unchanged binary.
                 if await unnecessary():
-                    return f"无需更新：当前 tdl 已满足版本要求（目标 {tag}）。"
+                    return tr(
+                        (
+                            "No update needed: the current tdl meets the "
+                            "version requirement (target {p0})."
+                        ),
+                        p0=tag,
+                    )
                 async with self.gate.update():
                     # Another update may have completed while we were waiting.
                     if await unnecessary():
-                        return f"无需更新：当前 tdl 已满足目标版本（{tag}）。"
+                        return tr(
+                            (
+                                "No update needed: the current tdl meets "
+                                "the target version ({p0})."
+                            ),
+                            p0=tag,
+                        )
                     assets = {
                         asset["name"]: asset["browser_download_url"]
                         for asset in release["assets"]
                     }
                     name = release_asset_name()
                     if name not in assets or "tdl_checksums.txt" not in assets:
-                        raise UserError("该版本缺少本平台的程序或校验文件。")
+                        raise UserError(
+                            tr(
+                                "This release has no binary or checksum "
+                                "file for this platform."
+                            )
+                        )
                     checksums = await _fetch(
                         session, assets["tdl_checksums.txt"], 1024 * 1024
                     )
@@ -306,7 +353,12 @@ class Tdl:
                         staged.chmod(0o755)
                         result = await self.version(staged)
                         if version_number(result) != desired:
-                            raise UserError("下载程序的版本与 release 不一致。")
+                            raise UserError(
+                                tr(
+                                    "The downloaded binary version does "
+                                    "not match the release."
+                                )
+                            )
                         os.replace(staged, self.binary)
                     return result
         except UserError:
@@ -321,14 +373,21 @@ class Tdl:
             tarfile.TarError,
             zipfile.BadZipFile,
         ) as exc:
-            raise UserError("tdl 更新失败，现有程序保留，可稍后重试。") from exc
+            raise UserError(
+                tr(
+                    "tdl update failed. The existing binary was retained. "
+                    "Try again later."
+                )
+            ) from exc
 
 
 def version_number(output: str) -> tuple[int, int, int]:
     """Parse tdl's version output before comparing or installing releases."""
     match = re.search(r"(?m)^Version:\s*v?(\d+)\.(\d+)\.(\d+)\s*$", output)
     if match is None:
-        raise UserError("无法识别已安装 tdl 的版本，已停止更新。")
+        raise UserError(
+            tr("Cannot identify the installed tdl version. Update stopped.")
+        )
     return int(match[1]), int(match[2]), int(match[3])
 
 
@@ -350,7 +409,12 @@ def release_asset_name() -> str:
         "loongarch64": "loong64",
     }.get(platform.machine().lower())
     if not system or not arch:
-        raise UserError("当前操作系统或 CPU 架构不支持自动更新 tdl。")
+        raise UserError(
+            tr(
+                "Automatic tdl updates are unavailable for this OS or CPU "
+                "architecture."
+            )
+        )
     extension = "zip" if system == "Windows" else "tar.gz"
     return f"tdl_{system}_{arch}.{extension}"
 
@@ -358,14 +422,16 @@ def release_asset_name() -> str:
 async def _fetch(session: aiohttp.ClientSession, url: str, limit: int) -> bytes:
     """Fetch an official release asset with a bounded response size."""
     if not url.startswith("https://github.com/iyear/tdl/releases/download/"):
-        raise UserError("release 资源地址不是官方 tdl 仓库。")
+        raise UserError(
+            tr("The release asset URL is not from the official tdl repository.")
+        )
     data = bytearray()
     async with session.get(url) as response:
         response.raise_for_status()
         async for chunk in response.content.iter_chunked(65536):
             data.extend(chunk)
             if len(data) > limit:
-                raise UserError("release 资源超出大小限制。")
+                raise UserError(tr("The release asset exceeds the size limit."))
     return bytes(data)
 
 
@@ -377,7 +443,7 @@ def verify_checksum(archive: bytes, name: str, checksums: str) -> None:
             if hashlib.sha256(archive).hexdigest() == parts[0].lower():
                 return
             break
-    raise UserError("tdl release 的 SHA-256 校验失败。")
+    raise UserError(tr("tdl release SHA-256 verification failed."))
 
 
 def extract_binary(archive: bytes, name: str) -> bytes:
@@ -388,7 +454,7 @@ def extract_binary(archive: bytes, name: str) -> bytes:
         with zipfile.ZipFile(stream) as zipped:
             entry = zipped.getinfo(wanted)
             if entry.file_size > 128 * 1024**2:
-                raise UserError("tdl 程序超出大小限制。")
+                raise UserError(tr("The tdl binary exceeds the size limit."))
             return zipped.read(entry)
     with tarfile.open(fileobj=stream, mode="r:gz") as tar:
         entry = next(
@@ -396,7 +462,7 @@ def extract_binary(archive: bytes, name: str) -> bytes:
             None,
         )
         if entry is None or not entry.isfile() or entry.size > 128 * 1024**2:
-            raise UserError("release 中没有有效的 tdl 程序。")
+            raise UserError(tr("The release contains no valid tdl binary."))
         file = tar.extractfile(entry)
         assert file is not None
         return file.read()

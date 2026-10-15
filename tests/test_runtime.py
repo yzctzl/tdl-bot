@@ -17,6 +17,8 @@ from tdl_bot.service import Job, TransferService
 from tdl_bot.store import Destination, Store, Target
 from tdl_bot.tdl import Tdl, UpdateGate
 
+pytestmark = pytest.mark.usefixtures("chinese")
+
 
 def delivery_bot(**kwargs):
     return SimpleNamespace(
@@ -48,6 +50,8 @@ async def test_frontend_reconnect_keeps_real_tdl_pid_and_can_cancel(
 ):
     path = tmp_path / "state.sqlite3"
     store = Store(path)
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     store.set_target(1, Target("-1001234567890"))
     release = tmp_path / "release"
@@ -215,6 +219,8 @@ async def test_bot_target_requires_membership_and_rejects_other_private_user():
 
 def test_retries_migrate_to_private_recipients_and_controls_persist(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     store.set_target(1, Target("-1001234567890"))
     store.set_target(2, Target("@private"), private=True)
     store.set_pending(
@@ -304,6 +310,8 @@ async def test_shared_storage_cache_reused_across_executors_without_source_read(
     tmp_path,
 ):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     storage = Target("-1001234567890")
     store.set_target(1, storage)
@@ -340,6 +348,8 @@ async def test_engine_recovers_queued_jobs_but_never_repeats_uncertain_writes(
     unsafe_write,
 ):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     storage = Target("-1001234567890")
     store.set_target(1, storage)
@@ -394,6 +404,8 @@ async def test_engine_recovers_queued_jobs_but_never_repeats_uncertain_writes(
 
 async def test_failed_delivery_reuses_internal_copy_without_download(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     storage = Target("-1001234567890")
     store.set_target(1, storage)
@@ -515,6 +527,8 @@ async def test_storage_preflight_failure_does_not_read_or_transfer_source(
     from aiogram.methods import GetChat
 
     store = Store(tmp_path / "state.sqlite3")
+    for user_id in range(1, 6):
+        store.set_language(user_id, "zh")
     policy = AccessPolicy(frozenset({1, 2}), frozenset({1}), store=store)
     storage = Target("-1001234567890")
     bot = delivery_bot(copy_messages=AsyncMock())

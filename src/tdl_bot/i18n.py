@@ -51,11 +51,34 @@ def use_language(language):
         _language.reset(token)
 
 
+class Translation(str):
+    """Keep a template available until background notification is delivered."""
+
+    message: str
+    values: dict
+
+    def __new__(cls, text, message, values):
+        instance = super().__new__(cls, text)
+        instance.message = message
+        instance.values = values
+        return instance
+
+
+def render(value):
+    if isinstance(value, Translation):
+        return tr(
+            value.message,
+            **{key: render(item) for key, item in value.values.items()},
+        )
+    return value
+
+
 def tr(message: str, **values) -> str:
     """Translate a template before interpolating user-controlled values."""
     catalog = CATALOGS.get(current_language(), {}).get("messages", {})
     template = catalog.get(message, message)
-    return template.format(**values) if values else template
+    text = template.format(**values) if values else template
+    return Translation(text, message, values)
 
 
 def saved_label(value: str) -> str:
@@ -87,5 +110,16 @@ def localized(handler):
             user_id = getattr(getattr(origin, "from_user", None), "id", None)
         with use_language(self.store.language(user_id)):
             return await handler(self, event, *args, **kwargs)
+
+    return wrapped
+
+
+def job_language(handler):
+    """Cancellation notifications belong to the submitter, not the manager."""
+
+    @wraps(handler)
+    async def wrapped(self, job, *args, **kwargs):
+        with use_language(self.store.language(job.user_id)):
+            return await handler(self, job, *args, **kwargs)
 
     return wrapped
