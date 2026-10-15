@@ -40,10 +40,12 @@ from tdl_bot.runtime.engine import (
     code_version,
     ensure_engine,
     exchange,
+    maintain_engine,
 )
 from tdl_bot.runtime.login import native_login
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.backups.service import BackupService
 from tdl_bot.transfers.service import TransferService
 
 
@@ -250,10 +252,16 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
             durable=True,
         )
         service.start()
+        service.backups = BackupService(
+            service, notify=bot.send_message, workers=settings.workers
+        )
+        service.backups.start()
         await EngineServer(service, settings).serve()
     finally:
         try:
             if service:
+                if service.backups is not None:
+                    await service.backups.close()
                 logging.info(
                     "Waiting for accepted downloads and uploads to finish…"
                 )
@@ -297,6 +305,7 @@ async def frontend(settings: Settings) -> None:
     bot = Bot(settings.bot_token)
     service = RemoteService(settings, store)
     application = BotApplication(bot, settings, store, service.tdl, service)
+    engine_monitor = asyncio.create_task(maintain_engine(settings))
     try:
         await application.register_commands()
         await application.dispatcher.start_polling(
@@ -305,6 +314,8 @@ async def frontend(settings: Settings) -> None:
             allowed_updates=["message", "callback_query"],
         )
     finally:
+        engine_monitor.cancel()
+        await asyncio.gather(engine_monitor, return_exceptions=True)
         # Updates execute in the engine even if their RPC waiter is cancelled.
         if application._update and not application._update.done():
             application._update.cancel()

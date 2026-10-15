@@ -108,6 +108,16 @@ async def ensure_engine(settings):
     )
 
 
+async def maintain_engine(settings, *, interval=5):
+    """Restart an idle engine after a manual handoff without watching code."""
+    while True:
+        try:
+            await ensure_engine(settings)
+        except (UserError, OSError):
+            _LOGGER.warning("Task engine unavailable; waiting to reconnect")
+        await asyncio.sleep(interval)
+
+
 class EngineServer:
     def __init__(self, service, settings):
         self.service = service
@@ -118,7 +128,11 @@ class EngineServer:
 
     async def dispatch(self, method, args):
         service = self.service
+        if method == "backup":
+            return await service.backups.execute(**args)
         if method == "shutdown":
+            if getattr(service, "backups", None) is not None:
+                await service.backups.close()
             service._closing = True
             await service.close()
             self.reload_requested = True
@@ -212,10 +226,16 @@ class EngineServer:
                 while True:
                     await asyncio.sleep(0.5)
                     await self.service.reconcile_permissions()
+                    backups = getattr(self.service, "backups", None)
+                    if backups is not None:
+                        await backups.reconcile_permissions()
+                    if backups is not None and self.reload_requested:
+                        backups.quiesce()
                     if (
                         self.reload_requested
                         and not self.service._jobs
                         and not self.calls
+                        and (backups is None or not backups.busy)
                     ):
                         return
         finally:
@@ -331,6 +351,9 @@ class RemoteService:
             raise UserError(
                 tr("The connection restarted. Check /jobs before retrying.")
             ) from None
+
+    async def backup(self, user_id, kind, **options):
+        return await self.call("backup", user_id=user_id, kind=kind, **options)
 
     def execution_account(self, user_id):
         return self.accounts.select(user_id)

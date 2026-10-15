@@ -23,7 +23,12 @@ async def clone_album(tdl, client, group, target, peer, directory):
             str(m.id): marker + str(i) for i, m in enumerate(group.messages)
         }
         started = monotonic()
-        await tdl.clone(group.urls, target, markers, directory)
+        await tdl.clone(
+            getattr(group, "native_urls", group.urls),
+            target,
+            markers,
+            directory,
+        )
         staged = await _receipts(client, peer, after, marker)
         by_index = {m.message.removeprefix(marker): m for m in staged}
         if len(staged) != len(group.messages) or set(by_index) != {

@@ -30,6 +30,8 @@ class Job:
     stage: str = "Queued"
     storage_target: Target | None = None
     delivery_started: bool = False
+    storage_only: bool = False
+    quiet: bool = False
 
     def payload(self):
         return {
@@ -48,6 +50,8 @@ class Job:
                 "retry_id",
                 "stage",
                 "delivery_started",
+                "storage_only",
+                "quiet",
             )
         } | {
             "target": {

@@ -74,7 +74,9 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         return tdl
 
     monkeypatch.setattr("tdl_bot.runtime.cli.Tdl", make_tdl)
-    bot = SimpleNamespace(session=SimpleNamespace(close=AsyncMock()))
+    bot = SimpleNamespace(
+        session=SimpleNamespace(close=AsyncMock()), send_message=AsyncMock()
+    )
     constructor = Mock(return_value=bot)
     monkeypatch.setattr("tdl_bot.runtime.cli.Bot", constructor)
     monkeypatch.setattr(

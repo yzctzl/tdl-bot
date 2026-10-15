@@ -1,6 +1,8 @@
 """One command registry drives routing, menus and help."""
 
 COMMANDS = (
+    ("dump", "backups.dump", "Back up channel history (admin)", True),
+    ("follow", "backups.follow", "Track new channel or group messages", False),
     (
         "account",
         "execution.account",
@@ -85,6 +87,8 @@ HELP = (
     "and retry\nRegular accounts can keep up to 3 pending "
     "retries.\n/status View status; /whoami View your account "
     "ID\n/language [en|zh] Choose your language"
+    "\n/follow <source> [to <chat>] [every 5m] Track new messages"
+    "\n/follow List tasks; /follow pause|resume|cancel <id> Manage a task"
 )
 
 
@@ -100,4 +104,6 @@ ADMIN_HELP = (
     "<UID|@username> View another account's destination\n/update_tdl "
     "[latest|v0.20.4] Check and update tdl"
     "\n/account <auto|shared|UID> Switch execution account"
+    "\n/dump <source> [to <chat>] Back up channel history"
+    "\n/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
 )

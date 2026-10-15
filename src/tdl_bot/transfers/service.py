@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from telethon import errors
 
@@ -22,6 +23,9 @@ from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool
 from tdl_bot.transfers.jobs import Job, JobQueue
 from tdl_bot.transfers.media import downloaded_files, media_fingerprint
+
+if TYPE_CHECKING:
+    from tdl_bot.transfers.backups.service import BackupService
 
 _LOGGER = logging.getLogger(__name__)
 Notify = Callable[..., Awaitable[None]]
@@ -44,6 +48,7 @@ class TransferService:
         durable: bool = False,
     ) -> None:
         """Initialize a bounded workspace queue and execution account pool."""
+        self.backups: BackupService | None = None
         self.delivery = delivery
         self.durable = durable
         self.store = store
@@ -93,6 +98,16 @@ class TransferService:
             asyncio.create_task(self._worker())
             for _ in range(self._worker_count)
         ]
+
+    async def backup(self, user_id, kind, **options):
+        if self.backups is None:
+            raise UserError(
+                tr(
+                    "The backup scheduler is unavailable. "
+                    "Try again after reload."
+                )
+            )
+        return await self.backups.execute(user_id, kind, **options)
 
     async def submit(
         self, user_id: int, url: str, *, source_message_id: int | None = None
@@ -434,6 +449,8 @@ class TransferService:
         self, job: Job, text: str, *, finished: bool = False
     ) -> None:
         """Do not let an unavailable bot recipient interrupt a transfer."""
+        if job.quiet:
+            return
         if finished:
             job.finished = True
         self._checkpoint(job)
@@ -598,6 +615,25 @@ class TransferService:
             ):
                 await self._process_group(job, group, aliases)
 
+    async def backup_group(self, job, group):
+        """Reuse the transfer pipeline without adding per-item Bot messages."""
+        executor = self.accounts.get(job.executor_key)
+        lock = self._transfer_locks.setdefault(id(executor.tdl), asyncio.Lock())
+        fingerprint = media_fingerprint(group.messages)
+        aliases = [*group.urls]
+        if fingerprint:
+            aliases.append(fingerprint)
+        async with (
+            lock,
+            executor.tdl.gate.job(),
+            self._work_lock("group:" + (fingerprint or group.urls[0])),
+        ):
+            if not self._can_run(job):
+                raise UserError(tr("You cannot use this execution account."))
+            if self.delivery is not None and not job.storage_only:
+                await self.delivery.prepare(job)
+            await self._process_group(job, group, aliases)
+
     async def _process_group(self, job, group, aliases):
         executor = self.accounts.get(job.executor_key)
         if await self._reuse(job, aliases):
@@ -613,13 +649,30 @@ class TransferService:
                 await self._complete(job, aliases, ids, tr("Forwarded"))
                 return
             job.upload_started = False
+        if all(
+            hasattr(m, "message") and not m.photo and not m.document
+            for m in group.messages
+        ):
+            job.upload_started = True
+            ids = await executor.media.copy_text(
+                group, job.storage_target or job.target
+            )
+            await self._complete(job, aliases, ids, tr("processed"))
+            return
         with tempfile.TemporaryDirectory(
             prefix="job-", dir=self.jobs_dir
         ) as temporary:
             directory = Path(temporary)
+            basic = (
+                isinstance(group.link.peer, int)
+                and -1_000_000_000_000 < group.link.peer < 0
+                if hasattr(group, "link")
+                else False
+            )
             cloner = getattr(executor.media, "clone_group", None)
             if (
-                cloner is not None
+                not basic
+                and cloner is not None
                 and getattr(executor.media, "tdl", None) is not None
             ):
                 job.stage = "Transferring"
@@ -641,7 +694,12 @@ class TransferService:
                 job,
                 tr("3/5 Downloading {p0} media files.", p0=len(group.messages)),
             )
-            await executor.tdl.download(group.urls, directory)
+            if basic:
+                await executor.media.download_group(group, directory)
+            else:
+                await executor.tdl.download(
+                    getattr(group, "native_urls", group.urls), directory
+                )
             files = await asyncio.to_thread(
                 downloaded_files, directory, group.messages
             )
@@ -768,6 +826,9 @@ class TransferService:
                         )
                     )
                 self.store.mark_revealed(result_id)
+            if job.storage_only:
+                job.upload_started = False
+                return
             job.upload_started = False
             job.stage = "Delivering"
             await self._notify(job, tr("Sending to your destination…"))

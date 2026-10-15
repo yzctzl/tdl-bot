@@ -264,6 +264,36 @@ class TelegramMedia:
         except errors.ChatForwardsRestrictedError:
             return None
 
+    async def copy_text(self, group, target):
+        """Copy protected text without a forward header or spoiler entities."""
+        peer = await self.validate_target(target)
+        ids = []
+        for message in group.messages:
+            media = getattr(message, "media", None)
+            if media is not None and not isinstance(
+                media, types.MessageMediaWebPage
+            ):
+                raise UserError(
+                    tr("This protected message type cannot be backed up.")
+                )
+            sent = await self.client.send_message(
+                peer,
+                message.message or "",
+                parse_mode=None,
+                formatting_entities=_visible_entities(message.entities or []),
+                reply_to=target.topic_id,
+                link_preview=False,
+            )
+            ids.append(sent.id)
+        return ids
+
+    async def download_group(self, group, directory):
+        """Basic groups have no tdl message URL; retain a bounded fallback."""
+        for message in group.messages:
+            await self.client.download_media(
+                message, file=str(directory / f"{message.id}_media")
+            )
+
     async def reveal_messages(self, chat: str, ids: list[int]) -> bool:
         """Remove spoilers only on stored copies, never source messages."""
         peer = await self._peer(_target_peer(chat))

@@ -29,6 +29,7 @@ class Backup:
     next_run: float = 0
     attempts: int = 0
     error: str = ""
+    request_id: int | None = None
 
     def payload(self):
         return {

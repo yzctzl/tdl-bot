@@ -78,6 +78,13 @@ async def source(media, value):
     entity = await media.client.get_entity(peer)
     if not isinstance(entity, (types.Channel, types.Chat)):
         raise UserError(tr("Choose a channel or group as the backup source."))
+    if getattr(entity, "migrated_to", None) is not None:
+        raise UserError(
+            tr(
+                "This group was upgraded. "
+                "Create a backup for its new supergroup."
+            )
+        )
     chat = utils.get_peer_id(entity)
     latest = await media.client.get_messages(entity, limit=1)
     return chat, entity.title, latest[0].id if latest else 0
