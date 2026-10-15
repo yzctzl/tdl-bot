@@ -35,7 +35,6 @@ async def upload_album(tdl, client, group, files, target, peer):
                 raise
             visual = all(m.photo or m.video for m in group.messages)
             captions = {name: marker + str(i) for i, name in enumerate(names)}
-            previews = await _prepare_previews(client, group, directory, names)
             started = monotonic()
             await tdl.upload(directory, target, captions, photo=visual)
             staged = await _receipts(client, peer, after, marker)
@@ -68,13 +67,6 @@ async def upload_album(tdl, client, group, files, target, peer):
                         )
                     )
                 elif original.document and message.document:
-                    if index in previews and not message.document.thumbs:
-                        raise UserError(
-                            tr(
-                                "The uploaded video has no preview thumbnail. "
-                                "Album delivery stopped; try again later."
-                            )
-                        )
                     if original.document.size != message.document.size:
                         raise UserError(
                             tr(
@@ -144,29 +136,6 @@ def _link_files(directory, files):
         (directory / name).hardlink_to(file)
         names.append(name)
     return names, sum(file.stat().st_size for file in files)
-
-
-async def _prepare_previews(client, group, directory, names):
-    previews = set()
-    for index, (message, name) in enumerate(
-        zip(group.messages, names, strict=True)
-    ):
-        if not message.video or not message.document.thumbs:
-            continue
-        path = directory / name
-        # Match tdl's walk(): Go TrimRight treats the extension as a cutset,
-        # so with_suffix() can produce a sidecar name that tdl never finds.
-        thumb = str(path).rstrip(path.suffix) + ".thumb"
-        result = await client.download_media(message, file=thumb, thumb=-1)
-        if not result:
-            raise UserError(
-                tr(
-                    "Could not retrieve the original video preview. "
-                    "Try again later."
-                )
-            )
-        previews.add(index)
-    return previews
 
 
 async def _receipts(client, peer, after, marker):

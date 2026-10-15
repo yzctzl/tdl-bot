@@ -52,12 +52,6 @@ expression maps each filename to a random per-task marker plus its original
 position. These exact receipts distinguish concurrent jobs and unrelated posts;
 we never infer file identity from the newest message IDs or upload order.
 
-Original video thumbnails are downloaded as small `.thumb` sidecars for native
-upload. tdl does not automatically extract a preview frame; omitting these
-sidecars can leave correct video dimensions but broken album previews. Sidecar
-names follow tdl's `TrimRight` convention, and uploaded videos are checked for
-thumbnail presence before assembly.
-
 Only a complete, unambiguous set with matching document sizes is assembled into
 an album using existing Telegram media references. Telethon transfers captions
 and media references at this step, not the file bytes. Final album IDs enter the
