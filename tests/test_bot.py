@@ -8,10 +8,11 @@ from aiogram.filters import CommandObject
 
 from tdl_bot.bot.application import BotApplication
 from tdl_bot.core.errors import JoinPending, UserError
-from tdl_bot.integrations.tdl.runner import UpdateGate
-from tdl_bot.storage.store import Store, Target
+from tdl_bot.integrations.tdl.gate import UpdateGate
+from tdl_bot.storage.models import Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.transfers.service import Job
+from tdl_bot.transfers.jobs import Job
 
 pytestmark = pytest.mark.usefixtures("chinese")
 
@@ -45,7 +46,7 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=1), answer=AsyncMock(), message_id=10
     )
-    await application.join(
+    await application.tasks.join(
         message, CommandObject(command="join", args="https://t.me/+invite")
     )
     assert service.retry.call_count == int(not approval_required)
@@ -86,7 +87,7 @@ async def test_cancel_callback_checks_owner_token_and_progress_message(
         ),
         answer=AsyncMock(),
     )
-    await application.cancel(callback)
+    await application.tasks.cancel(callback)
     assert service.cancel.await_count == int(invalid is None)
     callback.answer.assert_awaited_once()
     store.close()

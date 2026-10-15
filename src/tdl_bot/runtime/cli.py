@@ -15,7 +15,8 @@ from aiogram import Bot
 from telethon import TelegramClient
 from telethon.tl import types
 
-from tdl_bot.bot.application import BotApplication, ProgressMessages
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.bot.progress import ProgressMessages
 from tdl_bot.core.config import Settings
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr

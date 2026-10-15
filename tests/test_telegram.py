@@ -11,7 +11,7 @@ from telethon.tl import functions, types
 from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
 from tdl_bot.core.links import JoinLink, MessageLink
 from tdl_bot.integrations.telegram.media import TelegramMedia
-from tdl_bot.storage.store import Target
+from tdl_bot.storage.models import Target
 
 pytestmark = pytest.mark.usefixtures("chinese")
 

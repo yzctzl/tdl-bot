@@ -10,10 +10,13 @@ import pytest
 from aiogram.filters import CommandObject
 from aiogram.types import BotCommandScopeChat, Message
 
-from tdl_bot.bot.application import _COMMANDS, Authorization, BotApplication
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.bot.commands import COMMANDS
+from tdl_bot.bot.middleware import Authorization
 from tdl_bot.core.errors import AccessDenied, UserError
-from tdl_bot.integrations.tdl.runner import UpdateGate
-from tdl_bot.storage.store import Store, Target
+from tdl_bot.integrations.tdl.gate import UpdateGate
+from tdl_bot.storage.models import Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.transfers.service import TransferService
 
@@ -64,7 +67,7 @@ def managed(tmp_path, monkeypatch):
     async def validate(self, target, operator, *, storage=False):
         return target
 
-    monkeypatch.setattr("tdl_bot.bot.application.Delivery.validate", validate)
+    monkeypatch.setattr("tdl_bot.bot.destinations.Delivery.validate", validate)
     app = BotApplication(bot, SimpleNamespace(), store, tdl, service)
     yield app, service, store, policy
     store.close()
@@ -138,13 +141,15 @@ async def test_ordinary_target_cannot_change_shared_destination(managed):
     app, _, store, _ = managed
     media = app.service.accounts.shared.media
     with pytest.raises(UserError, match="接收位置"):
-        await app.target(message(2), command("target", "shared @other"))
+        await app.destinations.target(
+            message(2), command("target", "shared @other")
+        )
     media.validate_target.assert_not_awaited()
     assert store.target_for(None) == Target("me")
-    await app.target(message(2), command("target", "@mine 42"))
+    await app.destinations.target(message(2), command("target", "@mine 42"))
     assert store.target_for(2) == Target("@mine", 42)
     assert store.target_for(None) == Target("me")
-    await app.target(message(2), command("target", "bot"))
+    await app.destinations.target(message(2), command("target", "bot"))
     assert store.recipient(2).target == Target("2")
 
 
@@ -167,7 +172,9 @@ async def test_ordinary_accounts_cannot_use_admin_commands(
     app, _, store, _ = managed
     before = store.members()
     with pytest.raises(UserError, match="管理员"):
-        await getattr(app, handler)(message(2), command(handler, args))
+        await (
+            app.update if handler == "update" else getattr(app.members, handler)
+        )(message(2), command(handler, args))
     assert store.members() == before
 
 
@@ -261,14 +268,14 @@ async def test_registered_menus_cover_every_command_and_follow_roles(managed):
     app, _, store, _ = managed
     await app.register_commands()
     names = {item.command for item in app.command_menu(admin=True)}
-    assert names == {name for name, _, _, _ in _COMMANDS}
+    assert names == {name for name, _, _, _ in COMMANDS}
     assert "retry_cancel" in {item.command for item in app.command_menu()}
     assert "user_add" not in {item.command for item in app.command_menu()}
     assert "update_tdl" not in {item.command for item in app.command_menu()}
     handlers = app.dispatcher.sub_routers[0].message.handlers
-    for _, name, _, _ in _COMMANDS:
+    for _, name, _, _ in COMMANDS:
         assert any(
-            handler.callback == getattr(app, name) for handler in handlers
+            handler.callback == app.handler(name) for handler in handlers
         )
     admin_call = next(
         call
@@ -292,7 +299,7 @@ async def test_registered_menus_cover_every_command_and_follow_roles(managed):
 async def test_adding_member_without_open_chat_retries_menu_later(managed):
     app, _, store, policy = managed
     app.bot.set_my_commands.side_effect = RuntimeError("chat unavailable")
-    await app.user_add(message(1), command("user_add", "4"))
+    await app.members.user_add(message(1), command("user_add", "4"))
     assert policy.is_allowed(4)
     assert 4 not in app._menu_roles
     app.bot.set_my_commands.side_effect = None
@@ -325,7 +332,7 @@ async def test_revocation_cancels_active_download_and_cleans_files(
     job = await service.submit(2, "https://t.me/channel/10")
     await asyncio.wait_for(started.wait(), 2)
     async with asyncio.timeout(2):
-        await getattr(app, action)(
+        await getattr(app.members, action)(
             message(1), command(action, "2 1d" if action == "user_ban" else "2")
         )
     assert job.done.is_set()
@@ -366,7 +373,7 @@ async def test_retry_cancel_buttons_check_origin_and_remove_record(managed):
     store.set_pending(2, "https://t.me/channel/10")
     item = store.pending_items()[0]
     view = message(3)
-    await app.pending(view, command("pending"))
+    await app.tasks.pending(view, command("pending"))
     markup = view.answer.call_args.kwargs["reply_markup"]
     assert (
         markup.inline_keyboard[0][0].callback_data == f"retry_cancel:{item.id}"
@@ -379,10 +386,10 @@ async def test_retry_cancel_buttons_check_origin_and_remove_record(managed):
         ),
         answer=AsyncMock(),
     )
-    await app.cancel_retry(query)
+    await app.tasks.cancel_retry(query)
     assert store.pending_items()
     query.message.message_id = 80
-    await app.cancel_retry(query)
+    await app.tasks.cancel_retry(query)
     assert not store.pending_items()
     assert app.bot.edit_message_text.call_args.kwargs["reply_markup"] is None
     await service.close()
@@ -429,7 +436,7 @@ async def test_archived_overflow_is_admin_only_and_can_be_removed(managed):
     with pytest.raises(UserError, match="无权"):
         service.discard_pending(2, archived[0].id)
     view = message(1)
-    await app.pending(view, command("pending"))
+    await app.tasks.pending(view, command("pending"))
     assert "归档" in view.answer.call_args.args[0]
     service.discard_pending(1, archived[0].id)
     assert len(service.pending_items(1)) == 4
@@ -543,7 +550,7 @@ async def test_demotion_revokes_borrowed_private_task_management(managed):
     borrowed = await service.retry(1, pending.id)
     own = await service.submit(1, "https://t.me/channel/20")
     store.set_member_role(1, 3, "admin")
-    await app.user_role(message(1), command("user_role", "1 user"))
+    await app.members.user_role(message(1), command("user_role", "1 user"))
     assert not policy.is_admin(1)
     assert borrowed.done.is_set()
     assert borrowed.cancel_requested
@@ -577,13 +584,13 @@ async def test_username_management_resolves_live_uid_and_shows_both(managed):
         )
     )
     event = message(1)
-    await app.user_add(event, command("user_add", "@example"))
+    await app.members.user_add(event, command("user_add", "@example"))
     assert store.member(4)
     assert "@example" in event.answer.call_args.args[0]
     assert "UID: 4" in event.answer.call_args.args[0]
     # Reassigned usernames resolve to their current UID, never cached privilege.
     service.accounts.shared.media.resolve_user.return_value.id = 5
-    await app.user_add(event, command("user_add", "@example"))
+    await app.members.user_add(event, command("user_add", "@example"))
     assert "@example" not in store.user_label(4)
     assert "@example" in store.user_label(5)
 
@@ -592,14 +599,14 @@ async def test_admin_status_shows_all_targets_but_other_users_cannot(managed):
     app, _, store, _ = managed
     store.set_target(2, Target("personal", 77), private=True)
     event = message(1)
-    await app.status(event, command("status", "2"))
+    await app.destinations.status(event, command("status", "2"))
     text = event.answer.call_args.args[0]
     assert "接收位置：personal" in text
     assert "共享目标" not in text
     assert "me" not in text
     assert "77" in text
     with pytest.raises(UserError, match="只有管理员"):
-        await app.status(message(3), command("status", "2"))
+        await app.destinations.status(message(3), command("status", "2"))
 
 
 @pytest.mark.parametrize("username", [None, "example_forum"])
@@ -614,7 +621,7 @@ async def test_users_links_bot_dialogue_and_channel_topic(managed, username):
         return_value=SimpleNamespace(title="Forum <test>", username=username)
     )
     event = message(1)
-    await app.users(event, command("users"))
+    await app.members.users(event, command("users"))
     text = event.answer.call_args.args[0]
     assert "Admin &lt;owner&gt; &amp; friends" in text
     assert '<a href="https://t.me/example_bot">Bot 对话</a>' in text
@@ -679,14 +686,14 @@ async def test_status_renders_clickable_target_and_escapes_titles(managed):
         )
     )
     event = message(2)
-    await app.status(event)
+    await app.destinations.status(event)
     text = event.answer.call_args.args[0]
     assert '<a href="https://t.me/example">A &lt; B &amp; C</a>' in text
     assert "话题" not in text
     assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
     app.bot.get_chat.return_value.username = None
     store.set_target(2, Target("-1001234567890", 42), private=True)
-    await app.status(event)
+    await app.destinations.status(event)
     assert (
         'href="https://t.me/c/1234567890/42"' in event.answer.call_args.args[0]
     )
@@ -699,7 +706,7 @@ async def test_status_bot_destination_links_to_bot_instead_of_operator(managed):
         return_value=SimpleNamespace(username="examplebot")
     )
     event = message(2)
-    await app.status(event)
+    await app.destinations.status(event)
     assert (
         '<a href="https://t.me/examplebot">Bot 对话</a>'
         in event.answer.call_args.args[0]
@@ -715,7 +722,7 @@ async def test_target_admin_queries_render_same_clickable_destination(managed):
         return_value=SimpleNamespace(title="Target & Name", username="example")
     )
     event = message(1)
-    await app.target(event, command("target", args))
+    await app.destinations.target(event, command("target", args))
     text = event.answer.call_args.args[0]
     assert 'href="https://t.me/example/42"' in text
     assert 'href="tg://user?id=2"' in text
@@ -731,7 +738,7 @@ async def test_target_self_query_renders_only_clickable_destination(managed):
         return_value=SimpleNamespace(username="examplebot")
     )
     event = message(2)
-    await app.target(event, command("target", args))
+    await app.destinations.target(event, command("target", args))
     text = event.answer.call_args.args[0]
     assert 'href="https://t.me/examplebot"' in text
     assert "账号：" not in text
@@ -744,7 +751,7 @@ async def test_target_get_cannot_modify_or_expose_other_accounts(managed):
     app, _, store, _ = managed
     for args in ("get", "get 3", "get 2 @other"):
         with pytest.raises(UserError, match="直接使用 /target"):
-            await app.target(message(2), command("target", args))
+            await app.destinations.target(message(2), command("target", args))
     assert store.target_for(2) is None
 
 
@@ -754,7 +761,7 @@ async def test_target_legacy_positive_channel_id_still_generates_private_link(
     app, _, store, _ = managed
     store.set_target(2, Target("1234567890"), private=True)
     event = message(2)
-    await app.status(event)
+    await app.destinations.status(event)
     assert 'href="https://t.me/c/1234567890"' in event.answer.call_args.args[0]
 
 
@@ -780,13 +787,13 @@ async def test_target_channel_query_and_save_feedback_show_destination_link(
     )
     event = message(2)
     args = "-1001234567890" + (f" {topic}" if topic else "")
-    await app.target(event, command("target", args))
+    await app.destinations.target(event, command("target", args))
     saved = event.answer.call_args.args[0]
     assert f'href="{url}"' in saved
     assert "Videos &amp; Photos" in saved
     assert "已保存" in saved
     assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
-    await app.target(event, command("target"))
+    await app.destinations.target(event, command("target"))
     queried = event.answer.call_args.args[0]
     assert f'href="{url}"' in queried
     assert "Videos &amp; Photos" in queried

@@ -10,11 +10,13 @@ from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.types import Chat, ChatFullInfo, ChatMemberMember, Message, User
 
-from tdl_bot.bot.application import BotApplication, ProgressMessages
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.bot.progress import ProgressMessages
 from tdl_bot.core.links import JoinLink
-from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.runtime.engine import EngineServer, RemoteService
-from tdl_bot.storage.store import Store, Target
+from tdl_bot.storage.models import Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.transfers.service import TransferService
 

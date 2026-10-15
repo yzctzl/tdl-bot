@@ -10,12 +10,15 @@ import pytest
 from aiogram.types import ChatMemberMember, MessageId, User
 
 from tdl_bot.core.errors import UserError
-from tdl_bot.integrations.tdl.runner import Tdl, UpdateGate
+from tdl_bot.integrations.tdl.gate import UpdateGate
+from tdl_bot.integrations.tdl.runner import Tdl
 from tdl_bot.integrations.telegram.delivery import Delivery, MissingResult
 from tdl_bot.runtime.engine import EngineServer, RemoteService, exchange
-from tdl_bot.storage.store import Destination, Store, Target
+from tdl_bot.storage.models import Destination, Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.transfers.service import Job, TransferService
+from tdl_bot.transfers.jobs import Job
+from tdl_bot.transfers.service import TransferService
 
 pytestmark = pytest.mark.usefixtures("chinese")
 

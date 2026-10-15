@@ -8,13 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tdl_bot.bot.application import (
-    _ADMIN_HELP,
-    _COMMANDS,
-    _HELP,
-    BotApplication,
-    ProgressMessages,
-)
+from tdl_bot.bot.application import BotApplication
+from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP
+from tdl_bot.bot.progress import ProgressMessages
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import (
     CATALOGS,
@@ -23,11 +19,13 @@ from tdl_bot.core.i18n import (
     tr,
     use_language,
 )
-from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.runtime.engine import EngineServer, code_version, exchange
-from tdl_bot.storage.store import Store, Target
+from tdl_bot.storage.models import Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
-from tdl_bot.transfers.service import Job, TransferService
+from tdl_bot.transfers.jobs import Job
+from tdl_bot.transfers.service import TransferService
 
 
 def test_default_and_unknown_languages_are_english():
@@ -213,7 +211,7 @@ async def test_buttons_and_error_replies_use_saved_language(bilingual):
             data="cancel:missing",
             answer=AsyncMock(),
         )
-        await app.cancel(query)
+        await app.tasks.cancel(query)
         assert query.answer.call_args.args[0] == expired
         user = event(user_id)
         await app.error(
@@ -283,7 +281,7 @@ async def test_rpc_errors_preserve_request_language(
 
 def test_all_user_templates_have_chinese_translations():
     messages = CATALOGS["zh"]["messages"]
-    sources = {_HELP, _ADMIN_HELP, *(row[2] for row in _COMMANDS)}
+    sources = {HELP, ADMIN_HELP, *(row[2] for row in COMMANDS)}
     for path in Path("src/tdl_bot").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if (

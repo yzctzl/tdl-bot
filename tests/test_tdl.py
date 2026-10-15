@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tdl_bot.core.errors import AccessDenied, UserError
-from tdl_bot.integrations.tdl.runner import (
-    Tdl,
-    UpdateGate,
+from tdl_bot.integrations.tdl.gate import UpdateGate
+from tdl_bot.integrations.tdl.runner import Tdl
+from tdl_bot.integrations.tdl.updates import (
     extract_binary,
     verify_checksum,
 )
@@ -112,7 +112,7 @@ async def test_update_installs_only_verified_release(
     checksum = hashlib.sha256(archive).hexdigest()
     name = "tdl_Linux_64bit.tar.gz"
     monkeypatch.setattr(
-        "tdl_bot.integrations.tdl.runner.release_asset_name", lambda: name
+        "tdl_bot.integrations.tdl.updates.release_asset_name", lambda: name
     )
 
     class Response:
@@ -147,9 +147,9 @@ async def test_update_installs_only_verified_release(
         return archive + b"corrupt" if corrupt else archive
 
     monkeypatch.setattr(
-        "tdl_bot.integrations.tdl.runner.aiohttp.ClientSession", Session
+        "tdl_bot.integrations.tdl.updates.aiohttp.ClientSession", Session
     )
-    monkeypatch.setattr("tdl_bot.integrations.tdl.runner._fetch", fetch)
+    monkeypatch.setattr("tdl_bot.integrations.tdl.updates._fetch", fetch)
     tdl = Tdl(binary, "default")
     actual_version = tdl.version
 
@@ -283,10 +283,10 @@ def update_release(monkeypatch):
             return Response()
 
     monkeypatch.setattr(
-        "tdl_bot.integrations.tdl.runner.aiohttp.ClientSession", Session
+        "tdl_bot.integrations.tdl.updates.aiohttp.ClientSession", Session
     )
     fetch = AsyncMock()
-    monkeypatch.setattr("tdl_bot.integrations.tdl.runner._fetch", fetch)
+    monkeypatch.setattr("tdl_bot.integrations.tdl.updates._fetch", fetch)
     return state, fetch
 
 

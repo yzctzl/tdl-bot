@@ -9,7 +9,7 @@ from telethon.sessions import MemorySession
 
 from tdl_bot.core.config import AccountBinding, Settings
 from tdl_bot.core.errors import UserError
-from tdl_bot.integrations.tdl.runner import UpdateGate
+from tdl_bot.integrations.tdl.gate import UpdateGate
 from tdl_bot.integrations.telegram.client import AccountLock
 from tdl_bot.runtime.cli import run
 

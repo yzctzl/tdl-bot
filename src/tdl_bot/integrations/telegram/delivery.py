@@ -18,7 +18,7 @@ from aiogram.types import (
 
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
-from tdl_bot.storage.store import Target
+from tdl_bot.storage.models import Target
 
 _LOGGER = logging.getLogger(__name__)
 

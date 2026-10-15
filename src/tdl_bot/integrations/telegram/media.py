@@ -11,7 +11,7 @@ from telethon.tl.custom.message import Message
 from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
 from tdl_bot.core.i18n import tr
 from tdl_bot.core.links import JoinLink, MessageLink
-from tdl_bot.storage.store import Target
+from tdl_bot.storage.models import Target
 
 _ACCESS_ERRORS = (
     errors.ChannelPrivateError,

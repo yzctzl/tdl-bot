@@ -1,19 +1,15 @@
 """Run bounded background transfers and clean temporary files."""
 
 import asyncio
-import hashlib
-import json
 import logging
 import re
 import shutil
 import sqlite3
 import tempfile
-from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
-from uuid import uuid4
 
 from telethon import errors
 
@@ -21,101 +17,14 @@ from tdl_bot.core.errors import AccessDenied, UserError
 from tdl_bot.core.i18n import job_language, render, tr, use_language
 from tdl_bot.core.links import MessageLink
 from tdl_bot.integrations.telegram.delivery import MissingResult
-from tdl_bot.storage.store import Destination, PendingTransfer, Store, Target
+from tdl_bot.storage.models import Destination, PendingTransfer, Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool
+from tdl_bot.transfers.jobs import Job, JobQueue
+from tdl_bot.transfers.media import _downloaded_files, _media_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 Notify = Callable[..., Awaitable[None]]
-
-
-@dataclass(eq=False)
-class Job:
-    """Separate notification, management and execution identities per task."""
-
-    user_id: int
-    url: str
-    target: Target
-    source_message_id: int | None = None
-    id: str = field(default_factory=lambda: uuid4().hex)
-    progress_message_id: int | None = None
-    ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
-    done: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
-    task: asyncio.Task | None = field(default=None, repr=False)
-    cancel_requested: bool = False
-    finished: bool = False
-    upload_started: bool = False
-    owner_id: int | None = None
-    executor_key: str = "shared"
-    retry_id: int | None = None
-    stage: str = "Queued"
-    storage_target: Target | None = None
-    delivery_started: bool = False
-
-    def payload(self):
-        return {
-            name: getattr(self, name)
-            for name in (
-                "user_id",
-                "url",
-                "source_message_id",
-                "id",
-                "progress_message_id",
-                "cancel_requested",
-                "finished",
-                "upload_started",
-                "owner_id",
-                "executor_key",
-                "retry_id",
-                "stage",
-                "delivery_started",
-            )
-        } | {
-            "target": {
-                "chat": self.target.chat,
-                "topic_id": self.target.topic_id,
-            },
-            "storage_target": (
-                {
-                    "chat": self.storage_target.chat,
-                    "topic_id": self.storage_target.topic_id,
-                }
-                if self.storage_target
-                else None
-            ),
-        }
-
-    @classmethod
-    def restore(cls, payload):
-        data = dict(payload)
-        data["target"] = Target(**data["target"])
-        if data.get("storage_target"):
-            data["storage_target"] = Target(**data["storage_target"])
-        job = cls(**data)
-        job.ready.set()
-        return job
-
-    @property
-    def destination(self) -> Destination:
-        return Destination(self.target, self.owner_id)
-
-
-class JobQueue(asyncio.Queue[Job]):
-    """A bounded queue whose pending jobs can be removed on cancellation."""
-
-    # asyncio initializes this deque, but typeshed omits the private field.
-    _queue: deque[Job]
-
-    def discard(self, job: Job) -> None:
-        """Free a pending queue slot without interrupting other workers.
-
-        This queue uses put_nowait only, so there are no blocked producers
-        to wake. Removing from its underlying deque keeps FIFO ordering.
-        """
-        try:
-            self._queue.remove(job)
-        except ValueError:
-            return  # A worker already owns the job.
-        self.task_done()
 
 
 class TransferService:
@@ -829,54 +738,3 @@ class TransferService:
             ),
             finished=True,
         )
-
-
-def _media_fingerprint(messages) -> str | None:
-    """Reuse identical Telegram media only when captions/entities also match."""
-    parts = []
-    for message in messages:
-        media = getattr(message, "document", None) or getattr(
-            message, "photo", None
-        )
-        media_id = getattr(media, "id", None)
-        if media_id is None:
-            return None
-        entities = [
-            entity.to_dict()
-            for entity in (message.entities or [])
-            if type(entity).__name__ != "MessageEntitySpoiler"
-        ]
-        parts.append(
-            (type(media).__name__, media_id, message.message, entities)
-        )
-    encoded = json.dumps(parts, sort_keys=True, default=str).encode()
-    return "media:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _downloaded_files(directory: Path, messages) -> list[Path]:
-    """Require exactly one complete file per resolved media-group member."""
-    files = []
-    for message in messages:
-        matches = [
-            path
-            for path in directory.glob(f"{message.id}_*")
-            if path.is_file() and not path.is_symlink()
-        ]
-        if len(matches) != 1 or matches[0].stat().st_size == 0:
-            raise UserError(
-                tr(
-                    "tdl did not download the entire media group. Upload "
-                    "stopped and files cleaned up."
-                )
-            )
-        file = matches[0]
-        # Document sizes are exact; photos may use different resolutions.
-        if message.document and file.stat().st_size != message.document.size:
-            raise UserError(
-                tr(
-                    "File sizes are incomplete. Upload stopped and files "
-                    "cleaned up."
-                )
-            )
-        files.append(file)
-    return files

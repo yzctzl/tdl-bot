@@ -15,9 +15,10 @@ from types import SimpleNamespace
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import current_language, tr, use_language
 from tdl_bot.core.links import JoinLink
-from tdl_bot.storage.store import Store, Target
+from tdl_bot.storage.models import Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy
-from tdl_bot.transfers.service import Job
+from tdl_bot.transfers.jobs import Job
 
 _LOGGER = logging.getLogger(__name__)
 _LIMIT = 1024 * 1024

@@ -11,8 +11,9 @@ from aiogram.filters import CommandObject
 from tdl_bot.bot.application import BotApplication
 from tdl_bot.core.config import Settings, read_account_bindings
 from tdl_bot.core.errors import AccessDenied, UserError
-from tdl_bot.integrations.tdl.runner import UpdateGate
-from tdl_bot.storage.store import Destination, Store, Target
+from tdl_bot.integrations.tdl.gate import UpdateGate
+from tdl_bot.storage.models import Destination, Target
+from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.transfers.service import TransferService
 
@@ -287,7 +288,7 @@ async def test_cross_account_buttons_and_private_visibility(workspace):
     private = await service.submit(2, "https://t.me/channel/20")
     app = application(workspace)
     view = message(3)
-    await app.jobs(view, CommandObject(command="jobs"))
+    await app.tasks.jobs(view, CommandObject(command="jobs"))
     markup = view.answer.call_args.kwargs["reply_markup"]
     assert len(markup.inline_keyboard) == 1
     assert markup.inline_keyboard[0][0].callback_data == f"cancel:{shared.id}"
@@ -299,7 +300,7 @@ async def test_cross_account_buttons_and_private_visibility(workspace):
         ),
         answer=AsyncMock(),
     )
-    await app.cancel(query)
+    await app.tasks.cancel(query)
     assert shared.done.is_set()
     assert service.current_job(2, private.id) is private
     await service.cancel(1, private.id)
@@ -310,7 +311,7 @@ async def test_shared_control_cannot_be_reused_for_other_job(workspace):
     service, _, _ = workspace
     first = await service.submit(2, "https://t.me/channel/10")
     app = application(workspace)
-    await app.jobs(message(3), CommandObject(command="jobs"))
+    await app.tasks.jobs(message(3), CommandObject(command="jobs"))
     second = await service.submit(2, "https://t.me/channel/20")
     query = SimpleNamespace(
         from_user=SimpleNamespace(id=3),
@@ -320,7 +321,7 @@ async def test_shared_control_cannot_be_reused_for_other_job(workspace):
         ),
         answer=AsyncMock(),
     )
-    await app.cancel(query)
+    await app.tasks.cancel(query)
     assert not second.cancel_requested
     await service.cancel(1, first.id)
     await service.cancel(1, second.id)
@@ -333,21 +334,23 @@ async def test_target_switching_and_admin_override(workspace, monkeypatch):
     async def validate(self, target, operator, *, storage=False):
         return target
 
-    monkeypatch.setattr("tdl_bot.bot.application.Delivery.validate", validate)
+    monkeypatch.setattr("tdl_bot.bot.destinations.Delivery.validate", validate)
     app = application(workspace)
-    await app.target(
+    await app.destinations.target(
         message(2), CommandObject(command="target", args="private @mine 42")
     )
     assert store.destination(2) == Destination(Target("@mine", 42), 2)
     accounts.select(2).media.validate_target.assert_not_awaited()
     assert store.target(3) == Target("me")
-    await app.target(message(2), CommandObject(command="target", args="bot"))
+    await app.destinations.target(
+        message(2), CommandObject(command="target", args="bot")
+    )
     assert store.recipient(2).target == Target("2")
     with pytest.raises(UserError, match="管理员"):
-        await app.target(
+        await app.destinations.target(
             message(3), CommandObject(command="target", args="for 2 @other")
         )
-    await app.target(
+    await app.destinations.target(
         message(1), CommandObject(command="target", args="for 2 @other")
     )
     assert store.target(2) == Target("@other")
@@ -358,7 +361,7 @@ async def test_join_uses_failed_executor_even_from_another_operator(workspace):
     store.set_pending(2, "https://t.me/channel/10", executor_key="operator:2")
     item = store.pending_items()[0]
     app = application(workspace)
-    await app.join(
+    await app.tasks.join(
         message(3),
         CommandObject(command="join", args=f"https://t.me/+invite {item.id}"),
     )
