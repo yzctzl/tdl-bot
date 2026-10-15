@@ -128,37 +128,39 @@ class Tdl:
             args.extend(["--url", url])
         await self._run(args)
 
-    async def upload(
-        self, directory: Path, target, captions: dict[str, str], *, photo: bool
-    ):
-        """Upload one isolated folder, tagging every file for exact receipts."""
+    async def clone(self, urls, target, markers, directory: Path):
+        """Let tdl preserve original media metadata during native transfer."""
         chat = target.chat
         if chat.startswith("-100"):
             chat = str(-int(chat) - 1_000_000_000_000)
         elif chat.startswith("-"):
             chat = chat[1:]
-        path = io.StringIO()
-        csv.writer(path, lineterminator="").writerow([str(directory)])
+        destination = {"Peer": chat, "Thread": target.topic_id or 0}
         args = [
             *self.storage_args(),
             "--ns",
             self.namespace,
             "--threads",
             str(self.upload_threads),
-            "upload",
-            "--path",
-            path.getvalue(),
-            "--chat",
-            chat,
-            "--caption",
-            # tdl exposes the basename and extension as separate variables.
-            json.dumps(captions, ensure_ascii=False) + "[FileName + FileExt]",
+            "forward",
+            "--mode",
+            "clone",
+            # Single-message receipts identify every member reliably. The final
+            # album restores original order and captions using media references.
+            "--single",
+            "--to",
+            json.dumps(destination),
+            "--edit",
+            json.dumps(markers) + "[string(Message.ID)]",
         ]
-        if photo:
-            args.append("--photo")
-        if target.topic_id:
-            args.extend(["--topic", str(target.topic_id)])
-        await self._run(args, timeout=self.upload_timeout, operation="upload")
+        for url in urls:
+            args.extend(["--from", url])
+        await self._run(
+            args,
+            timeout=self.upload_timeout,
+            operation="clone",
+            temporary_dir=directory,
+        )
 
     async def _run(
         self,
@@ -168,6 +170,7 @@ class Tdl:
         timeout: int | None = None,
         coordinate: bool = True,
         operation: str = "download",
+        temporary_dir: Path | None = None,
     ) -> str:
         """Drain both streams, and reap the process on timeout/cancellation."""
         # Version uses disposable storage and no account authorization.
@@ -176,6 +179,14 @@ class Tdl:
         storage_lock = self._process_lock if coordinate else account_lock
         async with account_lock, storage_lock:
             environment = os.environ.copy()
+            if temporary_dir is not None:
+                # Go's clone files stay inside the job's owned cleanup folder.
+                environment.update(
+                    {
+                        key: str(temporary_dir)
+                        for key in ("TMPDIR", "TMP", "TEMP")
+                    }
+                )
             if self.proxy is not None:
                 # Keep each executor's tdl and Telethon on the same egress.
                 environment["TDL_PROXY"] = self.proxy
@@ -220,10 +231,10 @@ class Tdl:
                 await reader
                 if isinstance(exc, asyncio.CancelledError):
                     raise
-                if operation == "upload":
+                if operation == "clone":
                     raise UserError(
                         tr(
-                            "tdl upload timed out. Temporary files have "
+                            "tdl transfer timed out. Temporary files have "
                             "been cleaned up."
                         )
                     ) from exc
@@ -241,10 +252,10 @@ class Tdl:
                     process.returncode,
                     _failure_reason(output),
                 )
-                if operation == "upload":
+                if operation == "clone":
                     raise UserError(
                         tr(
-                            "tdl upload failed. Check account permissions "
+                            "tdl transfer failed. Check account permissions "
                             "and network access before retrying."
                         )
                     )

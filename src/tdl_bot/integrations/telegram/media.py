@@ -11,7 +11,7 @@ from telethon.tl.custom.message import Message
 from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
 from tdl_bot.core.i18n import tr
 from tdl_bot.core.links import JoinLink, MessageLink
-from tdl_bot.integrations.tdl.albums import upload_album
+from tdl_bot.integrations.tdl.albums import clone_album
 from tdl_bot.storage.models import Target
 
 _ACCESS_ERRORS = (
@@ -305,20 +305,24 @@ class TelegramMedia:
                 pass
         return True
 
+    async def clone_group(
+        self, group: MediaGroup, target: Target, directory: Path
+    ):
+        """Preserve original attributes and previews through native tdl."""
+        peer = await self.validate_target(target)
+        return await clone_album(
+            self.tdl, self.client, group, target, peer, directory
+        )
+
     async def upload(
         self, group: MediaGroup, files: list[Path], target: Target
     ):
         """Upload an ordered album with each original caption and entities.
 
-        Existing tdl sessions transfer file bytes through the native uploader;
-        Telethon assembles the resulting media references server-side. The
-        standalone login mode retains the Telethon byte-transfer fallback.
+        Standalone login mode uses Telethon for file bytes. Existing native
+        sessions use clone_group instead, preserving original media metadata.
         """
         peer = await self.validate_target(target)
-        if self.tdl is not None:
-            return await upload_album(
-                self.tdl, self.client, group, files, target, peer
-            )
         captions = [message.message or "" for message in group.messages]
         entities = [
             _visible_entities(message.entities or [])

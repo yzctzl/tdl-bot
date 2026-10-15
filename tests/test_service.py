@@ -372,3 +372,39 @@ async def test_database_schema_failure_does_not_blame_network_or_kill_worker(
         assert "完成" in notify.call_args.args[1]
     finally:
         await service.close()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_native_clone_owns_scratch_and_skips_folder_upload(
+    setup_service, cancel
+):
+    service, tdl, media, store, _ = setup_service
+    entered = asyncio.Event()
+
+    async def clone(group, target, directory):
+        assert group.urls == ["one", "two"] and target == Target("me")
+        (directory / "tdl_native").write_bytes(b"native scratch")
+        entered.set()
+        if cancel:
+            await asyncio.Event().wait()
+        return [100, 101]
+
+    media.tdl = tdl
+    media.clone_group = AsyncMock(side_effect=clone)
+    task = asyncio.create_task(
+        service._transfer(Job(1, "https://t.me/channel/20", Target("me")))
+    )
+    await asyncio.wait_for(entered.wait(), 2)
+    if cancel:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        await task
+        media.copy_messages = AsyncMock(return_value=[200, 201])
+        await service._transfer(Job(1, "https://t.me/channel/20", Target("me")))
+        media.copy_messages.assert_awaited_once()
+    media.clone_group.assert_awaited_once()
+    tdl.download.assert_not_awaited()
+    media.upload.assert_not_awaited()
+    assert not any(service.jobs_dir.iterdir())

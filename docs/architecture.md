@@ -29,7 +29,7 @@ running before this reorganization. New children use the stable package-level
 1. The Bot captures a destination and execution account when accepting a URL.
 2. The resident engine looks for a saved storage result before reading the source.
 3. A new source album is copied server-side where possible. Protected albums
-   fall back to native tdl download and folder upload, followed by server-side
+   fall back to native tdl clone, followed by server-side
    album assembly. Standalone Telethon login retains its own uploader.
 4. Storage copies have spoilers removed, and their IDs are saved before delivery.
 5. The Bot copies the saved album to the user's destination. A failed delivery
@@ -39,29 +39,29 @@ The Bot process can restart independently of the resident engine. Manual reload
 hashes all Python sources recursively and all locale catalogs. New engine code
 is loaded after existing work finishes; frontend restarts do not kill tdl.
 
-## Native uploads and server-side album assembly
+## Native cloning and server-side album assembly
 
-Native tdl handles file bytes and its own storage/authorization. Session backup
-is decoded into a memory-only Telethon session for the small MTProto operations
-that surround transfers. Default and personal native sessions use the same path.
+Native `tdl forward --mode clone` handles media bytes, original attributes and
+previews using its existing storage and authorization. Session backup is decoded
+into a memory-only Telethon session for surrounding MTProto operations. Default
+and personal native sessions use the same path.
 
-The inspected upload CLI sends files independently, does not return structured
-message IDs, and may exit successfully after a partial upload. We therefore
-upload an isolated folder of hard links into internal storage. A caption
-expression maps each filename to a random per-task marker plus its original
-position. These exact receipts distinguish concurrent jobs and unrelated posts;
-we never infer file identity from the newest message IDs or upload order.
+Native clone does not return structured message IDs and can exit successfully
+after individual transfer failures. `--single` plus an edit expression maps each
+source message ID to a random per-task receipt and original position. Exact
+receipts distinguish concurrent jobs and unrelated posts; neither upload order
+nor the newest message ID is treated as file identity.
 
 Only a complete, unambiguous set with matching document sizes is assembled into
-an album using existing Telegram media references. Telethon transfers captions
-and media references at this step, not the file bytes. Final album IDs enter the
-existing result ledger before Bot delivery. Temporary tagged messages are
-removed even on failure or cancellation; cleanup errors are logged and never
-mask the original transfer failure. A hard engine crash can leave temporary
-storage posts, while ordinary frontend reloads keep the engine alive.
+an album using existing Telegram media references. Telethon restores captions
+and removes spoilers without uploading file bytes. Final album IDs enter the
+result ledger before Bot delivery. Temporary tagged posts are removed on success,
+failure and cancellation; cleanup errors never mask the original failure.
 
-Native forwarding still lacks the exact result receipts and spoiler handling
-required by the direct-copy path, so that path remains an MTProto operation.
+Native Go temporary files use the job directory through TMPDIR, TMP and TEMP.
+Cancellation first terminates and reaps tdl, then removes that directory. A hard
+engine crash can leave staging posts, while frontend reloads keep the engine
+alive. Standalone Telethon sessions retain the separate download/upload path.
 
 ## Boundaries worth preserving
 

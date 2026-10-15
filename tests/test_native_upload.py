@@ -1,7 +1,6 @@
-"""Native folder uploads and receipt-verified server-side albums."""
+"""Native clones and receipt-verified server-side albums."""
 
 import asyncio
-import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,7 +28,7 @@ def document(media_id, size=5):
         "video/mp4",
         size,
         2,
-        [types.DocumentAttributeVideo(1, 16, 16)],
+        [types.DocumentAttributeVideo(1, 720, 1280)],
     )
 
 
@@ -45,11 +44,12 @@ def document(media_id, size=5):
         "cancel",
     ],
 )
-async def test_native_upload_verifies_receipts_assembles_and_cleans(
+async def test_native_clone_verifies_receipts_assembles_and_cleans(
     tmp_path, outcome
 ):
     original = [
         SimpleNamespace(
+            id=101,
             photo=make_photo(10),
             document=None,
             video=False,
@@ -60,6 +60,7 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
             ],
         ),
         SimpleNamespace(
+            id=102,
             photo=None,
             document=document(20),
             video=True,
@@ -67,27 +68,22 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
             entities=[],
         ),
     ]
-    files = [tmp_path / "10_photo,<name>.jpg", tmp_path / "20_video.mp4"]
-    for file in files:
-        file.write_bytes(b"media")
     if outcome == "single":
-        original, files = original[:1], files[:1]
+        original = original[:1]
+    urls = [f"https://t.me/channel/{m.id}" for m in original]
     target = Target("-1000000123456", 77)
     staged = []
     started = asyncio.Event()
-    folders = []
 
-    async def upload(directory, actual_target, captions, *, photo):
-        assert actual_target == target and photo
-        folders.append(directory)
-        assert {p.name for p in directory.iterdir()} == {p.name for p in files}
-        for file in files:
-            assert (directory / file.name).stat().st_ino == file.stat().st_ino
-        for index, file in enumerate(files):
+    async def clone(actual_urls, actual_target, markers, directory):
+        assert actual_target == target and actual_urls == urls
+        assert directory == tmp_path
+        assert set(markers) == {str(m.id) for m in original}
+        for index, message in enumerate(original):
             staged.append(
                 SimpleNamespace(
                     id=200 + index,
-                    message=captions[file.name],
+                    message=markers[str(message.id)],
                     photo=make_photo(100 + index) if index == 0 else None,
                     document=document(
                         200 + index, 6 if outcome == "size" else 5
@@ -102,7 +98,7 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
             staged[1].message = staged[0].message
         started.set()
         if outcome == "native_error":
-            raise UserError("Native upload failed")
+            raise UserError("Native clone failed")
         if outcome == "cancel":
             await asyncio.Event().wait()
 
@@ -113,7 +109,7 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         for message in reversed(staged):
             yield message
 
-    sent = [SimpleNamespace(id=500 + i) for i in range(len(files))]
+    sent = [SimpleNamespace(id=500 + i) for i in range(len(original))]
     client = SimpleNamespace(
         get_input_entity=AsyncMock(return_value="peer"),
         get_messages=AsyncMock(return_value=[SimpleNamespace(id=100)]),
@@ -121,11 +117,14 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         delete_messages=AsyncMock(),
         send_file=AsyncMock(return_value=sent[0] if len(sent) == 1 else sent),
         upload_file=AsyncMock(),
+        download_media=AsyncMock(),
     )
-    tdl = SimpleNamespace(upload=AsyncMock(side_effect=upload))
+    tdl = SimpleNamespace(clone=AsyncMock(side_effect=clone))
     media = TelegramMedia(client, tdl=tdl)
     task = asyncio.create_task(
-        media.upload(SimpleNamespace(messages=original), files, target)
+        media.clone_group(
+            SimpleNamespace(messages=original, urls=urls), target, tmp_path
+        )
     )
     if outcome == "cancel":
         await asyncio.wait_for(started.wait(), 2)
@@ -158,11 +157,10 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
     assert set(client.delete_messages.call_args.args[1]) == {
         m.id for m in staged
     }
-    assert all(not directory.exists() for directory in folders)
-    assert all(file.exists() for file in files)
+    client.download_media.assert_not_awaited()  # tdl owns media and previews.
 
 
-async def test_native_upload_command_preserves_session_topic_and_safe_captions(
+async def test_native_clone_command_preserves_session_topic_and_receipts(
     tmp_path, monkeypatch
 ):
     (tmp_path / "data").mkdir()
@@ -176,27 +174,26 @@ async def test_native_upload_command_preserves_session_topic_and_safe_captions(
     )
     run = AsyncMock()
     monkeypatch.setattr(tdl, "_run", run)
-    directory = tmp_path / "folder,with comma"
-    captions = {'video_\N{GRINNING FACE},<name>".mp4': "unique-marker:0"}
-    await tdl.upload(
-        directory, Target("-1000000123456", 77), captions, photo=True
-    )
+    directory = tmp_path / "native scratch"
+    urls = ["https://t.me/channel/101", "https://t.me/channel/102"]
+    markers = {"101": "unique-marker:0", "102": "unique-marker:1"}
+    await tdl.clone(urls, Target("-1000000123456", 77), markers, directory)
     args = run.call_args.args[0]
     assert args[args.index("--ns") + 1] == "own"
     assert args[args.index("--threads") + 1] == "4"
-    assert args[args.index("--chat") + 1] == "123456"
-    assert args[args.index("--topic") + 1] == "77"
-    assert next(csv.reader([args[args.index("--path") + 1]])) == [
-        str(directory)
-    ]
-    expression = args[args.index("--caption") + 1]
-    assert "\N{GRINNING FACE}" in expression
-    mapping = json.loads(expression.removesuffix("[FileName + FileExt]"))
-    assert mapping == captions
-    for filename, receipt in captions.items():
-        # Match the real tdl exprEnv: FileName excludes the last extension.
-        name = Path(filename)
-        file_name, file_ext = name.stem, name.suffix
-        assert mapping[file_name + file_ext] == receipt
-    assert "--rm" not in args and "--photo" in args
-    assert run.call_args.kwargs == {"timeout": 44, "operation": "upload"}
+    assert args[args.index("--mode") + 1] == "clone"
+    assert "forward" in args and "--single" in args
+    assert json.loads(args[args.index("--to") + 1]) == {
+        "Peer": "123456",
+        "Thread": 77,
+    }
+    expression = args[args.index("--edit") + 1]
+    assert (
+        json.loads(expression.removesuffix("[string(Message.ID)]")) == markers
+    )
+    assert args[-4:] == ["--from", urls[0], "--from", urls[1]]
+    assert run.call_args.kwargs == {
+        "timeout": 44,
+        "operation": "clone",
+        "temporary_dir": directory,
+    }

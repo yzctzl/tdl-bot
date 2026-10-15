@@ -185,12 +185,16 @@ async def test_subprocess_is_reaped_on_cancel_or_timeout(tmp_path, cancel):
     binary.write_text(
         f"#!{sys.executable}\n"
         "import os, time\n"
+        f"assert all(os.environ[k] == {str(tmp_path)!r} "
+        "for k in ('TMPDIR', 'TMP', 'TEMP'))\n"
         f"open({str(pid_path)!r}, 'w').write(str(os.getpid()))\n"
         "time.sleep(60)\n"
     )
     binary.chmod(0o755)
     tdl = Tdl(binary, "default", timeout=1)
-    task = asyncio.create_task(tdl._run(["download"]))
+    task = asyncio.create_task(
+        tdl._run(["forward"], operation="clone", temporary_dir=tmp_path)
+    )
     async with asyncio.timeout(3):
         while not pid_path.exists():  # noqa: ASYNC110 - subprocess IPC file
             await asyncio.sleep(0.01)
@@ -216,11 +220,11 @@ async def test_tdl_permission_errors_are_recognized(tmp_path, caplog):
     binary.chmod(0o755)
     with pytest.raises(AccessDenied):
         await Tdl(binary, "default")._run(["download"])
-    with pytest.raises(UserError) as upload_error:
-        await Tdl(binary, "default")._run(["upload"], operation="upload")
+    with pytest.raises(UserError) as transfer_error:
+        await Tdl(binary, "default")._run(["forward"], operation="clone")
     # Storage write errors must not become source-access pending retries.
-    assert not isinstance(upload_error.value, AccessDenied)
-    assert "operation=upload exit=1 reason=permissions" in caplog.text
+    assert not isinstance(transfer_error.value, AccessDenied)
+    assert "operation=clone exit=1 reason=permissions" in caplog.text
     assert "private-caption-token" not in caplog.text
 
 

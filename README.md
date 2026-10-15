@@ -381,8 +381,8 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `WORKERS` | `2` | 后台任务 worker 数量 |
 | `QUEUE_SIZE` | `20` | 最多排队任务数量 |
 | `DOWNLOAD_TIMEOUT` | `7200` | 单次 tdl 下载超时，秒 |
-| `UPLOAD_CONCURRENCY` | `8` | tdl 每文件上传线程数；独立 Telethon 模式的分片窗口，1–32 |
-| `UPLOAD_TIMEOUT` | `7200` | 单次 tdl 文件夹上传超时，秒 |
+| `UPLOAD_CONCURRENCY` | `8` | tdl clone 每文件传输线程数；独立 Telethon 模式的分片窗口，1–32 |
+| `UPLOAD_TIMEOUT` | `7200` | 单次 tdl clone 转存超时（含下载和上传），秒 |
 
 ## 验证
 
@@ -489,21 +489,20 @@ the transfer flow, and the division of work between tdl and Telegram APIs.
 
 ## Upload performance
 
-With `SESSION_SOURCE=tdl` (the default), file bytes are uploaded by the native
-`tdl upload --path <folder>` command using the selected execution account's
-existing namespace, storage and proxy. Personal bindings also use native upload.
-`UPLOAD_CONCURRENCY=8` sets tdl's per-file upload threads; `UPLOAD_TIMEOUT=7200`
-bounds one complete folder upload independently of the download timeout.
+With `SESSION_SOURCE=tdl` (the default), protected media uses native
+`tdl forward --mode clone` with the selected account's existing namespace,
+storage and proxy. Cached results and direct server-side copies remain preferred.
+Native clone preserves original document attributes and previews; Python does
+not download thumbnails or rebuild video metadata. Personal bindings use the
+same path. `UPLOAD_CONCURRENCY=8` sets native transfer threads per file, while
+`UPLOAD_TIMEOUT=7200` bounds the complete clone, including download and upload.
 
-The inspected tdl upload implementation sends files as separate messages. The
-Bot tags those temporary storage posts with unguessable, per-task receipts,
-verifies every expected file and then assembles an album server-side using the
-uploaded media references. It restores original order, captions and formatting,
-removes spoilers, and records only the final album for reuse and delivery.
-No file bytes are uploaded a second time by Telethon. Folder entries are hard
-links to validated downloads, so preparing the upload does not duplicate videos
-on disk. The native caption expression uses a filename-to-receipt map rather
-than interpreting file names as caption HTML.
+The Bot requests individual clone receipts, verifies every expected member and
+its document size, then assembles the album using existing Telegram media
+references. This restores original order, captions and formatting, removes
+spoilers, and records the final album for reuse and delivery. Telethon does not
+upload file bytes again. Native temporary files are confined to the job's own
+directory, which is removed after the child process exits, including cancellation.
 
 Temporary storage posts are removed after success, failure or cancellation.
 Only this task's tagged messages are eligible for removal; unrelated messages
@@ -511,11 +510,10 @@ are untouched. The execution account must be able to delete its staging posts.
 Cleanup failures are logged; a forced engine crash can leave staging posts for
 an administrator to remove. Frontend reloads leave the engine and tdl running.
 
-The explicitly configured standalone `SESSION_SOURCE=telethon` mode retains the
-Telethon uploader because it does not provide an existing native tdl login.
-Its large-file upload window and native `cryptg` acceleration remain available.
+Standalone `SESSION_SOURCE=telethon` retains its download and Telethon upload
+path because it does not provide an existing native tdl login. Its large-file
+upload window and native `cryptg` acceleration remain available.
 
-Upload logs include transfer size, duration and verified throughput, without
-file names or captions. Use manual reload to adopt the new code after old engine
-tasks finish, then compare the same source and network. Actual throughput depends
-on Telegram, the proxy and the network.
+Native clone logs include verified media count and duration without source
+URLs or captions. Use manual reload to adopt new code after old engine tasks
+finish. Actual throughput depends on Telegram, the proxy and the network.

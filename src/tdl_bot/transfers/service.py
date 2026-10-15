@@ -565,6 +565,20 @@ class TransferService:
             prefix="job-", dir=self.jobs_dir
         ) as temporary:
             directory = Path(temporary)
+            cloner = getattr(executor.media, "clone_group", None)
+            if (
+                cloner is not None
+                and getattr(executor.media, "tdl", None) is not None
+            ):
+                job.stage = "Transferring"
+                await self._notify(job, tr("Transferring media group…"))
+                job.upload_started = True
+                self._checkpoint(job)
+                ids = await cloner(
+                    group, job.storage_target or job.target, directory
+                )
+                await self._complete(job, aliases, ids, tr("processed"))
+                return
             _LOGGER.info(
                 "Task user=%s phase=download media=%s",
                 job.user_id,
