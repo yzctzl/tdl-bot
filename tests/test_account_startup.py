@@ -73,13 +73,9 @@ async def test_account_startup_validates_and_disconnects_all_clients(
     constructor = Mock(return_value=bot)
     monkeypatch.setattr("tdl_bot.cli.Bot", constructor)
     monkeypatch.setattr("tdl_bot.cli.ProgressMessages", lambda bot: AsyncMock())
-    application = SimpleNamespace(
-        dispatcher=SimpleNamespace(start_polling=AsyncMock()),
-        register_commands=AsyncMock(),
-        close=AsyncMock(),
-    )
-    app_constructor = Mock(return_value=application)
-    monkeypatch.setattr("tdl_bot.cli.BotApplication", app_constructor)
+    engine = SimpleNamespace(serve=AsyncMock())
+    engine_constructor = Mock(return_value=engine)
+    monkeypatch.setattr("tdl_bot.cli.EngineServer", engine_constructor)
     settings = Settings(
         "configured",
         0,
@@ -98,11 +94,11 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         constructor.assert_not_called()
     else:
         await run(settings, "run")
-        service = app_constructor.call_args.args[-1]
+        service = engine_constructor.call_args.args[0]
         assert service.accounts.select(2).media.client is clients[1]
         assert service.accounts.select(3).media.client is clients[0]
         assert tdls[0].gate is tdls[1].gate
         bot.session.close.assert_awaited_once()
-        application.close.assert_awaited_once()
+        engine.serve.assert_awaited_once()
     for client in clients:
         client.disconnect.assert_awaited_once()

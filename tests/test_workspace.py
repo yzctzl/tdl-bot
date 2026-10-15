@@ -319,19 +319,22 @@ async def test_shared_control_cannot_be_reused_for_other_job(workspace):
     await service.close()
 
 
-async def test_target_switching_and_admin_override(workspace):
+async def test_target_switching_and_admin_override(workspace, monkeypatch):
     _, store, accounts = workspace
+
+    async def validate(self, target, operator, *, storage=False):
+        return target
+
+    monkeypatch.setattr("tdl_bot.bot.Delivery.validate", validate)
     app = application(workspace)
     await app.target(
         message(2), CommandObject(command="target", args="private @mine 42")
     )
     assert store.destination(2) == Destination(Target("@mine", 42), 2)
-    accounts.select(2).media.validate_target.assert_awaited_once_with(
-        Target("@mine", 42)
-    )
+    accounts.select(2).media.validate_target.assert_not_awaited()
     assert store.target(3) == Target("me")
-    await app.target(message(2), CommandObject(command="target", args="shared"))
-    assert store.target(2) == Target("me")
+    await app.target(message(2), CommandObject(command="target", args="bot"))
+    assert store.recipient(2).target == Target("2")
     with pytest.raises(UserError, match="管理员"):
         await app.target(
             message(3), CommandObject(command="target", args="for 2 @other")

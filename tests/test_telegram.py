@@ -232,3 +232,84 @@ async def test_user_resolution_rejects_channels_and_bots(entity):
     client = SimpleNamespace(get_entity=AsyncMock(return_value=entity))
     with pytest.raises(UserError, match="真实用户"):
         await TelegramMedia(client).resolve_user("@example")
+
+
+@pytest.mark.parametrize("kind", ["photo", "video"])
+async def test_reveal_removes_media_and_text_spoilers_only_on_storage_copy(
+    kind,
+):
+    photo = types.Photo(
+        id=90,
+        access_hash=2,
+        file_reference=b"ref",
+        date=None,
+        sizes=[],
+        dc_id=2,
+    )
+    bold = types.MessageEntityBold(0, 4)
+    message = SimpleNamespace(
+        id=100,
+        message="text",
+        entities=[bold, types.MessageEntitySpoiler(0, 4)],
+        photo=photo if kind == "photo" else None,
+        document=None
+        if kind == "photo"
+        else types.Document(
+            id=90,
+            access_hash=2,
+            file_reference=b"ref",
+            date=None,
+            mime_type="video/mp4",
+            size=100,
+            dc_id=2,
+            attributes=[],
+        ),
+        media=SimpleNamespace(spoiler=True),
+    )
+    client = AsyncMock()
+    client.get_input_entity.return_value = types.InputPeerChannel(123, 1)
+    client.get_messages.return_value = [message]
+    media = TelegramMedia(client)
+    assert await media.reveal_messages("-1000000000123", [100])
+    request = client.call_args.args[0]
+    assert isinstance(request, functions.messages.EditMessageRequest)
+    assert request.id == 100
+    assert request.peer.channel_id == 123
+    assert request.media.id.id == 90
+    assert request.media.spoiler is False
+    assert request.message == "text"
+    assert request.entities == [bold]
+    # Already visible storage messages require no further edits.
+    message.entities = [bold]
+    message.media.spoiler = False
+    client.reset_mock()
+    assert await media.reveal_messages("-1000000000123", [100])
+    client.assert_not_awaited()
+
+
+async def test_upload_never_preserves_text_or_photo_spoilers():
+    message = media_message(
+        1,
+        group_id=None,
+        text="caption",
+        entities=[
+            types.MessageEntitySpoiler(0, 7),
+            types.MessageEntityBold(0, 7),
+        ],
+    )
+    client = SimpleNamespace(
+        get_input_entity=AsyncMock(return_value="peer"),
+        get_messages=AsyncMock(return_value=message),
+        upload_file=AsyncMock(return_value=types.InputFile(1, 1, "x", "")),
+        send_file=AsyncMock(return_value=SimpleNamespace(id=100)),
+    )
+    media = TelegramMedia(client)
+    group = await media.resolve(MessageLink("channel", 1))
+    assert await media.upload(group, [Path("photo")], Target("storage")) == [
+        100
+    ]
+    assert client.send_file.call_args.args[1].spoiler is False
+    entities = client.send_file.call_args.kwargs["formatting_entities"]
+    assert len(entities) == 1 and isinstance(
+        entities[0], types.MessageEntityBold
+    )

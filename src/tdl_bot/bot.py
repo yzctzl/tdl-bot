@@ -3,10 +3,13 @@
 import asyncio
 import logging
 from datetime import datetime
+from html import escape
+from inspect import isawaitable
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     BotCommand,
@@ -17,6 +20,7 @@ from aiogram.types import (
     ErrorEvent,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LinkPreviewOptions,
     Message,
     ReplyParameters,
     TelegramObject,
@@ -25,11 +29,11 @@ from telethon import errors
 
 from tdl_bot.accounts import AccessPolicy
 from tdl_bot.config import Settings
+from tdl_bot.delivery import Delivery
 from tdl_bot.errors import JoinPending, UserError
 from tdl_bot.links import JoinLink
-from tdl_bot.service import Job, TransferService
+from tdl_bot.service import Job
 from tdl_bot.store import PendingTransfer, Store, Target
-from tdl_bot.tdl import Tdl
 
 _LOGGER = logging.getLogger(__name__)
 # A single registry drives both routing and Telegram's command hints.
@@ -37,7 +41,7 @@ _COMMANDS = (
     ("start", "help", "开始使用", False),
     ("help", "help", "查看用法", False),
     ("whoami", "whoami", "查看自己的账号 ID", False),
-    ("target", "target", "设置个人目标或切换目标", False),
+    ("target", "target", "设置接收位置：Bot 对话／群／频道", False),
     ("status", "status", "查看目标与任务状态", False),
     ("jobs", "jobs", "查看可管理的任务", False),
     ("cancel", "cancel_command", "取消活动任务：任务编号", False),
@@ -45,6 +49,7 @@ _COMMANDS = (
     ("retry", "retry", "重试：待重试编号", False),
     ("retry_cancel", "retry_cancel", "移除待重试记录：编号", False),
     ("join", "join", "加入来源群：群链接 待重试编号", False),
+    ("storage", "storage", "配置内部存储（管理员）", True),
     ("update_tdl", "update", "检查并更新 tdl", True),
     ("users", "users", "查看成员与封禁状态", True),
     ("user_add", "user_add", "添加普通账号：UID/@用户名", True),
@@ -56,9 +61,9 @@ _COMMANDS = (
 )
 _HELP = (
     "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字\n"
-    "/target private <chat> [topic_id] 设置个人目标\n"
-    "/target shared 或 /target private 切换已保存目标\n"
-    "/status 查看所有已保存目标与当前目标\n"
+    "/target <chat> [topic_id] 设置接收群／频道\n"
+    "/target bot 接收到此对话（默认）\n"
+    "/status 查看接收位置与任务状态\n"
     "/jobs 查看活动任务，/cancel <编号> 取消\n"
     "/pending 查看待重试记录，/retry [编号] 重试\n"
     "/retry_cancel <编号> 删除待重试记录\n"
@@ -68,7 +73,7 @@ _HELP = (
 )
 _ADMIN_HELP = (
     "\n\n管理员：\n"
-    "/target shared <chat> [topic_id] 设置共享目标\n"
+    "/storage <chat> [topic_id] 配置内部存储\n"
     "/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n"
     "/users 查看成员\n"
     "/user_add <UID或@用户名> 添加普通账号\n"
@@ -77,7 +82,7 @@ _ADMIN_HELP = (
     "/user_unban <UID或@用户名> 解封\n"
     "/user_role <UID或@用户名> <user|admin> 设置角色\n"
     "/user_history <UID或@用户名> 查看管理记录\n"
-    "/status <UID或@用户名> 查看其他账号的所有目标\n"
+    "/status <UID或@用户名> 查看其他账号的接收位置\n"
     "/update_tdl [latest|v0.20.4] 检查并更新 tdl"
 )
 
@@ -171,8 +176,8 @@ class BotApplication:
         bot: Bot,
         settings: Settings,
         store: Store,
-        tdl: Tdl,
-        service: TransferService,
+        tdl,
+        service,
     ) -> None:
         """Wire command handlers to the transfer services."""
         self.bot = bot
@@ -184,7 +189,7 @@ class BotApplication:
         self._menu_roles: dict[int, str] = {}
         self._menu_lock = asyncio.Lock()
         self._update: asyncio.Task | None = None
-        self._controls: dict[tuple[int, int], set[str]] = {}
+        self._controls: dict[tuple[int, int], set[str]] = store.controls()
         router = Router()
         router.message.outer_middleware(
             Authorization(self.policy, self.refresh_menu)
@@ -264,69 +269,111 @@ class BotApplication:
         assert message.from_user is not None
         await message.answer(f"你的用户 ID：{message.from_user.id}")
 
-    async def target(self, message: Message, command: CommandObject) -> None:
-        """Set/select shared targets or personal overrides in one workspace."""
+    async def storage(self, message: Message, command: CommandObject) -> None:
         assert message.from_user is not None
-        operator = message.from_user.id
+        actor = message.from_user.id
+        if not self.policy.is_admin(actor):
+            raise UserError("只有管理员可以配置内部存储。")
         args = (command.args or "").split()
-        if not args:
-            await self.status(message)
-            return
-        owner = operator
-        private = not self.policy.is_admin(operator)
-        if args[0] == "for":
-            if not self.policy.is_admin(operator):
-                raise UserError("只有管理员可以设置其他账号的个人目标。")
-            if len(args) < 2:
-                raise UserError(
-                    "用法：/target for <UID或@用户名> <chat> [topic_id]"
-                )
-            owner = await self._resolve_user(args[1])
-            if not self.policy.is_admin(operator):
-                raise UserError("只有管理员可以查看其他账号的目标。")
-            if (
-                not self.policy.is_known(owner)
-                and self.store.target_for(owner) is None
-            ):
-                raise UserError("目标账号没有成员或历史个人目标记录。")
-            if len(args) == 2:
-                target = self.store.target_for(owner)
-                await message.answer(
-                    f"{self.store.user_label(owner)} 的个人目标："
-                    f"{target.chat}，"
-                    f"话题：{target.topic_id or '默认'}"
-                    if target
-                    else "该账号尚未设置个人目标。"
-                )
-                return
-            private = True
-            args = args[2:]
-        elif args[0] in {"shared", "private"}:
-            private = args.pop(0) == "private"
-            if not args:
-                self.store.select_target(operator, private=private)
-                await self.status(message)
-                return
+        if args:
+            target = self._parse_target(args)
+            target = await Delivery(self.bot).validate(
+                target, actor, storage=True
+            )
+            await self.service.accounts.shared.media.validate_target(target)
+            if not self.policy.is_admin(actor):
+                raise UserError("只有管理员可以配置内部存储。")
+            self.store.set_target(actor, target)
+        else:
+            target = self.store.internal_target()
+        link = await self._target_link(target, actor) if target else "尚未设置"
+        if not self.policy.is_admin(actor):
+            raise UserError("只有管理员可以查看内部存储。")
+        text = f"内部存储：{link}"
+        if args:
+            text += "\n已保存；已接收的任务继续使用原位置。"
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+
+    @staticmethod
+    def _parse_target(args):
         if len(args) not in (1, 2):
-            raise UserError("用法：/target [shared|private] <chat> [topic_id]")
+            raise UserError("请提供聊天／频道及可选的话题 ID。")
         topic = None
         if len(args) == 2:
             if not args[1].isdigit() or int(args[1]) <= 0:
                 raise UserError("topic_id 必须为正整数。")
             topic = int(args[1])
-        if not private and not self.policy.is_admin(operator):
-            raise UserError("只有管理员可以设置或修改共享目标。")
-        target = Target(args[0], topic)
-        await self.service.accounts.select(owner).media.validate_target(target)
-        # Re-check after the network await, in case membership was revoked.
-        if not self.policy.can_manage(operator, owner if private else None):
-            raise UserError("当前账号无权修改目标。")
-        if not private and not self.policy.is_admin(operator):
-            raise UserError("只有管理员可以修改共享目标。")
-        self.store.set_target(owner, target, private=private)
-        scope = "个人" if private else "共享"
+        return Target(args[0], topic)
+
+    async def target(self, message: Message, command: CommandObject) -> None:
+        """Configure only the final recipient, never the internal storage."""
+        assert message.from_user is not None
+        actor = message.from_user.id
+        owner = actor
+        args = (command.args or "").split()
+        if not args:
+            await self._show_target(message, owner)
+            return
+        if args[0] == "get":
+            raise UserError(
+                "请直接使用 /target 查看接收位置，"
+                "或 /target <群／频道> 设置接收位置。"
+            )
+        if args[0] == "shared":
+            raise UserError(
+                "请使用 /target bot 或 /target <群／频道> 设置接收位置。"
+            )
+        if args[0] == "for":
+            if not self.policy.is_admin(actor):
+                raise UserError("只有管理员可以设置其他账号的接收位置。")
+            if len(args) < 2:
+                raise UserError(
+                    "用法：/target for <UID或@用户名> [chat] [topic_id]"
+                )
+            owner = await self._resolve_user(args[1])
+            if not self.policy.is_admin(actor):
+                raise UserError("只有管理员可以查看其他账号的接收位置。")
+            if not self.policy.is_known(owner):
+                raise UserError("目标账号不在成员列表中。")
+            args = args[2:]
+            if not args:
+                await self._show_target(message, owner)
+                return
+        if args[0] == "private":
+            args = args[1:]
+        if not args or args == ["bot"]:
+            target = Target(str(owner))
+        else:
+            target = await Delivery(self.bot).validate(
+                self._parse_target(args), owner
+            )
+        if not self.policy.can_manage(actor, owner):
+            raise UserError("当前账号无权修改接收位置。")
+        self.store.set_target(owner, target, private=True)
+        await self._show_target(message, owner, saved=True)
+
+    async def _show_target(self, message: Message, owner: int, *, saved=False):
+        assert message.from_user is not None
+        actor = message.from_user.id
+        if not self.policy.can_manage(actor, owner):
+            raise UserError("当前账号无权查看该接收位置。")
+        target = self.store.recipient(owner).target
+        link = await self._target_link(target, owner)
+        if not self.policy.can_manage(actor, owner):
+            raise UserError("当前账号无权查看该接收位置。")
+        text = f"接收位置：{link}"
+        if owner != actor:
+            text = f"账号：{self._user_link(owner)}\n" + text
+        if saved:
+            text += "\n已保存；已排队任务仍使用原来的接收位置。"
         await message.answer(
-            f"{scope}上传目标已保存；已排队任务仍使用原来的目标。"
+            text,
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
     async def status(
@@ -342,37 +389,91 @@ class BotApplication:
             operator = await self._resolve_user(command.args.strip())
             if not self.policy.is_admin(actor):
                 raise UserError("只有管理员可以查看其他账号的目标。")
-        destination = self.store.destination(operator)
-        target = (
-            f"{destination.target.chat}，话题："
-            f"{destination.target.topic_id or '默认'}"
-            if destination
-            else "尚未设置，请使用 /target"
-        )
-        scope = "个人" if self.store.private_selected(operator) else "共享"
+        target = self.store.recipient(operator).target
         executor = self.service.accounts.select(operator)
-        account = "自己的执行账号" if executor.owner_id else "共享执行账号"
+        account = "自己的执行账号" if executor.owner_id else "默认执行账号"
         quota = (
             "不限"
             if self.policy.is_admin(operator)
             else f"{self.store.pending_count(operator)}/3"
         )
+        target_link = await self._target_link(target, operator)
+        # Re-check after network rendering before exposing another account.
+        if operator != actor and not self.policy.is_admin(actor):
+            raise UserError("只有管理员可以查看其他账号的目标。")
         await message.answer(
-            f"账号：{self.store.user_label(operator)}\n"
-            f"共享目标：{self._target_label(self.store.target_for(None))}\n"
-            f"个人目标：{self._target_label(self.store.target_for(operator))}\n"
-            f"当前目标（{scope}）：{target}\n执行账号：{account}\n"
+            f"账号：{self._user_link(operator)}\n"
+            f"接收位置：{target_link}\n执行账号：{account}\n"
             f"可管理任务：{len(self.service.jobs(operator))}；"
             f"待重试：{len(self.service.pending_items(operator))}\n"
             f"自己的待重试名额：{quota}\n"
-            "使用 /jobs 管理任务，/pending 查看待重试列表。"
+            "使用 /target bot 接收到此对话，"
+            "/target &lt;群／频道&gt; 设置其他位置。",
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
     @staticmethod
     def _target_label(target: Target | None) -> str:
         if target is None:
             return "尚未设置"
-        return f"{target.chat}；话题：{target.topic_id or '默认'}"
+        return target.chat + (
+            f"；话题：{target.topic_id}" if target.topic_id else ""
+        )
+
+    def _user_link(self, operator: int) -> str:
+        return (
+            f'<a href="tg://user?id={operator}">'
+            f"{escape(self.store.user_label(operator))}</a>"
+        )
+
+    async def _target_link(self, target: Target, operator: int) -> str:
+        if target.chat.isdigit() and int(target.chat) != operator:
+            target = Target(
+                str(-(1_000_000_000_000 + int(target.chat))), target.topic_id
+            )
+        chat = None
+        get_chat = getattr(self.bot, "get_chat", None)
+        if get_chat is not None:
+            try:
+                peer = (
+                    int(target.chat)
+                    if target.chat.lstrip("-").isdigit()
+                    else target.chat
+                )
+                chat = await get_chat(peer)
+            except TelegramAPIError:
+                pass
+        label = getattr(chat, "title", None) or target.chat
+        url = None
+        username = getattr(chat, "username", None)
+        if target.chat == str(operator):
+            label = "Bot 对话"
+            username = None
+            get_me = getattr(self.bot, "get_me", None)
+            if get_me is not None:
+                try:
+                    username = (await get_me()).username
+                except TelegramAPIError:
+                    pass
+        if username or target.chat.startswith("@"):
+            url = "https://t.me/" + (username or target.chat.lstrip("@"))
+            if target.topic_id:
+                url += f"/{target.topic_id}"
+        elif target.chat.startswith("-100"):
+            channel = -int(target.chat) - 1_000_000_000_000
+            url = f"https://t.me/c/{channel}"
+            if target.topic_id:
+                url += f"/{target.topic_id}"
+        elif chat:
+            url = getattr(chat, "invite_link", None)
+        if target.topic_id:
+            label += f" / 话题 {target.topic_id}"
+        return (
+            f'<a href="{escape(url, quote=True)}">{escape(label)}</a>'
+            if url
+            else escape(label)
+        )
 
     async def _resolve_user(self, value: str) -> int:
         if not value.startswith("@"):
@@ -453,6 +554,7 @@ class BotApplication:
         # Keep only recent controls; stale task IDs can never cancel new jobs.
         while len(self._controls) > 128:
             del self._controls[next(iter(self._controls))]
+        self.store.save_controls(self._controls)
 
     @staticmethod
     def _pending_lines(item: PendingTransfer) -> list[str]:
@@ -504,6 +606,7 @@ class BotApplication:
         }
         while len(self._controls) > 128:
             del self._controls[next(iter(self._controls))]
+        self.store.save_controls(self._controls)
 
     @staticmethod
     def _pending_id(value: str | None) -> int | None:
@@ -611,7 +714,9 @@ class BotApplication:
         pending_id = self._pending_id((command.args or "").strip())
         if pending_id is None:
             raise UserError("用法：/retry_cancel <待重试编号>")
-        self.service.discard_pending(message.from_user.id, pending_id)
+        result = self.service.discard_pending(message.from_user.id, pending_id)
+        if isawaitable(result):
+            await result
         await message.answer("待重试记录已移除；不会执行入群、下载或上传。")
 
     async def cancel_retry(self, query: CallbackQuery) -> None:
@@ -632,7 +737,11 @@ class BotApplication:
             )
             if pending_id is None or f"retry:{pending_id}" not in controls:
                 raise UserError("按钮已失效，请重新使用 /pending。")
-            self.service.discard_pending(query.from_user.id, pending_id)
+            result = self.service.discard_pending(
+                query.from_user.id, pending_id
+            )
+            if isawaitable(result):
+                await result
         except UserError as exc:
             await query.answer(str(exc), show_alert=True)
             return
@@ -644,6 +753,7 @@ class BotApplication:
             if f"retry:{item.id}" in controls
         ]
         controls.intersection_update(f"retry:{item.id}" for item in remaining)
+        self.store.save_controls(self._controls)
         markup = (
             InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -703,7 +813,7 @@ class BotApplication:
                 f"{self.store.user_label(member.user_id)} · {role} · {state}"
             )
             lines.append(
-                f"当前目标：{self._target_label(self.store.target(member.user_id))}"
+                f"当前目标：{self._target_label(self.store.recipient(member.user_id).target)}"
             )
         if not self.policy.is_admin(message.from_user.id):
             raise UserError("只有管理员可以查看成员列表。")

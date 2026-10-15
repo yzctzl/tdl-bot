@@ -19,7 +19,7 @@ from tdl_bot.tdl import UpdateGate
 
 
 @pytest.fixture
-def managed(tmp_path):
+def managed(tmp_path, monkeypatch):
     store = Store(tmp_path / "state.sqlite3")
     policy = AccessPolicy(frozenset({1, 2, 3}), frozenset({1}), store=store)
     store.set_target(1, Target("me"))
@@ -56,6 +56,11 @@ def managed(tmp_path):
     bot = SimpleNamespace(
         set_my_commands=AsyncMock(), edit_message_text=AsyncMock()
     )
+
+    async def validate(self, target, operator, *, storage=False):
+        return target
+
+    monkeypatch.setattr("tdl_bot.bot.Delivery.validate", validate)
     app = BotApplication(bot, SimpleNamespace(), store, tdl, service)
     yield app, service, store, policy
     store.close()
@@ -128,15 +133,15 @@ def test_banned_admin_cannot_manage_accounts(managed):
 async def test_ordinary_target_cannot_change_shared_destination(managed):
     app, _, store, _ = managed
     media = app.service.accounts.shared.media
-    with pytest.raises(UserError, match="共享目标"):
+    with pytest.raises(UserError, match="接收位置"):
         await app.target(message(2), command("target", "shared @other"))
     media.validate_target.assert_not_awaited()
     assert store.target_for(None) == Target("me")
     await app.target(message(2), command("target", "@mine 42"))
     assert store.target_for(2) == Target("@mine", 42)
     assert store.target_for(None) == Target("me")
-    await app.target(message(2), command("target", "shared"))
-    assert store.target(2) == Target("me")
+    await app.target(message(2), command("target", "bot"))
+    assert store.recipient(2).target == Target("2")
 
 
 @pytest.mark.parametrize(
@@ -390,6 +395,9 @@ def test_v1_migration_keeps_workspace_data_and_creates_private_backup(tmp_path):
             "DROP TABLE workspace_members; DROP TABLE workspace_metadata; "
             "DROP TABLE member_events; DROP TABLE permission_retry_archive; "
             "DROP TABLE user_profiles; DROP TABLE transfer_results; "
+            "DROP TABLE runtime_jobs; DROP TABLE accepted_requests; "
+            "DROP TABLE stored_results; DROP TABLE result_sources; "
+            "DROP TABLE delivery_history; "
             "PRAGMA user_version=1;"
         )
     current = Store(path)
@@ -474,6 +482,9 @@ def test_archive_upgrade_keeps_v2_members_and_creates_private_backup(tmp_path):
         db.executescript(
             "DROP TABLE permission_retry_archive; "
             "DROP TABLE user_profiles; DROP TABLE transfer_results; "
+            "DROP TABLE runtime_jobs; DROP TABLE accepted_requests; "
+            "DROP TABLE stored_results; DROP TABLE result_sources; "
+            "DROP TABLE delivery_history; "
             "PRAGMA user_version=2;"
         )
     migrated = Store(path)
@@ -575,8 +586,9 @@ async def test_admin_status_shows_all_targets_but_other_users_cannot(managed):
     event = message(1)
     await app.status(event, command("status", "2"))
     text = event.answer.call_args.args[0]
-    assert "共享目标：me" in text
-    assert "个人目标：personal" in text
+    assert "接收位置：personal" in text
+    assert "共享目标" not in text
+    assert "me" not in text
     assert "77" in text
     with pytest.raises(UserError, match="只有管理员"):
         await app.status(message(3), command("status", "2"))
@@ -603,6 +615,9 @@ def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
     with sqlite3.connect(path) as db:
         db.executescript(
             "DROP TABLE user_profiles; DROP TABLE transfer_results; "
+            "DROP TABLE runtime_jobs; DROP TABLE accepted_requests; "
+            "DROP TABLE stored_results; DROP TABLE result_sources; "
+            "DROP TABLE delivery_history; "
             "PRAGMA user_version=3;"
         )
     migrated = Store(path)
@@ -615,6 +630,131 @@ def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         with sqlite3.connect(path) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 7
     finally:
         migrated.close()
+
+
+async def test_status_renders_clickable_target_and_escapes_titles(managed):
+    app, _, store, _ = managed
+    store.set_target(2, Target("-1001234567890"), private=True)
+    app.bot.get_chat = AsyncMock(
+        return_value=SimpleNamespace(
+            title="A < B & C",
+            username="example",
+        )
+    )
+    event = message(2)
+    await app.status(event)
+    text = event.answer.call_args.args[0]
+    assert '<a href="https://t.me/example">A &lt; B &amp; C</a>' in text
+    assert "话题" not in text
+    assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
+    app.bot.get_chat.return_value.username = None
+    store.set_target(2, Target("-1001234567890", 42), private=True)
+    await app.status(event)
+    assert (
+        'href="https://t.me/c/1234567890/42"' in event.answer.call_args.args[0]
+    )
+    assert "话题 42" in event.answer.call_args.args[0]
+
+
+async def test_status_bot_destination_links_to_bot_instead_of_operator(managed):
+    app, _, _, _ = managed
+    app.bot.get_me = AsyncMock(
+        return_value=SimpleNamespace(username="examplebot")
+    )
+    event = message(2)
+    await app.status(event)
+    assert (
+        '<a href="https://t.me/examplebot">Bot 对话</a>'
+        in event.answer.call_args.args[0]
+    )
+    assert "话题" not in event.answer.call_args.args[0]
+
+
+async def test_target_admin_queries_render_same_clickable_destination(managed):
+    args = "for 2"
+    app, _, store, _ = managed
+    store.set_target(2, Target("-1001234567890", 42), private=True)
+    app.bot.get_chat = AsyncMock(
+        return_value=SimpleNamespace(title="Target & Name", username="example")
+    )
+    event = message(1)
+    await app.target(event, command("target", args))
+    text = event.answer.call_args.args[0]
+    assert 'href="https://t.me/example/42"' in text
+    assert 'href="tg://user?id=2"' in text
+    assert "Target &amp; Name" in text
+    assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
+    assert store.recipient(2).target == Target("-1001234567890", 42)
+
+
+async def test_target_self_query_renders_only_clickable_destination(managed):
+    args = None
+    app, _, _, _ = managed
+    app.bot.get_me = AsyncMock(
+        return_value=SimpleNamespace(username="examplebot")
+    )
+    event = message(2)
+    await app.target(event, command("target", args))
+    text = event.answer.call_args.args[0]
+    assert 'href="https://t.me/examplebot"' in text
+    assert "账号：" not in text
+    assert "执行账号" not in text
+    assert "可管理任务" not in text
+    assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
+
+
+async def test_target_get_cannot_modify_or_expose_other_accounts(managed):
+    app, _, store, _ = managed
+    for args in ("get", "get 3", "get 2 @other"):
+        with pytest.raises(UserError, match="直接使用 /target"):
+            await app.target(message(2), command("target", args))
+    assert store.target_for(2) is None
+
+
+async def test_target_legacy_positive_channel_id_still_generates_private_link(
+    managed,
+):
+    app, _, store, _ = managed
+    store.set_target(2, Target("1234567890"), private=True)
+    event = message(2)
+    await app.status(event)
+    assert 'href="https://t.me/c/1234567890"' in event.answer.call_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "username,topic,url",
+    [
+        ("example", None, "https://t.me/example"),
+        (None, 42, "https://t.me/c/1234567890/42"),
+    ],
+)
+async def test_target_channel_query_and_save_feedback_show_destination_link(
+    managed,
+    username,
+    topic,
+    url,
+):
+    app, _, store, _ = managed
+    app.bot.get_chat = AsyncMock(
+        return_value=SimpleNamespace(
+            title="Videos & Photos",
+            username=username,
+        )
+    )
+    event = message(2)
+    args = "-1001234567890" + (f" {topic}" if topic else "")
+    await app.target(event, command("target", args))
+    saved = event.answer.call_args.args[0]
+    assert f'href="{url}"' in saved
+    assert "Videos &amp; Photos" in saved
+    assert "已保存" in saved
+    assert event.answer.call_args.kwargs["parse_mode"] == "HTML"
+    await app.target(event, command("target"))
+    queried = event.answer.call_args.args[0]
+    assert f'href="{url}"' in queried
+    assert "Videos &amp; Photos" in queried
+    assert "执行账号" not in queried
+    assert store.recipient(2).target == Target("-1001234567890", topic)

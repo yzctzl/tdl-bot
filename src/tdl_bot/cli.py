@@ -2,8 +2,10 @@
 
 import argparse
 import asyncio
+import fcntl
 import logging
 import os
+import signal
 from collections.abc import Awaitable
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -17,7 +19,15 @@ from tdl_bot.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.bot import BotApplication, ProgressMessages
 from tdl_bot.client import AccountLock, SharedSessionClient
 from tdl_bot.config import Settings
+from tdl_bot.delivery import Delivery
 from tdl_bot.errors import UserError
+from tdl_bot.runtime import (
+    EngineServer,
+    RemoteService,
+    code_version,
+    ensure_engine,
+    exchange,
+)
 from tdl_bot.service import TransferService
 from tdl_bot.session import load_tdl_session, proxy_settings
 from tdl_bot.store import Store
@@ -102,7 +112,6 @@ async def run(settings: Settings, command: str) -> None:
     bot = None
     store = None
     service = None
-    application = None
     clients = [client]
     try:
         await client.connect()
@@ -194,6 +203,7 @@ async def run(settings: Settings, command: str) -> None:
         policy = AccessPolicy(
             settings.allowed_users, settings.admin_users, store=store
         )
+        store.convert_retries_to_recipients()
         service = TransferService(
             accounts,
             store,
@@ -202,22 +212,16 @@ async def run(settings: Settings, command: str) -> None:
             policy=policy,
             workers=settings.workers,
             queue_size=settings.queue_size,
+            delivery=Delivery(bot, policy=policy),
+            durable=True,
         )
         service.start()
-        application = BotApplication(bot, settings, store, tdl, service)
-        await application.register_commands()
-        await application.dispatcher.start_polling(
-            bot,
-            close_bot_session=False,
-            allowed_updates=["message", "callback_query"],
-        )
+        await EngineServer(service, settings).serve()
     finally:
         try:
             if service:
                 logging.info("等待已接收的下载／上传任务结束……")
                 await service.close()
-            if application:
-                await application.close()
         finally:
             if store:
                 store.close()
@@ -230,11 +234,62 @@ async def run(settings: Settings, command: str) -> None:
                 await bot.session.close()
 
 
+def signal_supervisor(data_dir: Path, sig: int) -> bool:
+    """Check the live supervisor lock before using its persisted PID."""
+    with (data_dir / ".supervisor.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                pid = int((data_dir / "frontend.pid").read_text())
+                os.kill(pid, sig)
+                return True
+            except (OSError, ValueError):
+                return False
+        else:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            return False
+
+
+async def frontend(settings: Settings) -> None:
+    """Reconnect polling to a resident engine without reopening tdl sessions."""
+    path = await ensure_engine(settings)
+    await exchange(
+        path, {"method": "ping", "args": {"version": code_version()}}
+    )
+    store = Store(settings.data_dir / "state.sqlite3", migrate=False)
+    bot = Bot(settings.bot_token)
+    service = RemoteService(settings, store)
+    application = BotApplication(bot, settings, store, service.tdl, service)
+    try:
+        await application.register_commands()
+        await application.dispatcher.start_polling(
+            bot,
+            close_bot_session=False,
+            allowed_updates=["message", "callback_query"],
+        )
+    finally:
+        # Updates execute in the engine even if their RPC waiter is cancelled.
+        if application._update and not application._update.done():
+            application._update.cancel()
+            await asyncio.gather(application._update, return_exceptions=True)
+        await bot.session.close()
+        store.close()
+
+
 def main() -> None:
     """Parse the CLI and hold cross-process locks for the runtime."""
     parser = argparse.ArgumentParser(description="tdl Telegram media-group Bot")
     parser.add_argument(
-        "command", nargs="?", choices=["run", "login"], default="run"
+        "command",
+        nargs="?",
+        choices=["run", "login", "engine", "frontend", "reload", "stop"],
+        default="run",
+    )
+    parser.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="兼容旧参数；现在默认仅手动 reload",
     )
     args = parser.parse_args()
     logging.basicConfig(
@@ -246,6 +301,34 @@ def main() -> None:
     os.umask(0o077)
     try:
         settings = Settings.from_env(login_only=args.command == "login")
+        settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if args.command == "stop":
+            pid_file = settings.data_dir / "frontend.pid"
+            if signal_supervisor(settings.data_dir, signal.SIGTERM):
+                for _ in range(100):
+                    if not pid_file.exists():
+                        break
+                    import time
+
+                    time.sleep(0.1)
+            path = settings.data_dir / "runtime.sock"
+            if path.exists():
+                asyncio.run(exchange(path, {"method": "shutdown", "args": {}}))
+            return
+        if args.command == "reload":
+            if not signal_supervisor(settings.data_dir, signal.SIGHUP):
+                raise UserError("没有运行中的 Bot 监控进程。")
+            return
+        if args.command == "run":
+            from tdl_bot.reload import supervise
+
+            with instance_lock(settings.data_dir / ".supervisor.lock"):
+                asyncio.run(supervise(settings.data_dir))
+            return
+        if args.command == "frontend":
+            with instance_lock(settings.data_dir / ".polling.lock"):
+                asyncio.run(frontend(settings))
+            return
         with ExitStack() as stack:
             stack.enter_context(
                 instance_lock(settings.data_dir / ".instance.lock")

@@ -358,3 +358,29 @@ async def test_same_media_in_another_source_reuses_by_fingerprint(
     assert media.copy_group.await_count == 1
     assert media.copy_messages.await_count == 1
     tdl.download.assert_not_awaited()
+
+
+async def test_database_schema_failure_does_not_blame_network_or_kill_worker(
+    setup_service,
+    caplog,
+):
+    import sqlite3
+
+    service, _, media, _, notify = setup_service
+    media.resolve.side_effect = [
+        sqlite3.OperationalError("no such column: r.available"),
+        media.resolve.return_value,
+    ]
+    service.start()
+    try:
+        failed = await service.submit(1, "https://t.me/channel/10")
+        await failed.done.wait()
+        failure_text = notify.call_args.args[1]
+        assert "服务数据异常" in failure_text
+        assert "网络" not in failure_text
+        assert "r.available" in caplog.text
+        succeeding = await service.submit(1, "https://t.me/channel/20")
+        await succeeding.done.wait()
+        assert "完成" in notify.call_args.args[1]
+    finally:
+        await service.close()

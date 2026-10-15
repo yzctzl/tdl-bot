@@ -179,7 +179,10 @@ class TelegramMedia:
     async def copy_messages(self, chat: str, ids: list[int], target: Target):
         """Copy an entire album server-side, retaining captions and topics."""
         source = await self._peer(_target_peer(chat))
-        destination = await self.target_peer(target)
+        try:
+            destination = await self.target_peer(target)
+        except (AccessDenied, *_ACCESS_ERRORS) as exc:
+            raise UserError("无法写入目标，请联系管理员检查服务权限。") from exc
         existing = cast(
             list[Message | types.MessageEmpty | None],
             await self.client.get_messages(source, ids=ids),
@@ -217,6 +220,47 @@ class TelegramMedia:
         except errors.ChatForwardsRestrictedError:
             return None
 
+    async def reveal_messages(self, chat: str, ids: list[int]) -> bool:
+        """Remove spoilers only on stored copies, never source messages."""
+        peer = await self._peer(_target_peer(chat))
+        messages = cast(
+            list[Message | types.MessageEmpty | None],
+            await self.client.get_messages(peer, ids=ids),
+        )
+        if len(messages) != len(ids) or any(
+            not m or isinstance(m, types.MessageEmpty) for m in messages
+        ):
+            return False
+        for message in messages:
+            if message is None or isinstance(message, types.MessageEmpty):
+                return False
+            entities = _visible_entities(message.entities or [])
+            media = None
+            hidden = bool(getattr(message.media, "spoiler", False))
+            if hidden and message.photo:
+                media = types.InputMediaPhoto(
+                    utils.get_input_photo(message.photo), spoiler=False
+                )
+            elif hidden and message.document:
+                media = types.InputMediaDocument(
+                    utils.get_input_document(message.document), spoiler=False
+                )
+            if media is None and len(entities) == len(message.entities or []):
+                continue
+            try:
+                await self.client(
+                    functions.messages.EditMessageRequest(
+                        peer=peer,
+                        id=message.id,
+                        message=message.message or "",
+                        entities=entities,
+                        media=media,
+                    )
+                )
+            except errors.MessageNotModifiedError:
+                pass
+        return True
+
     async def upload(
         self, group: MediaGroup, files: list[Path], target: Target
     ):
@@ -229,7 +273,10 @@ class TelegramMedia:
         await self.validate_target(target)
         peer = await self.target_peer(target)
         captions = [message.message or "" for message in group.messages]
-        entities = [message.entities or [] for message in group.messages]
+        entities = [
+            _visible_entities(message.entities or [])
+            for message in group.messages
+        ]
         visual = all(
             message.photo or message.video for message in group.messages
         )
@@ -237,7 +284,9 @@ class TelegramMedia:
         for message, file in zip(group.messages, files, strict=True):
             handle = await self.client.upload_file(str(file))
             if message.photo:
-                uploaded.append(types.InputMediaUploadedPhoto(handle))
+                uploaded.append(
+                    types.InputMediaUploadedPhoto(handle, spoiler=False)
+                )
             else:
                 uploaded.append(
                     types.InputMediaUploadedDocument(
@@ -245,6 +294,7 @@ class TelegramMedia:
                         mime_type=message.document.mime_type,
                         attributes=message.document.attributes,
                         force_file=not visual,
+                        spoiler=False,
                     )
                 )
         single = len(uploaded) == 1
@@ -272,3 +322,11 @@ class TelegramMedia:
 def _target_peer(chat: str) -> str | int:
     """Translate Telegram's numeric peer IDs for Telethon."""
     return int(chat) if chat.lstrip("-").isdigit() else chat
+
+
+def _visible_entities(entities):
+    return [
+        entity
+        for entity in entities
+        if not isinstance(entity, types.MessageEntitySpoiler)
+    ]

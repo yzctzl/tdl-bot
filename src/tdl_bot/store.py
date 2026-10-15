@@ -53,13 +53,17 @@ class Member:
 class Store:
     """Small workspace transactions used only on the event-loop thread."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, migrate: bool = True) -> None:
         """Open the database and migrate legacy state once, with a backup."""
         self._db = sqlite3.connect(path)
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 4:
+            if version > 7:
                 raise UserError("数据库版本比当前程序更新，请使用匹配的版本。")
+            if not migrate:
+                if version < 5:
+                    raise UserError("请等待任务引擎初始化数据库后再连接。")
+                return
             if version == 0:
                 tables = {
                     row[0]
@@ -97,9 +101,107 @@ class Store:
                         "PRIMARY KEY(url, executor_key, scope_key))"
                     )
                     self._db.execute("PRAGMA user_version = 4")
+            if version < 5:
+                if version == 4:
+                    self._backup(path, suffix=".pre-runtime")
+                with self._db:
+                    self._db.execute("BEGIN")
+                    self._db.execute(
+                        "CREATE TABLE runtime_jobs (id TEXT PRIMARY KEY, "
+                        "payload TEXT NOT NULL)"
+                    )
+                    self._db.execute(
+                        "CREATE TABLE accepted_requests ("
+                        "operator INTEGER NOT NULL, "
+                        "message INTEGER NOT NULL, payload TEXT NOT NULL, "
+                        "PRIMARY KEY(operator, message))"
+                    )
+                    self._db.execute("PRAGMA user_version = 5")
+            if version < 6:
+                if version == 5:
+                    self._backup(path, suffix=".pre-history")
+                self._initialize_history()
+            if version < 7:
+                if version == 6:
+                    self._backup(path, suffix=".pre-availability")
+                self._initialize_availability()
         except BaseException:
             self._db.close()
             raise
+
+    def _initialize_availability(self):
+        """Support both early and complete v6 databases without data loss."""
+        with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
+            columns = {
+                row[1]
+                for row in self._db.execute("PRAGMA table_info(stored_results)")
+            }
+            if "available" not in columns:
+                self._db.execute(
+                    "ALTER TABLE stored_results ADD COLUMN "
+                    "available INTEGER NOT NULL DEFAULT 1"
+                )
+            self._db.execute(
+                "CREATE INDEX IF NOT EXISTS stored_result_lookup "
+                "ON stored_results(chat, ids, id)"
+            )
+            self._db.execute("PRAGMA user_version = 7")
+
+    def _initialize_history(self):
+        with self._db:
+            self._db.execute("BEGIN")
+            self._db.execute(
+                "CREATE TABLE stored_results ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "executor_key TEXT NOT NULL, scope_key INTEGER NOT NULL, "
+                "chat TEXT NOT NULL, ids TEXT NOT NULL, "
+                "internal INTEGER NOT NULL, "
+                "revealed INTEGER NOT NULL DEFAULT 0, "
+                "created_at REAL NOT NULL, "
+                "UNIQUE(executor_key, scope_key, chat, ids))"
+            )
+            self._db.execute(
+                "CREATE INDEX stored_result_lookup "
+                "ON stored_results(chat, ids, id)"
+            )
+            self._db.execute(
+                "CREATE TABLE result_sources (url TEXT NOT NULL, "
+                "result_id INTEGER "
+                "NOT NULL, PRIMARY KEY(url, result_id))"
+            )
+            self._db.execute(
+                "CREATE TABLE delivery_history ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "result_id INTEGER NOT NULL, job_id TEXT NOT NULL, "
+                "operator_id INTEGER NOT NULL, chat TEXT NOT NULL, "
+                "topic_id INTEGER, "
+                "ids TEXT NOT NULL, status TEXT NOT NULL, error TEXT, "
+                "created_at REAL NOT NULL)"
+            )
+            target = self.internal_target()
+            for url, executor, owner, chat, ids in self._db.execute(
+                "SELECT url, executor_key, scope_key, chat, ids "
+                "FROM transfer_results"
+            ).fetchall():
+                internal = bool(target and owner == 0 and chat == target.chat)
+                self._db.execute(
+                    "INSERT OR IGNORE INTO stored_results "
+                    "(executor_key, scope_key, chat, ids, internal, "
+                    "created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (executor, owner, chat, ids, internal, self.now()),
+                )
+                result_id = self._db.execute(
+                    "SELECT id FROM stored_results WHERE executor_key=? "
+                    "AND scope_key=? AND chat=? AND ids=?",
+                    (executor, owner, chat, ids),
+                ).fetchone()[0]
+                self._db.execute(
+                    "INSERT OR IGNORE INTO result_sources VALUES (?, ?)",
+                    (url, result_id),
+                )
+            self._db.execute("PRAGMA user_version = 6")
 
     def _backup(self, path: Path, *, suffix: str = ".pre-workspace") -> None:
         """Keep a private, consistent copy before migrating an old database."""
@@ -584,32 +686,222 @@ class Store:
         label = (f"@{row[0]}" if row[0] else row[1]) if row else "用户名未知"
         return f"{label} (UID: {user_id})"
 
-    def saved_results(self, urls: list[str], executor_key: str):
+    def saved_results(self, urls, executor_key, *, internal_only=False):
         rows = []
         for url in urls:
             rows.extend(
                 self._db.execute(
-                    "SELECT scope_key, chat, ids FROM transfer_results "
-                    "WHERE url=? AND executor_key=?",
-                    (url, executor_key),
+                    "SELECT r.scope_key, r.chat, r.ids FROM stored_results r "
+                    "JOIN result_sources s ON s.result_id=r.id WHERE s.url=? "
+                    "AND r.available=1 "
+                    "AND (? IS NULL OR r.executor_key=?) "
+                    "AND (?=0 OR r.internal=1) ORDER BY r.id DESC",
+                    (url, executor_key, executor_key, internal_only),
                 ).fetchall()
             )
         return [
-            (owner or None, chat, json.loads(ids)) for owner, chat, ids in rows
+            (owner or None, chat, json.loads(ids))
+            for owner, chat, ids in dict.fromkeys(rows)
         ]
 
-    def save_result(self, urls, executor_key, owner_id, chat, ids) -> None:
-        if not ids:
-            return
+    def result_info(self, chat, ids):
+        row = self._db.execute(
+            "SELECT id, executor_key, revealed FROM stored_results "
+            "WHERE chat=? AND ids=? ORDER BY id DESC LIMIT 1",
+            (chat, json.dumps(ids)),
+        ).fetchone()
+        return (
+            {"id": row[0], "executor_key": row[1], "revealed": bool(row[2])}
+            if row
+            else None
+        )
+
+    def mark_unavailable(self, chat, ids):
+        with self._db:
+            self._db.execute(
+                "UPDATE stored_results SET available=0 WHERE chat=? AND ids=?",
+                (chat, json.dumps(ids)),
+            )
+
+    def mark_revealed(self, result_id):
+        with self._db:
+            self._db.execute(
+                "UPDATE stored_results SET revealed=1 WHERE id=?", (result_id,)
+            )
+
+    def add_result_sources(self, result_id, urls):
         with self._db:
             self._db.executemany(
-                "INSERT OR REPLACE INTO transfer_results "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO result_sources VALUES (?, ?)",
+                [(url, result_id) for url in set(urls)],
+            )
+
+    def save_result(
+        self, urls, executor_key, owner_id, chat, ids, *, internal=None
+    ):
+        if not ids:
+            return None
+        if internal is None:
+            target = self.internal_target()
+            internal = bool(target and owner_id is None and chat == target.chat)
+        with self._db:
+            encoded = json.dumps(ids)
+            self._db.execute(
+                "INSERT OR IGNORE INTO stored_results "
+                "(executor_key, scope_key, chat, ids, internal, "
+                "created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    executor_key,
+                    owner_id or 0,
+                    chat,
+                    encoded,
+                    internal,
+                    self.now(),
+                ),
+            )
+            result_id = self._db.execute(
+                "SELECT id FROM stored_results WHERE executor_key=? "
+                "AND scope_key=? AND chat=? AND ids=?",
+                (executor_key, owner_id or 0, chat, encoded),
+            ).fetchone()[0]
+            self._db.executemany(
+                "INSERT OR IGNORE INTO result_sources VALUES (?, ?)",
+                [(url, result_id) for url in set(urls)],
+            )
+        return result_id
+
+    def record_delivery(self, result_id, job, ids, status, error=None):
+        with self._db:
+            cursor = self._db.execute(
+                "INSERT INTO delivery_history "
+                "(result_id, job_id, operator_id, chat, topic_id, ids, "
+                "status, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    result_id,
+                    job.id,
+                    job.user_id,
+                    job.target.chat,
+                    job.target.topic_id,
+                    json.dumps(ids or []),
+                    status,
+                    error,
+                    self.now(),
+                ),
+            )
+
+            return cursor.lastrowid
+
+    def finish_delivery(self, attempt, ids, status, error=None):
+        with self._db:
+            self._db.execute(
+                "UPDATE delivery_history SET ids=?, status=?, error=? "
+                "WHERE id=?",
+                (json.dumps(ids or []), status, error, attempt),
+            )
+
+    def internal_target(self) -> Target | None:
+        target = self.target_for(None)
+        if target is None or target.chat == "me":
+            return None
+        chat = target.chat
+        if chat.isdigit() and int(chat) > 0:
+            chat = str(-(1_000_000_000_000 + int(chat)))
+        return Target(chat, target.topic_id)
+
+    def recipient(self, operator_id: int) -> Destination:
+        return Destination(
+            self.target_for(operator_id) or Target(str(operator_id)),
+            operator_id,
+        )
+
+    def convert_retries_to_recipients(self) -> None:
+        with self._db:
+            if self._db.execute(
+                "SELECT 1 FROM workspace_metadata WHERE key='internal_storage'"
+            ).fetchone():
+                return
+            for table in ("permission_retries", "permission_retry_archive"):
+                rows = self._db.execute(
+                    f"SELECT id, submitted_by FROM {table} WHERE scope_key=0"
+                ).fetchall()
+                for retry_id, operator in rows:
+                    target = self.recipient(operator).target
+                    self._db.execute(
+                        f"UPDATE OR IGNORE {table} "
+                        "SET scope_key=?, chat=?, topic_key=? "
+                        "WHERE id=?",
+                        (operator, target.chat, target.topic_id or 0, retry_id),
+                    )
+                    # A matching personal retry can already exist.
+                    self._db.execute(
+                        f"DELETE FROM {table} WHERE id=? AND scope_key=0",
+                        (retry_id,),
+                    )
+            self._db.execute(
+                "INSERT INTO workspace_metadata "
+                "VALUES ('internal_storage', '1')"
+            )
+
+    def controls(self):
+        return {
+            tuple(map(int, key.split(":")[1:])): set(json.loads(value))
+            for key, value in self._db.execute(
+                "SELECT key, value FROM workspace_metadata "
+                "WHERE key LIKE 'control:%'"
+            )
+        }
+
+    def save_controls(self, controls):
+        with self._db:
+            self._db.execute(
+                "DELETE FROM workspace_metadata WHERE key LIKE 'control:%'"
+            )
+            self._db.executemany(
+                "INSERT INTO workspace_metadata VALUES (?, ?)",
                 [
-                    (url, executor_key, owner_id or 0, chat, json.dumps(ids))
-                    for url in urls
+                    (f"control:{owner}:{message}", json.dumps(sorted(tokens)))
+                    for (owner, message), tokens in controls.items()
                 ],
             )
+
+    def accepted_request(self, operator: int, message: int | None):
+        if message is None:
+            return None
+        row = self._db.execute(
+            "SELECT payload FROM accepted_requests "
+            "WHERE operator=? AND message=?",
+            (operator, message),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_job(self, payload) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO runtime_jobs VALUES (?, ?)",
+                (payload["id"], json.dumps(payload)),
+            )
+            if payload["source_message_id"] is not None:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO accepted_requests VALUES (?, ?, ?)",
+                    (
+                        payload["user_id"],
+                        payload["source_message_id"],
+                        json.dumps(payload),
+                    ),
+                )
+
+    def remove_job(self, job_id: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM runtime_jobs WHERE id=?", (job_id,))
+
+    def active_job_payloads(self):
+        return [
+            json.loads(row[0])
+            for row in self._db.execute(
+                "SELECT payload FROM runtime_jobs ORDER BY rowid"
+            )
+        ]
 
     def close(self) -> None:
         """Close the database."""
