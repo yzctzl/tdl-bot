@@ -274,6 +274,7 @@
     "Language: {name}\n{options}": "当前语言：{name}\n{options}",
     "Welcome! Please choose your language to get started.": "欢迎！请先选择语言，然后开始使用。",
     "Language selection is unavailable.": "无法选择语言，请确认账号权限并在与 Bot 的私聊中重试。",
-    "Language selected.": "语言已选择。"
+    "Language selected.": "语言已选择。",
+    "UPLOAD_CONCURRENCY must be between 1 and 32.": "UPLOAD_CONCURRENCY 必须在 1 到 32 之间。"
   }
 }

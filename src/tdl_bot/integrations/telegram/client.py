@@ -3,9 +3,11 @@
 import asyncio
 import copy
 
-from telethon import TelegramClient, utils
+from telethon import utils
 from telethon.tl import functions
 from telethon.tl.alltlobjects import LAYER
+
+from tdl_bot.integrations.telegram.uploads import UploadClient
 
 
 class AccountLock:
@@ -47,7 +49,7 @@ class LayerRequest(functions.InvokeWithLayerRequest):
         return self.original.read_result(reader)
 
 
-class SharedSessionClient(TelegramClient):
+class SharedSessionClient(UploadClient):
     """Pin each RPC to Telethon's schema without another account login.
 
     tdl negotiates a different API layer on the same auth key. A layer

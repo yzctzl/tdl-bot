@@ -41,6 +41,7 @@ class Settings:
     queue_size: int = 20
     download_timeout: int = 7200
     account_bindings: tuple[AccountBinding, ...] = ()
+    upload_concurrency: int = 8
 
     @property
     def session_path(self) -> Path:
@@ -120,6 +121,7 @@ class Settings:
             workers=int(os.getenv("WORKERS", "2")),
             queue_size=int(os.getenv("QUEUE_SIZE", "20")),
             download_timeout=int(os.getenv("DOWNLOAD_TIMEOUT", "7200")),
+            upload_concurrency=int(os.getenv("UPLOAD_CONCURRENCY", "8")),
         )
         if (
             min(
@@ -133,6 +135,8 @@ class Settings:
                     "positive."
                 )
             )
+        if not 1 <= settings.upload_concurrency <= 32:
+            raise ValueError(tr("UPLOAD_CONCURRENCY must be between 1 and 32."))
         account_file = Path(
             os.getenv("ACCOUNTS_FILE", str(settings.data_dir / "accounts.toml"))
         ).resolve()

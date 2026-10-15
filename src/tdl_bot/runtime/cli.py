@@ -28,6 +28,7 @@ from tdl_bot.integrations.telegram.client import (
 )
 from tdl_bot.integrations.telegram.delivery import Delivery
 from tdl_bot.integrations.telegram.media import TelegramMedia
+from tdl_bot.integrations.telegram.uploads import UploadClient
 from tdl_bot.runtime.engine import (
     EngineServer,
     RemoteService,
@@ -83,14 +84,15 @@ async def run(settings: Settings, command: str) -> None:
             imported.api_hash,
             proxy=proxy,
             account_lock=tdl.account_lock,
+            upload_concurrency=settings.upload_concurrency,
         )
     else:
-        # Telethon accepts None, but its proxy annotation omits it.
-        client = TelegramClient(
+        client = UploadClient(
             str(settings.session_path),
             settings.api_id,
             settings.api_hash,
-            proxy=proxy,  # ty: ignore[invalid-argument-type]
+            proxy=proxy,
+            upload_concurrency=settings.upload_concurrency,
         )
     if command == "login":
         try:
@@ -210,6 +212,7 @@ async def run(settings: Settings, command: str) -> None:
                 imported.api_hash,
                 proxy=proxy_settings(binding.proxy),
                 account_lock=own_tdl.account_lock,
+                upload_concurrency=settings.upload_concurrency,
             )
             clients.append(own)
             await own.connect()

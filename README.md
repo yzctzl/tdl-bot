@@ -381,6 +381,7 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `WORKERS` | `2` | 后台任务 worker 数量 |
 | `QUEUE_SIZE` | `20` | 最多排队任务数量 |
 | `DOWNLOAD_TIMEOUT` | `7200` | 单次 tdl 下载超时，秒 |
+| `UPLOAD_CONCURRENCY` | `8` | 大文件上传分片并发窗口，1–32，每片 512 KiB |
 
 ## 验证
 
@@ -484,3 +485,19 @@ ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvir
 
 See [the architecture guide](docs/architecture.md) for package boundaries,
 the transfer flow, and the division of work between tdl and Telegram APIs.
+
+## Upload performance
+
+Large local files use bounded batches of 512 KiB parts over the existing
+Telethon connection. `UPLOAD_CONCURRENCY=8` allows up to 4 MiB of file payload
+per batch instead of waiting for every individual part acknowledgement.
+The shared tdl session lock remains held for each complete batch, preserving
+protocol-layer coordination. Small files use Telethon's regular uploader with
+512 KiB parts; streams and custom upload options retain Telethon's behavior.
+`cryptg` provides native encryption acceleration.
+
+The service logs upload size, duration and throughput without file names or
+captions. Compare the same file and network after manually reloading the Bot;
+new upload code takes effect when the resident engine has finished old tasks.
+Actual throughput depends on Telegram, the proxy and the network; the configured
+window is a concurrency bound, not a guaranteed upload rate.
