@@ -281,6 +281,8 @@
     "tdl upload failed. Check account permissions and network access before retrying.": "tdl 上传失败，请检查账号权限和网络后重试。",
     "tdl did not upload every media file. Album delivery stopped; temporary messages will be cleaned up.": "tdl 未上传全部媒体，已停止发送媒体组，并尝试清理暂存消息。",
     "The uploaded file size does not match the source.": "上传文件大小与原始文件不一致。",
-    "tdl returned an unexpected media type.": "tdl 上传后的媒体类型与原始媒体不一致。"
+    "tdl returned an unexpected media type.": "tdl 上传后的媒体类型与原始媒体不一致。",
+    "The uploaded video has no preview thumbnail. Album delivery stopped; try again later.": "上传后的视频缺少预览缩略图，已停止发送媒体组，请稍后重试。",
+    "Could not retrieve the original video preview. Try again later.": "无法获取原视频的预览缩略图，请稍后重试。"
   }
 }

@@ -38,6 +38,8 @@ def document(media_id, size=5):
     [
         "album",
         "single",
+        "preview",
+        "preview_missing",
         "partial",
         "duplicate",
         "size",
@@ -72,6 +74,14 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         file.write_bytes(b"media")
     if outcome == "single":
         original, files = original[:1], files[:1]
+    if outcome.startswith("preview"):
+        original = [original[0]] * 5 + [original[1]]
+        original[-1].document.thumbs = [types.PhotoSize("m", 180, 320, 5)]
+        files = [tmp_path / f"{i}_photo.jpg" for i in range(5)] + [
+            tmp_path / "20_clip.mp4"
+        ]
+        for file in files:
+            file.write_bytes(b"media")
     target = Target("-1000000123456", 77)
     staged = []
     started = asyncio.Event()
@@ -80,7 +90,12 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
     async def upload(directory, actual_target, captions, *, photo):
         assert actual_target == target and photo
         folders.append(directory)
-        assert {p.name for p in directory.iterdir()} == {p.name for p in files}
+        expected = {p.name for p in files}
+        if outcome.startswith("preview"):
+            # Native tdl strips the trailing 'p' as well as '.mp4'.
+            expected.add("20_cli.thumb")
+            assert (directory / "20_cli.thumb").read_bytes() == b"jpeg-preview"
+        assert {p.name for p in directory.iterdir()} == expected
         for file in files:
             assert (directory / file.name).stat().st_ino == file.stat().st_ino
         for index, file in enumerate(files):
@@ -88,14 +103,18 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
                 SimpleNamespace(
                     id=200 + index,
                     message=captions[file.name],
-                    photo=make_photo(100 + index) if index == 0 else None,
+                    photo=make_photo(100 + index)
+                    if original[index].photo
+                    else None,
                     document=document(
                         200 + index, 6 if outcome == "size" else 5
                     )
-                    if index
+                    if original[index].document
                     else None,
                 )
             )
+        if outcome == "preview":
+            staged[-1].document.thumbs = [types.PhotoSize("m", 180, 320, 5)]
         if outcome in {"partial", "native_error", "cancel"}:
             del staged[1:]
         elif outcome == "duplicate":
@@ -113,6 +132,11 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         for message in reversed(staged):
             yield message
 
+    async def download_preview(message, *, file, thumb):
+        assert message is original[-1] and thumb == -1
+        await asyncio.to_thread(Path(file).write_bytes, b"jpeg-preview")
+        return file
+
     sent = [SimpleNamespace(id=500 + i) for i in range(len(files))]
     client = SimpleNamespace(
         get_input_entity=AsyncMock(return_value="peer"),
@@ -121,6 +145,7 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         delete_messages=AsyncMock(),
         send_file=AsyncMock(return_value=sent[0] if len(sent) == 1 else sent),
         upload_file=AsyncMock(),
+        download_media=AsyncMock(side_effect=download_preview),
     )
     tdl = SimpleNamespace(upload=AsyncMock(side_effect=upload))
     media = TelegramMedia(client, tdl=tdl)
@@ -132,13 +157,20 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    elif outcome in {"album", "single"}:
+    elif outcome in {"album", "single", "preview"}:
         assert await task == [m.id for m in sent]
         args, kwargs = client.send_file.call_args
         refs = args[1] if isinstance(args[1], list) else [args[1]]
         assert isinstance(refs[0], types.InputMediaPhoto)
         assert refs[0].id.id == 100 and refs[0].spoiler is False
-        if outcome == "album":
+        if outcome == "preview":
+            assert len(refs) == 6
+            assert all(
+                isinstance(ref, types.InputMediaPhoto) for ref in refs[:5]
+            )
+            assert isinstance(refs[-1], types.InputMediaDocument)
+            client.download_media.assert_awaited_once()
+        elif outcome == "album":
             assert isinstance(refs[1], types.InputMediaDocument)
             assert refs[1].id.id == 201 and refs[1].spoiler is False
             assert kwargs["caption"] == ["Caption <one>", "Video"]
@@ -152,7 +184,7 @@ async def test_native_upload_verifies_receipts_assembles_and_cleans(
     else:
         with pytest.raises(UserError):
             await task
-    if outcome not in {"album", "single"}:
+    if outcome not in {"album", "single", "preview"}:
         client.send_file.assert_not_awaited()
     client.upload_file.assert_not_awaited()  # No second file-byte upload.
     assert set(client.delete_messages.call_args.args[1]) == {
