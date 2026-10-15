@@ -148,8 +148,8 @@ matches their own. Without one, they use the shared execution account. Personal
 sessions cannot be selected or used for retries or joins by another regular
 operator. Administrators can use every discovered account:
 
-- `/account`: view the current selection; administrators also see available
-  accounts with usernames and UIDs.
+- `/account`: administrators can view the current selection and available
+  accounts with usernames and UIDs. Regular operators have no account command.
 - `/account <UID>`: select a logged-in account (administrator only).
 - `/account shared`: use the shared account (administrator only).
 - `/account auto`: restore automatic own-or-shared selection (administrator only).

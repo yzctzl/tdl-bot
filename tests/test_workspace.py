@@ -451,6 +451,12 @@ async def test_admin_selection_persists_and_only_affects_new_tasks(
     assert remote.accounts.select(2).key == "operator:2"
     assert remote.accounts.select(3).key == "shared"
     app = application(workspace)
+    with pytest.raises(UserError, match="管理员"):
+        await app.execution.account(
+            message(3), CommandObject(command="account")
+        )
+    assert "account" not in {item.command for item in app.command_menu()}
+    assert "account" in {item.command for item in app.command_menu(admin=True)}
     reply = message(1)
     await app.execution.account(reply, CommandObject(command="account"))
     assert "@user2 (UID: 2)" in reply.answer.call_args.args[0]

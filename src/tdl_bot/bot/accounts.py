@@ -6,6 +6,7 @@ from aiogram.filters import CommandObject
 from aiogram.types import Message
 
 from tdl_bot.bot.context import CommandGroup
+from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 
 
@@ -14,6 +15,10 @@ class ExecutionCommands(CommandGroup):
     async def account(self, message: Message, command: CommandObject):
         assert message.from_user is not None
         operator = message.from_user.id
+        if not self.policy.is_admin(operator):
+            raise UserError(
+                tr("Only administrators can manage execution accounts.")
+            )
         result = await self.service.execution_accounts(
             operator, (command.args or "").strip() or None
         )

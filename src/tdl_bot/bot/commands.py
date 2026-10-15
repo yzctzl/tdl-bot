@@ -5,7 +5,7 @@ COMMANDS = (
         "account",
         "execution.account",
         "View execution account; administrators can switch",
-        False,
+        True,
     ),
     ("language", "language", "Choose your language", False),
     ("start", "start", "Get started", False),
@@ -85,7 +85,6 @@ HELP = (
     "and retry\nRegular accounts can keep up to 3 pending "
     "retries.\n/status View status; /whoami View your account "
     "ID\n/language [en|zh] Choose your language"
-    "\n/account View execution account"
 )
 
 
