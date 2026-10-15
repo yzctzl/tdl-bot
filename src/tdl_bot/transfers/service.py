@@ -21,7 +21,7 @@ from tdl_bot.storage.models import Destination, PendingTransfer, Target
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool
 from tdl_bot.transfers.jobs import Job, JobQueue
-from tdl_bot.transfers.media import _downloaded_files, _media_fingerprint
+from tdl_bot.transfers.media import downloaded_files, media_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 Notify = Callable[..., Awaitable[None]]
@@ -538,7 +538,7 @@ class TransferService:
                     await prepare(job)
             group = await executor.media.resolve(MessageLink.parse(job.url))
             aliases = [*group.urls]
-            fingerprint = _media_fingerprint(group.messages)
+            fingerprint = media_fingerprint(group.messages)
             if fingerprint:
                 aliases.append(fingerprint)
             async with self._work_lock(
@@ -577,7 +577,7 @@ class TransferService:
             )
             await executor.tdl.download(group.urls, directory)
             files = await asyncio.to_thread(
-                _downloaded_files, directory, group.messages
+                downloaded_files, directory, group.messages
             )
             job.stage = "Uploading"
             await self._notify(

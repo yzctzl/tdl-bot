@@ -74,26 +74,6 @@ class AccessPolicy:
         if store is not None:
             store.seed_members(operators, admins)
 
-    @property
-    def operators(self) -> frozenset[int]:
-        if self.store is None:
-            return self._operators
-        return frozenset(
-            member.user_id
-            for member in self.store.members()
-            if member.active(self.store.now())
-        )
-
-    @property
-    def admins(self) -> frozenset[int]:
-        if self.store is None:
-            return self._admins
-        return frozenset(
-            member.user_id
-            for member in self.store.members()
-            if member.role == "admin" and member.active(self.store.now())
-        )
-
     def is_known(self, operator_id: int) -> bool:
         return (
             self.store.member(operator_id) is not None
@@ -106,10 +86,23 @@ class AccessPolicy:
         return self.store.menu_member_ids() if self.store else self._operators
 
     def is_allowed(self, operator_id: int) -> bool:
-        return operator_id in self.operators
+        if self.store is None:
+            return operator_id in self._operators
+        # Permissions stay live without scanning every workspace member.
+        member = self.store.member(operator_id)
+        return member is not None and member.active(self.store.now())
 
     def is_admin(self, operator_id: int) -> bool:
-        return operator_id in self.admins and self.is_allowed(operator_id)
+        if self.store is None:
+            return (
+                operator_id in self._admins and operator_id in self._operators
+            )
+        member = self.store.member(operator_id)
+        return (
+            member is not None
+            and member.role == "admin"
+            and member.active(self.store.now())
+        )
 
     def can_manage(self, operator_id: int, owner_id: int | None) -> bool:
         return self.is_allowed(operator_id) and (

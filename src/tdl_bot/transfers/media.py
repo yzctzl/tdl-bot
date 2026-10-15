@@ -8,7 +8,7 @@ from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
 
 
-def _media_fingerprint(messages) -> str | None:
+def media_fingerprint(messages) -> str | None:
     """Reuse identical Telegram media only when captions/entities also match."""
     parts = []
     for message in messages:
@@ -30,7 +30,7 @@ def _media_fingerprint(messages) -> str | None:
     return "media:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _downloaded_files(directory: Path, messages) -> list[Path]:
+def downloaded_files(directory: Path, messages) -> list[Path]:
     """Require exactly one complete file per resolved media-group member."""
     files = []
     for message in messages:
@@ -39,7 +39,8 @@ def _downloaded_files(directory: Path, messages) -> list[Path]:
             for path in directory.glob(f"{message.id}_*")
             if path.is_file() and not path.is_symlink()
         ]
-        if len(matches) != 1 or matches[0].stat().st_size == 0:
+        size = matches[0].stat().st_size if len(matches) == 1 else 0
+        if size == 0:
             raise UserError(
                 tr(
                     "tdl did not download the entire media group. Upload "
@@ -48,7 +49,7 @@ def _downloaded_files(directory: Path, messages) -> list[Path]:
             )
         file = matches[0]
         # Document sizes are exact; photos may use different resolutions.
-        if message.document and file.stat().st_size != message.document.size:
+        if message.document and size != message.document.size:
             raise UserError(
                 tr(
                     "File sizes are incomplete. Upload stopped and files "

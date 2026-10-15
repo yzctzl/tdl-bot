@@ -1,6 +1,5 @@
 """Destinations commands and their related validation."""
 
-import logging
 from html import escape
 
 from aiogram.exceptions import TelegramAPIError
@@ -15,8 +14,6 @@ from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 from tdl_bot.integrations.telegram.delivery import Delivery
 from tdl_bot.storage.models import Target
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class DestinationCommands(CommandGroup):

@@ -165,10 +165,10 @@ class TelegramMedia:
                 )
             ) from exc
 
-    async def validate_target(self, target: Target) -> None:
-        """Resolve a destination before persisting it."""
+    async def validate_target(self, target: Target):
+        """Validate and return the resolved peer for subsequent operations."""
         try:
-            await self.target_peer(target)
+            return await self.target_peer(target)
         except (AccessDenied, *_ACCESS_ERRORS) as exc:
             raise UserError(
                 tr(
@@ -312,8 +312,7 @@ class TelegramMedia:
         hosted Bot API's file-size limit. Audio/document albums are sent as
         documents; visual albums retain photo/video presentation.
         """
-        await self.validate_target(target)
-        peer = await self.target_peer(target)
+        peer = await self.validate_target(target)
         captions = [message.message or "" for message in group.messages]
         entities = [
             _visible_entities(message.entities or [])

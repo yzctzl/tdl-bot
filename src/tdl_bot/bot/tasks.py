@@ -66,13 +66,9 @@ class TaskCommands(CommandGroup):
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
         )
-        self._controls[(operator, reply.message_id)] = {
-            job.id for job in selected
-        }
-        # Keep only recent controls; stale task IDs can never cancel new jobs.
-        while len(self._controls) > 128:
-            del self._controls[next(iter(self._controls))]
-        self.store.save_controls(self._controls)
+        self._remember_controls(
+            operator, reply.message_id, {job.id for job in selected}
+        )
 
     @staticmethod
     def _pending_lines(item: PendingTransfer) -> list[str]:
@@ -135,9 +131,15 @@ class TaskCommands(CommandGroup):
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
         )
-        self._controls[(message.from_user.id, reply.message_id)] = {
-            f"retry:{item.id}" for item in selected
-        }
+        self._remember_controls(
+            message.from_user.id,
+            reply.message_id,
+            {f"retry:{item.id}" for item in selected},
+        )
+
+    def _remember_controls(self, user_id, message_id, tokens):
+        self._controls[(user_id, message_id)] = tokens
+        # Persist the same bounded button history for both task and retry lists.
         while len(self._controls) > 128:
             del self._controls[next(iter(self._controls))]
         self.store.save_controls(self._controls)

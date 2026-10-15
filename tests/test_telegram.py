@@ -57,6 +57,7 @@ async def test_resolve_entire_album_from_uncaptioned_middle_member():
     await media.upload(
         group, [Path("one"), Path("two"), Path("three")], Target("me", 77)
     )
+    assert client.get_input_entity.await_count == 2  # Source and destination.
     kwargs = client.send_file.call_args.kwargs
     assert kwargs["caption"] == ["文字😀", "", ""]
     assert kwargs["formatting_entities"] == [[bold], [], []]

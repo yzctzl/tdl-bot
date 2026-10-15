@@ -291,8 +291,8 @@ async def test_deleted_cache_falls_back_to_source(setup_service):
     tdl.download.assert_not_awaited()
 
 
-def test_media_fingerprint_respects_caption_and_media_identity():
-    from tdl_bot.transfers.media import _media_fingerprint
+def testmedia_fingerprint_respects_caption_and_media_identity():
+    from tdl_bot.transfers.media import media_fingerprint
 
     message = SimpleNamespace(
         document=SimpleNamespace(id=11),
@@ -300,12 +300,12 @@ def test_media_fingerprint_respects_caption_and_media_identity():
         message="caption",
         entities=[],
     )
-    first = _media_fingerprint([message])
+    first = media_fingerprint([message])
     message.message = "different"
-    assert first != _media_fingerprint([message])
+    assert first != media_fingerprint([message])
     message.message = "caption"
     message.document.id = 12
-    assert first != _media_fingerprint([message])
+    assert first != media_fingerprint([message])
 
 
 async def test_different_album_links_reuse_one_result_under_concurrency(

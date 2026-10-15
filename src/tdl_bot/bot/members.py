@@ -1,6 +1,5 @@
 """Members commands and their related validation."""
 
-import logging
 from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
@@ -16,8 +15,6 @@ from tdl_bot.bot.context import CommandGroup
 from tdl_bot.bot.formatting import page_number
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class MemberCommands(CommandGroup):
