@@ -101,6 +101,10 @@ bin/tdl --storage type=bolt,path=./.tdl/data --ns default chat ls
 Bot 默认使用英文，不自动跟随 Telegram 客户端的语言。每个操作账号可以
 独立选择语言，设置保存在当前工作空间数据库中，重启后保留：
 
+首次发送 `/start` 时，Bot 先显示中英双语欢迎消息和各语言按钮。点击后保存
+语言选择，并将欢迎消息替换为对应语言的使用说明。已有语言设置的账号再次
+使用 `/start` 时直接显示说明；也可以使用下面的命令随时修改语言：
+
 ```text
 /language
 /language en

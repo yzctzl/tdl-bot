@@ -40,7 +40,7 @@ _LOGGER = logging.getLogger(__name__)
 # A single registry drives both routing and Telegram's command hints.
 _COMMANDS = (
     ("language", "language", "Choose your language", False),
-    ("start", "help", "Get started", False),
+    ("start", "start", "Get started", False),
     ("help", "help", "Show help", False),
     ("whoami", "whoami", "Show your account ID", False),
     (
@@ -221,6 +221,9 @@ class BotApplication:
         router.callback_query.register(
             self.cancel_retry, F.data.startswith("retry_cancel:")
         )
+        router.callback_query.register(
+            self.select_language, F.data.startswith("language:")
+        )
         router.errors.register(self.error)
         self.dispatcher = Dispatcher()
         self.dispatcher.include_router(router)
@@ -277,14 +280,71 @@ class BotApplication:
         if self._update:
             await self._update
 
+    def _help_text(self, user_id: int) -> str:
+        text = tr(_HELP)
+        if self.policy.is_admin(user_id):
+            text += tr(_ADMIN_HELP)
+        return text
+
+    @localized
+    async def start(self, message: Message) -> None:
+        """Ask first-time operators to choose a language explicitly."""
+        assert message.from_user is not None
+        if self.store.has_language(message.from_user.id):
+            await self.help(message)
+            return
+        with use_language("en"):
+            english = tr("Welcome! Please choose your language to get started.")
+        with use_language("zh"):
+            chinese = tr("Welcome! Please choose your language to get started.")
+        await message.answer(
+            f"{english}\n\n{chinese}",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=catalog["name"],
+                            callback_data=f"language:{code}",
+                        )
+                    ]
+                    for code, catalog in CATALOGS.items()
+                ]
+            ),
+        )
+
+    @localized
+    async def select_language(self, query: CallbackQuery) -> None:
+        """Only a current member can change their own private-chat language."""
+        user_id = query.from_user.id
+        code = (query.data or "").removeprefix("language:")
+        if (
+            not self.policy.is_allowed(user_id)
+            or query.message is None
+            or query.message.chat.type != "private"
+            or query.message.chat.id != user_id
+            or code not in CATALOGS
+        ):
+            await query.answer(
+                tr("Language selection is unavailable."), show_alert=True
+            )
+            return
+        self.store.set_language(user_id, code)
+        with use_language(code):
+            await query.answer(tr("Language selected."))
+            await self.refresh_menu(user_id)
+            # Replace the chooser so its buttons cannot be clicked again.
+            await self.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=query.message.message_id,
+                text=self._help_text(user_id),
+                reply_markup=None,
+            )
+
     @localized
     async def help(self, message: Message) -> None:
         """Show the command reference."""
         assert message.from_user is not None
-        text = tr(_HELP)
-        if self.policy.is_admin(message.from_user.id):
-            text += tr(_ADMIN_HELP)
-        await message.answer(text)
+        await message.answer(self._help_text(message.from_user.id))
 
     @localized
     async def language(self, message: Message, command: CommandObject) -> None:

@@ -271,6 +271,9 @@
     "The downloaded binary version does not match the release.": "下载程序的版本与 release 不一致。",
     "Choose your language": "选择语言",
     "Unsupported language. Use /language to see available languages.": "不支持该语言。使用 /language 查看可用语言。",
-    "Language: {name}\n{options}": "当前语言：{name}\n{options}"
+    "Language: {name}\n{options}": "当前语言：{name}\n{options}",
+    "Welcome! Please choose your language to get started.": "欢迎！请先选择语言，然后开始使用。",
+    "Language selection is unavailable.": "无法选择语言，请确认账号权限并在与 Bot 的私聊中重试。",
+    "Language selected.": "语言已选择。"
   }
 }
