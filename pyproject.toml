@@ -11,6 +11,7 @@ dependencies = [
     "telethon>=1.45,<2",
     "zstandard>=0.23,<1",
     "python-socks[asyncio]>=2.7,<3",
+    "cryptg>=0.5,<1",
 ]
 
 [dependency-groups]
