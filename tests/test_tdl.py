@@ -214,6 +214,10 @@ async def test_tdl_permission_errors_are_recognized(tmp_path):
     binary.chmod(0o755)
     with pytest.raises(AccessDenied):
         await Tdl(binary, "default")._run(["download"])
+    with pytest.raises(UserError) as upload_error:
+        await Tdl(binary, "default")._run(["upload"], operation="upload")
+    # Storage write errors must not become source-access pending retries.
+    assert not isinstance(upload_error.value, AccessDenied)
 
 
 @pytest.mark.parametrize("proxy", ["", "socks5://localhost:1080"])

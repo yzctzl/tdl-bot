@@ -42,6 +42,7 @@ class Settings:
     download_timeout: int = 7200
     account_bindings: tuple[AccountBinding, ...] = ()
     upload_concurrency: int = 8
+    upload_timeout: int = 7200
 
     @property
     def session_path(self) -> Path:
@@ -122,6 +123,7 @@ class Settings:
             queue_size=int(os.getenv("QUEUE_SIZE", "20")),
             download_timeout=int(os.getenv("DOWNLOAD_TIMEOUT", "7200")),
             upload_concurrency=int(os.getenv("UPLOAD_CONCURRENCY", "8")),
+            upload_timeout=int(os.getenv("UPLOAD_TIMEOUT", "7200")),
         )
         if (
             min(
@@ -135,6 +137,8 @@ class Settings:
                     "positive."
                 )
             )
+        if settings.upload_timeout <= 0:
+            raise ValueError(tr("UPLOAD_TIMEOUT must be positive."))
         if not 1 <= settings.upload_concurrency <= 32:
             raise ValueError(tr("UPLOAD_CONCURRENCY must be between 1 and 32."))
         account_file = Path(

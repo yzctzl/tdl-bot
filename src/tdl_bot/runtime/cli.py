@@ -74,6 +74,8 @@ async def run(settings: Settings, command: str) -> None:
         data_dir=settings.tdl_dir,
         proxy=settings.tdl_proxy,
         storage_lock=storage_locks[settings.tdl_dir],
+        upload_timeout=settings.upload_timeout,
+        upload_threads=settings.upload_concurrency,
     )
     proxy = proxy_settings(settings.tdl_proxy)
     if settings.session_source == "tdl":
@@ -151,7 +153,9 @@ async def run(settings: Settings, command: str) -> None:
                 tr("The Telethon session must belong to a user account.")
             )
         await tdl.version()
-        media = TelegramMedia(client)
+        media = TelegramMedia(
+            client, tdl=tdl if settings.session_source == "tdl" else None
+        )
         shared = Executor("shared", tdl, media)
         personal = []
         session = client.session
@@ -191,6 +195,8 @@ async def run(settings: Settings, command: str) -> None:
                 settings.download_timeout,
                 data_dir=binding.tdl_dir,
                 proxy=binding.proxy,
+                upload_timeout=settings.upload_timeout,
+                upload_threads=settings.upload_concurrency,
                 storage_lock=storage_locks.setdefault(
                     binding.tdl_dir, AccountLock()
                 ),
@@ -239,7 +245,7 @@ async def run(settings: Settings, command: str) -> None:
                 Executor(
                     f"operator:{binding.operator_id}",
                     own_tdl,
-                    TelegramMedia(own),
+                    TelegramMedia(own, tdl=own_tdl),
                     binding.operator_id,
                 )
             )

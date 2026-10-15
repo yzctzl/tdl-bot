@@ -3,6 +3,7 @@
 import asyncio
 import csv
 import io
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -34,11 +35,15 @@ class Tdl:
         data_dir: Path | None = None,
         proxy: str | None = None,
         storage_lock: AccountLock | None = None,
+        upload_timeout: int = 7200,
+        upload_threads: int = 8,
     ) -> None:
         """Configure the executable and account namespace."""
         self.binary = binary
         self.namespace = namespace
         self.timeout = timeout
+        self.upload_timeout = upload_timeout
+        self.upload_threads = upload_threads
         self.data_dir = data_dir.resolve() if data_dir is not None else None
         self.proxy = proxy
         # tdl's default Bolt storage uses an exclusive database lock.
@@ -120,6 +125,37 @@ class Tdl:
             args.extend(["--url", url])
         await self._run(args)
 
+    async def upload(
+        self, directory: Path, target, captions: dict[str, str], *, photo: bool
+    ):
+        """Upload one isolated folder, tagging every file for exact receipts."""
+        chat = target.chat
+        if chat.startswith("-100"):
+            chat = str(-int(chat) - 1_000_000_000_000)
+        elif chat.startswith("-"):
+            chat = chat[1:]
+        path = io.StringIO()
+        csv.writer(path, lineterminator="").writerow([str(directory)])
+        args = [
+            *self.storage_args(),
+            "--ns",
+            self.namespace,
+            "--threads",
+            str(self.upload_threads),
+            "upload",
+            "--path",
+            path.getvalue(),
+            "--chat",
+            chat,
+            "--caption",
+            json.dumps(captions) + "[FileName]",
+        ]
+        if photo:
+            args.append("--photo")
+        if target.topic_id:
+            args.extend(["--topic", str(target.topic_id)])
+        await self._run(args, timeout=self.upload_timeout, operation="upload")
+
     async def _run(
         self,
         args: list[str],
@@ -127,6 +163,7 @@ class Tdl:
         binary: Path | None = None,
         timeout: int | None = None,
         coordinate: bool = True,
+        operation: str = "download",
     ) -> str:
         """Drain both streams, and reap the process on timeout/cancellation."""
         # Version uses disposable storage and no account authorization.
@@ -179,6 +216,13 @@ class Tdl:
                 await reader
                 if isinstance(exc, asyncio.CancelledError):
                     raise
+                if operation == "upload":
+                    raise UserError(
+                        tr(
+                            "tdl upload timed out. Temporary files have "
+                            "been cleaned up."
+                        )
+                    ) from exc
                 raise UserError(
                     tr(
                         "tdl download timed out. Temporary files have been "
@@ -187,6 +231,13 @@ class Tdl:
                 ) from exc
             output = tail.decode("utf-8", errors="replace")
             if process.returncode:
+                if operation == "upload":
+                    raise UserError(
+                        tr(
+                            "tdl upload failed. Check account permissions "
+                            "and network access before retrying."
+                        )
+                    )
                 if any(marker in output.upper() for marker in _ACCESS_ERRORS):
                     raise AccessDenied(
                         tr("The tdl download account cannot access this group.")

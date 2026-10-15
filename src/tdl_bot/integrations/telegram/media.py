@@ -11,6 +11,7 @@ from telethon.tl.custom.message import Message
 from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
 from tdl_bot.core.i18n import tr
 from tdl_bot.core.links import JoinLink, MessageLink
+from tdl_bot.integrations.tdl.albums import upload_album
 from tdl_bot.storage.models import Target
 
 _ACCESS_ERRORS = (
@@ -38,9 +39,10 @@ class MediaGroup:
 class TelegramMedia:
     """MTProto operations unavailable through aiogram's Bot API."""
 
-    def __init__(self, client: TelegramClient) -> None:
+    def __init__(self, client: TelegramClient, *, tdl=None) -> None:
         """Use an already authorized user-account client."""
         self.client = client
+        self.tdl = tdl
 
     async def _peer(self, peer: str | int):
         """Refresh dialog entities when resolving private chat IDs."""
@@ -308,11 +310,15 @@ class TelegramMedia:
     ):
         """Upload an ordered album with each original caption and entities.
 
-        Uploads use the user account so large videos do not encounter the
-        hosted Bot API's file-size limit. Audio/document albums are sent as
-        documents; visual albums retain photo/video presentation.
+        Existing tdl sessions transfer file bytes through the native uploader;
+        Telethon assembles the resulting media references server-side. The
+        standalone login mode retains the Telethon byte-transfer fallback.
         """
         peer = await self.validate_target(target)
+        if self.tdl is not None:
+            return await upload_album(
+                self.tdl, self.client, group, files, target, peer
+            )
         captions = [message.message or "" for message in group.messages]
         entities = [
             _visible_entities(message.entities or [])

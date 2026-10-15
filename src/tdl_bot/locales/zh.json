@@ -275,6 +275,12 @@
     "Welcome! Please choose your language to get started.": "欢迎！请先选择语言，然后开始使用。",
     "Language selection is unavailable.": "无法选择语言，请确认账号权限并在与 Bot 的私聊中重试。",
     "Language selected.": "语言已选择。",
-    "UPLOAD_CONCURRENCY must be between 1 and 32.": "UPLOAD_CONCURRENCY 必须在 1 到 32 之间。"
+    "UPLOAD_CONCURRENCY must be between 1 and 32.": "UPLOAD_CONCURRENCY 必须在 1 到 32 之间。",
+    "UPLOAD_TIMEOUT must be positive.": "UPLOAD_TIMEOUT 必须大于零。",
+    "tdl upload timed out. Temporary files have been cleaned up.": "tdl 上传超时，本地临时文件已清理。",
+    "tdl upload failed. Check account permissions and network access before retrying.": "tdl 上传失败，请检查账号权限和网络后重试。",
+    "tdl did not upload every media file. Album delivery stopped; temporary messages will be cleaned up.": "tdl 未上传全部媒体，已停止发送媒体组，并尝试清理暂存消息。",
+    "The uploaded file size does not match the source.": "上传文件大小与原始文件不一致。",
+    "tdl returned an unexpected media type.": "tdl 上传后的媒体类型与原始媒体不一致。"
   }
 }
