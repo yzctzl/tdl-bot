@@ -55,6 +55,8 @@ class MessageLink:
     def url_for(self, message_id: int) -> str:
         """Return a canonical download url for a media-group member."""
         if isinstance(self.peer, int):
+            if -1_000_000_000_000 < self.peer < 0:
+                return f"telegram:chat:{-self.peer}:{message_id}"
             channel_id = -self.peer - 1_000_000_000_000
             return f"https://t.me/c/{channel_id}/{message_id}"
         return f"https://t.me/{self.peer}/{message_id}"

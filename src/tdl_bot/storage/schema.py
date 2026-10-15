@@ -21,7 +21,7 @@ class SchemaMigrations:
     def run(self, path: Path, *, migrate: bool):
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 7:
+            if version > 8:
                 raise UserError(
                     tr(
                         "The database is newer than this program. Use a "
@@ -98,6 +98,17 @@ class SchemaMigrations:
                 if version == 6:
                     self._backup(path, suffix=".pre-availability")
                 self._initialize_availability()
+            if version < 8:
+                if version == 7:
+                    self._backup(path, suffix=".pre-backups")
+                with self._db:
+                    self._db.execute("BEGIN IMMEDIATE")
+                    self._db.execute(
+                        "CREATE TABLE IF NOT EXISTS backup_tasks "
+                        "(id TEXT PRIMARY KEY, "
+                        "payload TEXT NOT NULL)"
+                    )
+                    self._db.execute("PRAGMA user_version = 8")
         except BaseException:
             self._db.close()
             raise

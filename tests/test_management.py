@@ -671,7 +671,7 @@ def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         with sqlite3.connect(path) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 8
     finally:
         migrated.close()
 

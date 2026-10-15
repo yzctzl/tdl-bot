@@ -252,7 +252,7 @@ def test_early_v6_missing_available_column_migrates_without_losing_history(
                 for row in db.execute("PRAGMA table_info(stored_results)")
             }
         with sqlite3.connect(path) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 8
             assert db.execute(
                 "SELECT ids,status FROM delivery_history"
             ).fetchall() == [("[200]", "sent")]
@@ -284,3 +284,54 @@ def test_complete_v6_upgrade_preserves_unavailable_records(tmp_path):
             ).fetchone() == (0,)
     finally:
         migrated.close()
+
+
+def test_v7_upgrade_preserves_workspace_and_persists_backup_checkpoint(
+    tmp_path,
+):
+    from tdl_bot.storage.backups import Backup
+
+    path = tmp_path / "state.sqlite3"
+    store = Store(path)
+    store.seed_members(frozenset({1, 2}), frozenset({1}))
+    storage = Target("-1000000123456", 77)
+    store.set_target(1, storage)
+    store.close()
+    with sqlite3.connect(path) as db:
+        db.executescript("DROP TABLE backup_tasks; PRAGMA user_version=7;")
+    frontend = Store(path, migrate=False)
+    frontend.close()
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+    store = Store(path)
+    assert store.internal_target() == storage
+    admin, member = store.member(1), store.member(2)
+    assert admin is not None and member is not None
+    assert admin.role == "admin" and member.role == "user"
+    record = Backup(
+        1,
+        "dump",
+        -1000000654321,
+        "@source",
+        "Source",
+        "shared",
+        storage,
+        cursor=10,
+        inflight=20,
+        phase="writing",
+        target=Target("@target", 42),
+    )
+    store.backups.save(record)
+    store.close()
+    reopened = Store(path)
+    try:
+        (saved,) = reopened.backups.all()
+        assert saved.cursor == 10 and saved.inflight == 20
+        assert saved.phase == "writing" and saved.storage == storage
+        assert saved.target == Target("@target", 42)
+        assert (
+            path.with_name(path.name + ".pre-backups").stat().st_mode & 0o777
+            == 0o600
+        )
+    finally:
+        reopened.close()
