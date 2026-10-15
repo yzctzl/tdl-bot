@@ -1,0 +1,91 @@
+"""Per-request language contexts backed by extensible JSON catalogs.
+
+English source messages are stable translation keys. Add a locale JSON file
+with a display name and translated messages to offer another language.
+"""
+
+import json
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
+from pathlib import Path
+from string import Formatter
+
+DEFAULT_LANGUAGE = "en"
+_language = ContextVar("language", default=DEFAULT_LANGUAGE)
+
+
+def _fields(text):
+    return {field for _, field, _, _ in Formatter().parse(text) if field}
+
+
+def _load_catalogs():
+    catalogs = {}
+    for path in sorted(Path(__file__).with_name("locales").glob("*.json")):
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        for source, translated in catalog["messages"].items():
+            if _fields(source) != _fields(translated):
+                raise ValueError(
+                    f"Translation placeholders differ: {path.name}"
+                )
+        catalogs[path.stem] = catalog
+    return catalogs
+
+
+CATALOGS = _load_catalogs()
+
+
+def current_language():
+    return _language.get()
+
+
+@contextmanager
+def use_language(language):
+    """Keep concurrent requests isolated, falling back to English."""
+    token = _language.set(
+        language if language in CATALOGS else DEFAULT_LANGUAGE
+    )
+    try:
+        yield
+    finally:
+        _language.reset(token)
+
+
+def tr(message: str, **values) -> str:
+    """Translate a template before interpolating user-controlled values."""
+    catalog = CATALOGS.get(current_language(), {}).get("messages", {})
+    template = catalog.get(message, message)
+    return template.format(**values) if values else template
+
+
+def saved_label(value: str) -> str:
+    """Render persisted stage labels, including labels from Chinese releases."""
+    for catalog in CATALOGS.values():
+        for source, translated in catalog["messages"].items():
+            if translated == value:
+                return tr(source)
+    return tr(value)
+
+
+def localized(handler):
+    """Use the recipient's saved language for commands, buttons, and errors."""
+
+    @wraps(handler)
+    async def wrapped(self, event, *args, **kwargs):
+        if isinstance(event, int):
+            user_id = event
+        else:
+            update = getattr(event, "update", None)
+            origin = (
+                (
+                    getattr(update, "message", None)
+                    or getattr(update, "callback_query", None)
+                )
+                if update is not None
+                else event
+            )
+            user_id = getattr(getattr(origin, "from_user", None), "id", None)
+        with use_language(self.store.language(user_id)):
+            return await handler(self, event, *args, **kwargs)
+
+    return wrapped

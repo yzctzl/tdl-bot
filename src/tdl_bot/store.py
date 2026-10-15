@@ -53,6 +53,28 @@ class Member:
 class Store:
     """Small workspace transactions used only on the event-loop thread."""
 
+    def language(self, user_id: int | None) -> str:
+        """Default to English independently of the Telegram client locale."""
+        from tdl_bot.i18n import CATALOGS, DEFAULT_LANGUAGE
+
+        row = self._db.execute(
+            "SELECT value FROM workspace_metadata WHERE key=?",
+            (f"language:{user_id}",),
+        ).fetchone()
+        return row[0] if row and row[0] in CATALOGS else DEFAULT_LANGUAGE
+
+    def set_language(self, user_id: int, language: str) -> None:
+        from tdl_bot.i18n import CATALOGS
+
+        if language not in CATALOGS:
+            raise ValueError("Unsupported language")
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO workspace_metadata (key, value) "
+                "VALUES (?, ?)",
+                (f"language:{user_id}", language),
+            )
+
     def __init__(self, path: Path, *, migrate: bool = True) -> None:
         """Open the database and migrate legacy state once, with a backup."""
         self._db = sqlite3.connect(path)
