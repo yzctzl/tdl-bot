@@ -193,3 +193,31 @@ async def test_storage_lists_only_owned_chats_on_request(
     assert "Joined chat" not in output
     assert ("Owned chat · -10042 · @example" in output) == owned
     assert ("No channels or groups owned" in output) != owned
+
+
+@pytest.mark.parametrize("detected", ["Asia/Taipei", "unknown"])
+def test_timezone_setup_detects_confirms_and_validates(
+    tmp_path, monkeypatch, capsys, detected
+):
+    from tdl_bot.runtime import setup
+
+    monkeypatch.setattr(setup, "get_localzone_name", lambda: detected)
+    initialize(tmp_path, announce=False)
+    config = tmp_path / ".env"
+    values = dotenv_values(config)
+    assert values["TZ"] == ("Asia/Taipei" if detected != "unknown" else "")
+    original = config.read_text()
+    answers = iter(["invalid/timezone", "Europe/London"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    wizard._timezone(config)
+    assert dotenv_values(config)["TZ"] == "Europe/London"
+    assert "Enter a timezone" in capsys.readouterr().out
+    assert "DATA_DIR=./data" in config.read_text()
+    assert "BOT_TOKEN=" in config.read_text()
+    monkeypatch.setattr("builtins.input", lambda _: "")
+    wizard._timezone(config)
+    assert dotenv_values(config)["TZ"] == "Europe/London"
+    with pytest.raises(UserError, match="already exists"):
+        initialize(tmp_path)
+    assert config.read_text() != original
+    assert dotenv_values(config)["TZ"] == "Europe/London"

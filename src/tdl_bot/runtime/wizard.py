@@ -7,6 +7,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
@@ -89,6 +90,7 @@ def configure(directory):
             )
         )
         try:
+            _timezone(config)
             asyncio.run(_configure(settings, config))
         except (RPCError, OSError, TimeoutError) as exc:
             raise UserError(
@@ -102,6 +104,26 @@ def configure(directory):
                 tr("Setup interrupted. Run setup -i again to continue.")
             ) from exc
     print(tr("Setup complete. Start with: tdl-bot run -e {path}", path=config))
+
+
+def _timezone(config):
+    from tdl_bot.runtime.setup import system_timezone
+
+    current = (
+        dotenv_values(config, interpolate=False).get("TZ") or system_timezone()
+    )
+    while True:
+        zone = (
+            input(tr("Timezone for Docker [{zone}]: ", zone=current)).strip()
+            or current
+        )
+        try:
+            ZoneInfo(zone)
+        except (ValueError, ZoneInfoNotFoundError):
+            print(tr("Enter a timezone such as Asia/Taipei or Europe/London."))
+            continue
+        save_values(config, TZ=zone)
+        return
 
 
 async def _configure(settings, config):

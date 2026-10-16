@@ -19,7 +19,10 @@ ENV PATH="/opt/venv/bin:$PATH" \
     TDL_BOT_ENV_FILE=/workspace/.env \
     RUNTIME_DIR=/run/tdl-bot \
     HOME=/data/tdl-home
-RUN groupadd --gid 1000 app \
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --no-create-home app \
     && mkdir -p /workspace /data /tdl-bin /run/tdl-bot \
     && chown app:app /workspace /data /tdl-bin /run/tdl-bot

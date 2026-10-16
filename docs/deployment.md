@@ -89,8 +89,9 @@ directory or immediate child directories. For an older instance elsewhere, use
 their own filesystem/process environment.
 `setup` creates a template and refuses to replace an existing `.env`.
 Use `tdl-bot setup -i` for native interactive onboarding, or
-`setup -i -d <workspace>` for another directory. It verifies the Bot token,
-reuses or creates a native tdl login, explicitly confirms administrators,
+`setup -i -d <workspace>` for another directory. It confirms the detected Docker
+timezone, verifies the Bot token, reuses or creates a native tdl login,
+and explicitly confirms administrators,
 and accepts a storage channel/group UID or @username. Enter `list` to display
 only channels/groups owned by the signed-in execution account; nothing is
 listed automatically. No UID lookup is
@@ -110,8 +111,11 @@ it does not relocate bind mounts or change the container's environment.
 
 Record timestamps and member deadlines use the running machine's local timezone,
 including daylight saving time for the recorded instant. Stored timestamps remain
-UTC. Docker uses the container timezone, which may differ from the host; configure
-the container timezone if local display is required. Previously posted Telegram
+UTC. Host `setup` detects the local IANA timezone name during initialization
+and saves `TZ` in `.env`.
+`setup -i` lets you confirm or change it. Native runs keep using the system
+setting; Compose passes `TZ` to the container, whose image includes system
+`tzdata`. No host timezone file mount is required. Previously posted Telegram
 records retain their text until updated.
 
 ## Native Windows
@@ -180,7 +184,17 @@ Windows PowerShell:
 New-Item -ItemType Directory -Force data/tdl, bin
 ```
 
-Edit `.env`. Keep the explicit paths, fill in `BOT_TOKEN`, and obtain your UID
+Edit `.env`. Set `TZ` to the host timezone's IANA name, for example
+`Asia/Taipei` or `Europe/London`. This is required when using the downloaded
+blank template; a workspace created by host `tdl-bot setup` already contains
+the detected name. Windows/macOS Docker Desktop also uses this value rather
+than the Linux virtual machine's timezone. Use a region/city name rather than
+an ambiguous abbreviation such as `CST`; the region supplies daylight saving
+rules. If detection is unavailable, fill the name manually or use `setup -i`.
+Changing `TZ` requires recreating the container with `docker compose up -d`;
+Bot `reload` cannot change a container's environment.
+
+Keep the explicit paths, fill in `BOT_TOKEN`, and obtain your UID
 through login before filling `ADMIN_USER_IDS` for the first Bot start. Existing
 workspace membership remains authoritative after initialization.
 

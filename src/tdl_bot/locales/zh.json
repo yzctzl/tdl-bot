@@ -439,7 +439,9 @@
     "Management records": "管理记录",
     "Running": "运行中",
     "Send a Telegram message URL, not a group homepage.": "请发送 Telegram 消息链接，而非群组主页链接。",
-    "This command is unavailable on Windows. Use run, stop or health.": "Windows 不支持此命令。请使用 run、stop 或 health。"
+    "This command is unavailable on Windows. Use run, stop or health.": "Windows 不支持此命令。请使用 run、stop 或 health。",
+    "Timezone for Docker [{zone}]: ": "Docker 时区 [{zone}]：",
+    "Enter a timezone such as Asia/Taipei or Europe/London.": "请输入时区名称，例如 Asia/Taipei 或 Europe/London。"
   },
   "aliases": {
     "已有进程使用该 data 目录或 tdl 程序。": "Another process is using this data directory or tdl binary.",

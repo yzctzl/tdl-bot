@@ -52,6 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate Compose configuration
+        env:
+          TZ: Etc/UTC
         run: docker compose --env-file src/tdl_bot/resources/env.example config --quiet
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -68,6 +70,8 @@ jobs:
         run: |
           docker run --rm tdl-bot:check --help
           docker run --rm tdl-bot:check setup -d /tmp/workspace
+          docker run --rm -e TZ=Asia/Taipei --entrypoint python tdl-bot:check -c "from tdl_bot.core.time import local_timestamp; assert local_timestamp(1704067200) == '2024-01-01 08:00 CST'"
+          docker run --rm -e TZ=America/New_York --entrypoint python tdl-bot:check -c "from tdl_bot.core.time import local_timestamp; assert local_timestamp(1704067200) == '2023-12-31 19:00 EST'; assert local_timestamp(1719792000) == '2024-06-30 20:00 EDT'"
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io

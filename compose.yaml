@@ -7,6 +7,7 @@ services:
     # Finite dumps/follows stop after the current unit; accepted URL jobs drain.
     stop_grace_period: ${TDL_STOP_GRACE_PERIOD:-24h}
     environment:
+      TZ: ${TZ:?Run host setup or set TZ in .env (for example Asia/Taipei)}
       TDL_BOT_ENV_FILE: /workspace/.env
       DATA_DIR: /data
       BIN_DIR: /tdl-bin

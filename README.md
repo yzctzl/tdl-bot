@@ -47,8 +47,12 @@ Windows 检查已加入 CI；当前开发环境仅验证离线逻辑，尚未在
 - **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
 - `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
 - 在当前目录运行 `tdl-bot setup` 即可初始化；其他目录用 `setup -d <目录>`。源码运行加 `uv run` 前缀。
-- 本机推荐 `tdl-bot setup -i` 交互配置：Token → Telegram 登录 → 确认管理员 → 选择存储频道。其他目录加 `-d <目录>`；已有配置可回车保留，运行中的服务需先停止。Docker 目前继续使用下文的配置流程。
+- 本机推荐 `tdl-bot setup -i` 交互配置：确认 Docker 时区 → Token → Telegram 登录 → 确认管理员 → 选择存储频道。其他目录加 `-d <目录>`；已有配置可回车保留，运行中的服务需先停止。Docker 目前继续使用下文的配置流程。
 - 常用短选项：`-e` 配置文件、`-d` 工作目录、`-n` 登录 namespace、`-m` 登录方式；长选项仍支持。
+
+容器通过 `.env` 中的 `TZ` 设置时区，例如 `Asia/Taipei`。宿主机执行 `setup`
+会自动填写系统时区，`setup -i` 可确认或修改；纯 Docker 部署需手动填写。
+镜像内置系统时区数据，无需挂载 `/etc/localtime`。原生运行仍跟随系统时区。
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
 仓库包含 Windows/Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；

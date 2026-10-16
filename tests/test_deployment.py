@@ -14,8 +14,12 @@ def test_workspace_paths_reload_without_exporting_configuration(
     tmp_path, monkeypatch
 ):
     root = tmp_path / "workspace"
+    monkeypatch.setattr(
+        "tdl_bot.runtime.setup.get_localzone_name", lambda: "Asia/Taipei"
+    )
     initialize(root)
     config = root / ".env"
+    assert "TZ=Asia/Taipei\n" in config.read_text()
     monkeypatch.chdir(tmp_path)
     for name in (
         "TDL_BOT_ENV_FILE",
