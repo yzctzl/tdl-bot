@@ -389,7 +389,6 @@
     "1/4 Bot: obtain a token from @BotFather. Input is hidden.": "1/4 Bot：从 @BotFather 获取 Token，输入时不显示。",
     "Bot verified: @{name}": "Bot 已验证：@{name}",
     "2/4 Telegram account: reuse an existing login or scan the QR code.": "2/4 Telegram 账号：复用已有登录，或扫描二维码登录。",
-    "4/4 Storage: choose an existing channel or group. Add the Bot as an administrator with posting permission first.": "4/4 存储：选择已有频道或群组。请先将 Bot 加为管理员并授予发消息权限。",
     "Interactive setup needs a terminal. Run setup -i in a terminal.": "交互配置需要终端。请在终端运行 setup -i。",
     "Interactive login requires SESSION_SOURCE=tdl. Your existing configuration was kept.": "交互登录需要 SESSION_SOURCE=tdl。已有配置保持不变。",
     "Interactive setup. Press Enter to keep existing values; Ctrl+C to exit. Completed steps are saved.": "交互配置：回车保留已有值，Ctrl+C 退出。已完成的步骤会保存。",
@@ -406,8 +405,11 @@
     "No administrator exists in the database. Restore administrator access before setup.": "数据库中没有管理员。请先恢复管理员权限后再配置。",
     "Cannot check storage. Check your network and account permissions, then retry.": "无法检查存储，请检查网络和账号权限后重试。",
     "Bot token (Enter to keep): ": "Bot Token（回车保留）：",
-    "Storage number, @username or chat ID (Enter to keep): ": "存储编号、@用户名或聊天 ID（回车保留）：",
     "Administrator UIDs [{value}]: ": "管理员 UID [{value}]：",
-    "Cannot save configuration. Check workspace write permissions.": "无法保存配置，请检查工作目录的写入权限。"
+    "Cannot save configuration. Check workspace write permissions.": "无法保存配置，请检查工作目录的写入权限。",
+    "4/4 Storage: enter the channel/group UID or @username. Add the Bot as an administrator with posting permission first.": "4/4 存储：输入频道／群组 UID 或 @用户名。请先将 Bot 加为管理员并授予发消息权限。",
+    "Storage UID or @username ('list' for owned chats; Enter to keep): ": "存储 UID 或 @用户名（输入 list 查看自己拥有的频道／群组，回车保留）：",
+    "Cannot list owned chats. Check your network and retry.": "无法列出自己拥有的频道／群组，请检查网络后重试。",
+    "No channels or groups owned by this account were found.": "未找到此账号拥有的频道或群组。"
   }
 }

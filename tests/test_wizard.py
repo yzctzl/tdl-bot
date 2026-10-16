@@ -63,11 +63,9 @@ async def test_wizard_retries_and_saves_verified_configuration(
             )
         ),
     )
-    dialogs = [SimpleNamespace(is_channel=True, name="Storage", id=-10042)]
-
-    async def iter_dialogs():
-        for dialog in dialogs:
-            yield dialog
+    iter_dialogs = Mock(
+        side_effect=AssertionError("Do not list chats by default")
+    )
 
     client = SimpleNamespace(
         connect=AsyncMock(),
@@ -98,6 +96,7 @@ async def test_wizard_retries_and_saves_verified_configuration(
     store = Store(settings.data_dir / "state.sqlite3")
     assert store.internal_target() == target
     store.close()
+    iter_dialogs.assert_not_called()
     login.assert_awaited_once()
     client.disconnect.assert_awaited_once()
     assert all(bot.session.close.await_count == 1 for bot in bots)
@@ -153,3 +152,44 @@ async def test_storage_checks_execution_account_permissions():
         await wizard._check_write_access(client, Mock())
     entity.default_banned_rights = None
     await wizard._check_write_access(client, Mock())
+
+
+@pytest.mark.parametrize("owned", [False, True])
+async def test_storage_lists_only_owned_chats_on_request(
+    tmp_path, monkeypatch, capsys, owned
+):
+    initialize(tmp_path, announce=False)
+    settings = Settings.from_env(login_only=True, env_file=tmp_path / ".env")
+    answers = iter(["list", "42"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    async def dialogs():
+        for owner, name in ((False, "Joined chat"), (owned, "Owned chat")):
+            yield SimpleNamespace(
+                is_channel=True,
+                is_group=False,
+                id=-10042,
+                name=name,
+                entity=SimpleNamespace(creator=owner, username="example"),
+            )
+
+    client = SimpleNamespace(iter_dialogs=dialogs)
+    validate = AsyncMock(return_value=Target("-10042"))
+    monkeypatch.setattr(
+        wizard,
+        "Delivery",
+        Mock(return_value=SimpleNamespace(validate=validate)),
+    )
+    monkeypatch.setattr(
+        wizard,
+        "TelegramMedia",
+        Mock(return_value=SimpleNamespace(validate_target=AsyncMock())),
+    )
+    monkeypatch.setattr(wizard, "_check_write_access", AsyncMock())
+    await wizard._storage(Mock(), client, settings, 7)
+    # Bare numeric input always remains a UID, never a list index.
+    validate.assert_awaited_once_with(Target("42"), 7, storage=True)
+    output = capsys.readouterr().out
+    assert "Joined chat" not in output
+    assert ("Owned chat · -10042 · @example" in output) == owned
+    assert ("No channels or groups owned" in output) != owned

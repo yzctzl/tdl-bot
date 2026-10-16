@@ -75,7 +75,9 @@ configuration filename. Use the same workspace for login, run, reload and stop.
 Use `tdl-bot setup -i` for native interactive onboarding, or
 `setup -i -d <workspace>` for another directory. It verifies the Bot token,
 reuses or creates a native tdl login, explicitly confirms administrators,
-and lists joined channels/groups for storage selection. No UID lookup is
+and accepts a storage channel/group UID or @username. Enter `list` to display
+only channels/groups owned by the signed-in execution account; nothing is
+listed automatically. No UID lookup is
 needed when the signed-in account is the administrator. Both Bot and execution
 account permissions are checked without sending test messages. Add the Bot to
 storage with posting permissions first.

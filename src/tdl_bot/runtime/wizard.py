@@ -216,16 +216,10 @@ async def _configure(settings, config):
 async def _storage(bot, client, settings, actor):
     print(
         tr(
-            "4/4 Storage: choose an existing channel or group. Add the Bot "
-            "as an administrator with posting permission first."
+            "4/4 Storage: enter the channel/group UID or @username. "
+            "Add the Bot as an administrator with posting permission first."
         )
     )
-    # List joined destinations so private channels do not require an ID lookup.
-    choices = []
-    async for dialog in client.iter_dialogs():
-        if dialog.is_channel or dialog.is_group:
-            choices.append(dialog)
-            print(f"{len(choices)}. {dialog.name} ({dialog.id})")
     store = Store(settings.data_dir / "state.sqlite3")
     try:
         current = store.internal_target()
@@ -233,12 +227,24 @@ async def _storage(bot, client, settings, actor):
             print(tr("Current storage: {chat}", chat=current.chat))
         while True:
             answer = input(  # noqa: ASYNC250 - Keep terminal Ctrl+C interruptible.
-                tr("Storage number, @username or chat ID (Enter to keep): ")
+                tr(
+                    "Storage UID or @username ('list' for owned chats; "
+                    "Enter to keep): "
+                )
             ).strip()
             if not answer and current:
                 target = current
-            elif answer.isdigit() and 1 <= int(answer) <= len(choices):
-                target = Target(str(choices[int(answer) - 1].id))
+            elif answer.lower() == "list":
+                try:
+                    await _list_owned_chats(client)
+                except (RPCError, OSError, TimeoutError):
+                    print(
+                        tr(
+                            "Cannot list owned chats. Check your network "
+                            "and retry."
+                        )
+                    )
+                continue
             elif answer:
                 target = Target(answer)
             else:
@@ -264,6 +270,21 @@ async def _storage(bot, client, settings, actor):
             break
     finally:
         store.close()
+
+
+async def _list_owned_chats(client):
+    """Only disclose chats owned by the execution account, on request."""
+    found = False
+    async for dialog in client.iter_dialogs():
+        if (dialog.is_channel or dialog.is_group) and getattr(
+            dialog.entity, "creator", False
+        ):
+            found = True
+            username = getattr(dialog.entity, "username", None)
+            handle = f" · @{username}" if username else ""
+            print(f"{dialog.name} · {dialog.id}{handle}")
+    if not found:
+        print(tr("No channels or groups owned by this account were found."))
 
 
 async def _check_write_access(client, peer):
