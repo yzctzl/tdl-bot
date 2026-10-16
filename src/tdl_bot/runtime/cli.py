@@ -405,6 +405,13 @@ def parse_arguments(argv=None):
         default="qr",
         help="Native tdl login method (default: qr)",
     )
+    pages["reload"].add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        dest="all_instances",
+        help="Reload every running instance owned by this system user",
+    )
     pages["run"].add_argument(
         "--no-reload", action="store_true", help=argparse.SUPPRESS
     )
@@ -414,10 +421,62 @@ def parse_arguments(argv=None):
     args = parser.parse_args(argv)
     args.command = args.command or "run"
     args.env_file = getattr(args, "env_file", None)
+    if (
+        args.command == "reload"
+        and args.all_instances
+        and args.env_file is not None
+    ):
+        parser.error("Use either -a or -e, not both")
     if args.command == "help":
         (pages[args.topic] if args.topic else parser).print_help()
         parser.exit()
     return parser, args
+
+
+def reload_instances(env_file=None, *, all_instances=False):
+    from tdl_bot.runtime.instances import Instance, discover
+
+    instances = discover(lambda runtime: signal_supervisor(runtime, 0))
+    if env_file is not None:
+        config = env_file.expanduser().resolve()
+        instances = [
+            instance for instance in instances if instance.env_file == config
+        ]
+        if not instances:
+            # Explicit selection also supports legacy instances outside cwd.
+            settings = Settings.from_env(env_file=env_file)
+            instances = [Instance(config, runtime_directory(settings))]
+    if not instances:
+        raise UserError(tr("No Bot supervisor is running."))
+    if len(instances) > 1 and not all_instances:
+        paths = "\n".join(str(instance.env_file) for instance in instances)
+        raise UserError(
+            tr(
+                "Multiple instances are running. Use reload -a for all, or "
+                "reload -e <config> for one:\n{paths}",
+                paths=paths,
+            )
+        )
+    failed = []
+    for instance in instances:
+        try:
+            if not signal_supervisor(instance.runtime_dir, signal.SIGHUP):
+                raise UserError(tr("No Bot supervisor is running."))
+            path = instance.runtime_dir / "runtime.sock"
+            if path.exists():
+                # Discover newly logged-in accounts even without a code change.
+                asyncio.run(
+                    exchange(path, {"method": "ping", "args": {"reload": True}})
+                )
+            print(tr("Reload requested: {path}", path=instance.env_file))
+        except (UserError, OSError, ValueError) as exc:
+            failed.append(str(instance.env_file))
+            print(tr("Reload failed: {path}", path=instance.env_file))
+            logging.warning("Reload error: %s", type(exc).__name__)
+    if failed:
+        raise UserError(
+            tr("Could not reload {count} instance(s).", count=len(failed))
+        )
 
 
 def main() -> None:
@@ -440,6 +499,9 @@ def main() -> None:
                 configure(args.directory)
             else:
                 initialize(args.directory)
+            return
+        if args.command == "reload":
+            reload_instances(args.env_file, all_instances=args.all_instances)
             return
         settings = Settings.from_env(
             login_only=args.command == "login", env_file=args.env_file
@@ -464,25 +526,19 @@ def main() -> None:
 
             asyncio.run(drain_engine(settings))
             return
-        if args.command == "reload":
-            if not signal_supervisor(runtime_dir, signal.SIGHUP):
-                raise UserError(tr("No Bot supervisor is running."))
-            path = runtime_directory(settings) / "runtime.sock"
-            if path.exists():
-                # Reload also discovers sessions added without a code change.
-                asyncio.run(
-                    exchange(path, {"method": "ping", "args": {"reload": True}})
-                )
-            return
         if args.command == "health":
             if not signal_supervisor(runtime_dir, 0):
                 raise UserError(tr("No Bot supervisor is running."))
             asyncio.run(_health(settings))
             return
         if args.command in {"run", "container"}:
+            from tdl_bot.runtime.instances import registered
             from tdl_bot.runtime.supervisor import supervise
 
-            with instance_lock(runtime_dir / ".supervisor.lock"):
+            with (
+                instance_lock(runtime_dir / ".supervisor.lock"),
+                registered(settings),
+            ):
                 if args.command == "container":
                     from tdl_bot.runtime.container import drain_engine
 

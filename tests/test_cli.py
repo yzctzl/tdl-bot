@@ -16,6 +16,11 @@ from tdl_bot.storage.store import Store
 
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("")
+    (tmp_path / "workspace").mkdir()
+    (tmp_path / "workspace/.env").write_text("")
     settings = Settings(
         "99:TEST",
         0,
@@ -64,7 +69,7 @@ def test_reload_and_stop_require_live_supervisor_and_release_locks(
         cli.main()
         monkeypatch.setattr("sys.argv", ["tdl-bot", "stop"])
         cli.main()
-    assert signals == [(123, signal.SIGHUP), (123, signal.SIGTERM)]
+    assert signals == [(123, 0), (123, signal.SIGHUP), (123, signal.SIGTERM)]
     exchange.assert_has_awaits(
         [
             call(
@@ -80,7 +85,7 @@ def test_reload_and_stop_require_live_supervisor_and_release_locks(
     with pytest.raises(SystemExit) as error:
         cli.main()
     assert error.value.code == 1
-    assert len(signals) == 2
+    assert len(signals) == 3
 
 
 @pytest.mark.parametrize("command", ["run", "frontend", "engine"])
@@ -228,3 +233,76 @@ def test_help_exits_without_loading_configuration(monkeypatch, capsys):
         assert error.value.code == 0
         assert expected in capsys.readouterr().out
     configure.assert_not_called()
+
+
+def test_reload_discovers_instances_and_requires_an_explicit_choice(
+    tmp_path, monkeypatch, capsys
+):
+    from pathlib import Path
+
+    from tdl_bot.runtime.instances import (
+        discover,
+        registered,
+        registry_directory,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    settings = []
+    for name in ("one", "two"):
+        root = tmp_path / name
+        root.mkdir()
+        (root / "frontend.pid").write_text(str(os.getpid()))
+        settings.append(
+            SimpleNamespace(env_file=root / ".env", runtime_dir=root)
+        )
+    signal_process = Mock(return_value=True)
+    monkeypatch.setattr(cli, "signal_supervisor", signal_process)
+    with registered(settings[0]):
+        # No .env is needed to reload a registered live process from any cwd.
+        cli.reload_instances()
+        assert "Reload requested:" in capsys.readouterr().out
+        assert signal_process.call_args.args == (
+            settings[0].runtime_dir,
+            signal.SIGHUP,
+        )
+        signal_process.reset_mock()
+        with registered(settings[1]):
+            with pytest.raises(UserError, match="Multiple instances"):
+                cli.reload_instances()
+            assert all(
+                call.args[1] == 0 for call in signal_process.call_args_list
+            )
+            signal_process.reset_mock()
+            cli.reload_instances(all_instances=True)
+            assert [
+                call.args[0]
+                for call in signal_process.call_args_list
+                if call.args[1] == signal.SIGHUP
+            ] == [s.runtime_dir for s in settings]
+            signal_process.reset_mock()
+            cli.reload_instances(settings[1].env_file)
+            assert signal_process.call_args.args == (
+                settings[1].runtime_dir,
+                signal.SIGHUP,
+            )
+            # A failure in one instance must not prevent another reload.
+            signal_process.side_effect = lambda path, sig: (
+                not (sig == signal.SIGHUP and path == settings[0].runtime_dir)
+            )
+            with pytest.raises(UserError, match="1 instance"):
+                cli.reload_instances(all_instances=True)
+            assert signal_process.call_args.args == (
+                settings[1].runtime_dir,
+                signal.SIGHUP,
+            )
+        # Stale PIDs and malformed records never become reload targets.
+        (settings[0].runtime_dir / "frontend.pid").write_text("-1")
+        (registry_directory() / "broken.json").write_text("{invalid")
+        assert discover(lambda _: True) == []
+    assert len(list(registry_directory().glob("*.json"))) == 1
+    args = cli.parse_arguments(["reload", "-a"])[1]
+    assert args.all_instances
+    with pytest.raises(SystemExit) as error:
+        cli.parse_arguments(["reload", "-a", "-e", str(Path(".env"))])
+    assert error.value.code == 2

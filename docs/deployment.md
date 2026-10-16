@@ -70,7 +70,22 @@ still starts the Bot.
 
 `TDL_BOT_ENV_FILE` is an alternative to `--env-file`. Otherwise the CLI uses
 `.env` in the current directory. All spawned processes inherit the resolved
-configuration filename. Use the same workspace for login, run, reload and stop.
+configuration filename. Use the same workspace for login, run and stop.
+
+`tdl-bot reload` automatically selects the only running instance owned by the
+current system user, regardless of the current `.env`. With multiple instances,
+use `tdl-bot reload -a` for all or `tdl-bot reload -e <workspace>/.env` for one.
+An ambiguous command lists configurations and reloads nothing. Each selected
+instance reports whether its reload request succeeded; failures do not prevent
+other selected instances from receiving requests. `-a` and `-e` cannot be combined.
+
+New supervisors register configuration/runtime paths and their PID (no tokens)
+in `$XDG_STATE_HOME/tdl-bot/instances` (default `~/.local/state/tdl-bot/instances`).
+Records are removed on exit; stale records are ignored using the supervisor lock
+and live PID. Older supervisors can be discovered from `.env` in the current
+directory or immediate child directories. For an older instance elsewhere, use
+`-e` until its next full stop/start. Containers only discover instances within
+their own filesystem/process environment.
 `setup` creates a template and refuses to replace an existing `.env`.
 Use `tdl-bot setup -i` for native interactive onboarding, or
 `setup -i -d <workspace>` for another directory. It verifies the Bot token,

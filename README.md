@@ -501,7 +501,9 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 uv run tdl-bot                 # 启动；代码修改不会触发自动重载
 uv run tdl-bot help            # 查看所有子命令
 uv run tdl-bot help login      # 查看登录选项（也可用 login --help）
-uv run tdl-bot reload          # 需要时手动热重启交互进程
+uv run tdl-bot reload          # 自动重载唯一运行实例
+uv run tdl-bot reload -a       # 重载当前系统用户的全部运行实例
+uv run tdl-bot reload -e ./workspace/.env  # 指定实例
 uv run tdl-bot stop            # 停止交互进程，引擎完成已接收任务后退出
 ```
 

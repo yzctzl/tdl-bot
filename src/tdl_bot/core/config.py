@@ -63,8 +63,8 @@ class Settings:
         if not config.is_file():
             raise ValueError(
                 tr(
-                    "Configuration file not found: {path}. Run tdl-bot init "
-                    "--directory <workspace>, then edit .env.",
+                    "Configuration file not found: {path}. Run "
+                    "tdl-bot setup -i -d <workspace>.",
                     path=config,
                 )
             )
