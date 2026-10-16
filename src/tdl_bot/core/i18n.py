@@ -1,7 +1,7 @@
 """Per-request language contexts backed by extensible JSON catalogs.
 
-English source messages are stable translation keys. Add a locale JSON file
-with a display name and translated messages to offer another language.
+English source messages provide default copy and translation keys. Add a locale
+JSON file with a display name and translated messages to offer another language.
 """
 
 import json
@@ -48,6 +48,12 @@ def _load_catalogs():
 
 
 CATALOGS = _load_catalogs()
+# Keep persisted templates readable when source wording changes.
+SOURCE_ALIASES = {
+    source: current
+    for catalog in CATALOGS.values()
+    for source, current in catalog.get("aliases", {}).items()
+}
 
 
 def current_language():
@@ -120,9 +126,9 @@ def render(value):
 
 def tr(message: str, **values) -> str:
     """Translate a template before interpolating user-controlled values."""
+    message = SOURCE_ALIASES.get(message, message)
     catalog = CATALOGS.get(current_language(), {}).get("messages", {})
-    default = CATALOGS[DEFAULT_LANGUAGE]["messages"].get(message, message)
-    template = catalog.get(message, default)
+    template = catalog.get(message, message)
     text = template.format(**values) if values else template
     return Translation(text, message, values)
 
@@ -131,8 +137,6 @@ def saved_label(value: str) -> str:
     """Render persisted stage labels, including labels from Chinese releases."""
     if isinstance(value, (Translation, dict)):
         return render(value)
-    if value in CATALOGS[DEFAULT_LANGUAGE]["messages"]:
-        return tr(value)
     for catalog in CATALOGS.values():
         alias = catalog.get("aliases", {}).get(value)
         if alias is not None:

@@ -460,7 +460,7 @@ def reload_instances(env_file=None, *, all_instances=False):
             settings = Settings.from_env(env_file=env_file)
             instances = [Instance(config, runtime_directory(settings))]
     if not instances:
-        raise UserError(tr("No Bot supervisor is running."))
+        raise UserError(tr("No Bot is running."))
     if len(instances) > 1 and not all_instances:
         paths = "\n".join(str(instance.env_file) for instance in instances)
         raise UserError(
@@ -474,7 +474,7 @@ def reload_instances(env_file=None, *, all_instances=False):
     for instance in instances:
         try:
             if not signal_supervisor(instance.runtime_dir, signal.SIGHUP):
-                raise UserError(tr("No Bot supervisor is running."))
+                raise UserError(tr("No Bot is running."))
             path = instance.runtime_dir / "runtime.sock"
             if path.exists():
                 # Discover newly logged-in accounts even without a code change.
@@ -541,7 +541,7 @@ def main() -> None:
             return
         if args.command == "health":
             if not signal_supervisor(runtime_dir, 0):
-                raise UserError(tr("No Bot supervisor is running."))
+                raise UserError(tr("No Bot is running."))
             asyncio.run(_health(settings))
             return
         if args.command in {"run", "container"}:

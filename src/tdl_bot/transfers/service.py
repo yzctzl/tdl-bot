@@ -396,9 +396,7 @@ class TransferService:
         self._jobs[job.id] = job
         self._checkpoint(job)
         try:
-            await self.notify(
-                job, tr("1/5 Download task queued."), finished=False
-            )
+            await self.notify(job, tr("1/5 Task queued."), finished=False)
         except BaseException:
             job.finished = True
             self._queue.discard(job)
@@ -716,7 +714,7 @@ class TransferService:
             return
         job.stage = "Preparing"
         await self._notify(
-            job, tr("3/5 Preparing {p0} media files.", p0=len(group.messages))
+            job, tr("3/5 Preparing media ({p0}).", p0=len(group.messages))
         )
         copier = getattr(executor.media, "copy_group", None)
         if copier is not None:
@@ -724,7 +722,7 @@ class TransferService:
                 job.stage = "Sending"
                 await self._notify(
                     job,
-                    tr("4/5 Sending {p0} media files.", p0=len(group.messages)),
+                    tr("4/5 Sending media ({p0}).", p0=len(group.messages)),
                 )
             job.upload_started = True
             self._checkpoint(job)
@@ -768,7 +766,7 @@ class TransferService:
                 await self._notify(
                     job,
                     tr(
-                        "3/5 Downloading and uploading {p0} media files.",
+                        "3/5 Downloading and uploading media ({p0}).",
                         p0=len(group.messages),
                     ),
                 )
@@ -787,7 +785,7 @@ class TransferService:
             job.stage = "Downloading"
             await self._notify(
                 job,
-                tr("3/5 Downloading {p0} media files.", p0=len(group.messages)),
+                tr("3/5 Downloading media ({p0}).", p0=len(group.messages)),
             )
             if basic:
                 await executor.media.download_group(group, directory)
@@ -801,9 +799,9 @@ class TransferService:
             job.stage = "Uploading"
             await self._notify(
                 job,
-                tr("3/5 Uploading {p0} media files.", p0=len(files))
+                tr("3/5 Uploading media ({p0}).", p0=len(files))
                 if self.delivery is not None
-                else tr("4/5 Uploading {p0} media files.", p0=len(files)),
+                else tr("4/5 Uploading media ({p0}).", p0=len(files)),
             )
             _LOGGER.info(
                 "Task user=%s phase=upload media=%s target=%s topic=%s",
@@ -838,7 +836,7 @@ class TransferService:
         await self._notify(
             job,
             tr(
-                "5/5 Complete: sent {p0} media files with captions.",
+                "5/5 Complete: media and captions sent ({p0}).",
                 p0=len(group.messages),
             ),
             finished=True,
@@ -861,7 +859,7 @@ class TransferService:
                     continue
                 job.stage = "Preparing"
                 await self._notify(
-                    job, tr("3/5 Preparing {p0} media files.", p0=len(ids))
+                    job, tr("3/5 Preparing media ({p0}).", p0=len(ids))
                 )
                 try:
                     await self._complete(job, urls, ids, source_chat=chat)
@@ -875,11 +873,11 @@ class TransferService:
                 return False
             job.stage = "Preparing"
             await self._notify(
-                job, tr("3/5 Preparing {p0} media files.", p0=len(ids))
+                job, tr("3/5 Preparing media ({p0}).", p0=len(ids))
             )
             job.stage = "Sending"
             await self._notify(
-                job, tr("4/5 Sending {p0} media files.", p0=len(ids))
+                job, tr("4/5 Sending media ({p0}).", p0=len(ids))
             )
             job.upload_started = True
             try:
@@ -924,10 +922,7 @@ class TransferService:
                 reveal = getattr(executor.media, "reveal_messages", None)
                 if reveal is not None and not await reveal(chat, ids):
                     raise MissingResult(
-                        tr(
-                            "The saved result is unavailable. The source "
-                            "needs to be processed again."
-                        )
+                        tr("The media is unavailable. Send the link again.")
                     )
                 self.store.mark_revealed(result_id)
             if job.storage_only:
@@ -936,7 +931,7 @@ class TransferService:
             job.upload_started = False
             job.stage = "Sending"
             await self._notify(
-                job, tr("4/5 Sending {p0} media files.", p0=len(ids))
+                job, tr("4/5 Sending media ({p0}).", p0=len(ids))
             )
             job.delivery_started = True
             self._checkpoint(job)
@@ -973,7 +968,7 @@ class TransferService:
         await self._notify(
             job,
             tr(
-                "5/5 Complete: sent {p0} media files with captions.",
+                "5/5 Complete: media and captions sent ({p0}).",
                 p0=len(ids),
             ),
             finished=True,

@@ -174,10 +174,7 @@ async def test_background_jobs_and_cancellation_use_submitters_language(
             for user in (1, 2)
         }
         assert messages[1][0] == "1/5 Task queued."
-        assert (
-            messages[2][0]
-            == CATALOGS["zh"]["messages"]["1/5 Download task queued."]
-        )
+        assert messages[2][0] == CATALOGS["zh"]["messages"]["1/5 Task queued."]
         assert any("5/5 Complete" in text for text in messages[1])
         assert any("5/5 完成" in text for text in messages[2])
         await service._cancelled(Job(2, "https://t.me/example/30", Target("2")))
@@ -189,7 +186,7 @@ async def test_background_jobs_and_cancellation_use_submitters_language(
 async def test_progress_rechecks_language_after_preference_change(bilingual):
     _, store, service = bilingual
     job = Job(2, "https://t.me/example/10", Target("2"))
-    text = tr("3/5 Downloading {p0} media files.", p0=2)
+    text = tr("3/5 Downloading media ({p0}).", p0=2)
     store.set_language(2, "zh")
     await service._notify(job, text)
     assert service.notify.call_args.args[1] == "3/5 正在下载 2 个媒体。"
@@ -215,7 +212,7 @@ async def test_buttons_and_error_replies_use_saved_language(bilingual):
         ),
     ):
         job = Job(user_id, "https://t.me/example/10", Target(str(user_id)))
-        await service._notify(job, tr("1/5 Download task queued."))
+        await service._notify(job, tr("1/5 Task queued."))
         markup = app.bot.send_message.call_args.kwargs["reply_markup"]
         assert markup.inline_keyboard[0][0].text == cancel
         query = SimpleNamespace(
@@ -288,10 +285,9 @@ async def test_rpc_errors_preserve_request_language(
             else "You cannot manage this task."
         )
         with use_language(other):
-            assert (
-                render(error_message(error.value))
-                == CATALOGS[other]["messages"][source]
-            )
+            assert render(error_message(error.value)) == CATALOGS[other][
+                "messages"
+            ].get(source, source)
         return str(error.value)
 
     async with server:
@@ -307,8 +303,7 @@ async def test_rpc_errors_preserve_request_language(
 
 
 def test_catalogs_cover_sources_and_keep_languages_in_sync():
-    english = CATALOGS["en"]["messages"]
-    assert english.keys() == CATALOGS["zh"]["messages"].keys()
+    assert CATALOGS["en"]["messages"] == {}
     sources = {HELP, ADMIN_HELP, USER_HELP, *(row[2] for row in COMMANDS)}
     stages = {"Queued"}
     for path in Path("src/tdl_bot").rglob("*.py"):
@@ -337,14 +332,19 @@ def test_catalogs_cover_sources_and_keep_languages_in_sync():
     verbs = re.compile(r"/(?:user|follow|dump|target|account) +[a-z_]+\b")
     for catalog in CATALOGS.values():
         messages = catalog["messages"]
+        if catalog is CATALOGS["en"]:
+            continue
         assert sources | stages <= messages.keys()
         assert all(
             isinstance(value, str) and value for value in messages.values()
         )
         for old_text, source in catalog.get("aliases", {}).items():
-            assert source in english
+            assert source in messages
             with use_language("en"):
                 assert saved_label(old_text) == tr(source)
+                assert tr(old_text) == tr(source)
+            with use_language("zh"):
+                assert tr(old_text) == tr(source)
         for template in (HELP, ADMIN_HELP, USER_HELP):
             assert Counter(commands.findall(template)) == Counter(
                 commands.findall(messages[template])
@@ -375,7 +375,9 @@ async def test_saved_errors_retranslate_after_reload_and_language_change(
     manager = BackupService(service, notify=notify)
     for language in ("en", "zh"):
         store.set_language(1, language)
-        expected = CATALOGS[language]["messages"][source].format(p0=17)
+        expected = (
+            CATALOGS[language]["messages"].get(source, source).format(p0=17)
+        )
         with use_language(language):
             assert saved_label(restored.error) == expected
             assert saved_label(source) == tr(source)

@@ -236,10 +236,7 @@ class Delivery:
                 reason = exc.message.lower()
                 if "message to copy not found" in reason:
                     raise MissingResult(
-                        tr(
-                            "The saved result is unavailable. The source "
-                            "needs to be processed again."
-                        )
+                        tr("The media is unavailable. Send the link again.")
                     ) from exc
                 if "thread" in reason or "topic" in reason:
                     text = tr(
@@ -272,10 +269,7 @@ class Delivery:
             raise UserError(text) from exc
         if not result:
             raise MissingResult(
-                tr(
-                    "The saved result is unavailable. The source needs to "
-                    "be processed again."
-                )
+                tr("The media is unavailable. Send the link again.")
             )
         if len(result) != len(ids):
             raise PartialDelivery([m.message_id for m in result])

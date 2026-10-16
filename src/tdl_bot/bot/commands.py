@@ -1,7 +1,7 @@
 """One command registry drives routing, menus and help."""
 
 COMMANDS = (
-    ("dump", "backups.dump", "Back up channel history (admin)", True),
+    ("dump", "backups.dump", "Back up channel or group history (admin)", True),
     ("follow", "backups.follow", "Track new channel or group messages", False),
     (
         "account",
@@ -89,6 +89,6 @@ ADMIN_HELP = (
     "/storage <chat> [topic_id] Configure internal storage\n"
     "/update_tdl [latest|v0.20.4] Check and update tdl\n"
     "/account <auto|shared|UID> Switch execution account\n"
-    "/dump <source> [to <chat>] Back up channel history\n"
+    "/dump <source> [to <chat>] Back up channel or group history\n"
     "/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
 )

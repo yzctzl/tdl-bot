@@ -203,15 +203,17 @@ the member filter and showing 20 compact rows per page. Display names prefer use
 ## Bilingual message maintenance
 
 Application source and developer logs stay English; Chinese application copy
-belongs only in `src/tdl_bot/locales/zh.json`. English source templates are stable
-keys. Both `en.json` and `zh.json` contain the complete message set, so English
-wording can be polished without changing stored template identities. Missing
-translations fall back to the English catalog, then the source key. Catalog
-loading rejects duplicate keys and changes to placeholder names, conversions or
-format specifications. The existing localization regression test checks source
-coverage, dynamic job stages, language key parity and executable command words
-in help. Historical error/stage entries remain for older task records; obsolete
-help blocks have been removed.
+belongs only in `src/tdl_bot/locales/zh.json`. English source templates supply
+default copy and translation keys.
+`en.json` contains only the language name and an empty message map; other locale
+files translate source templates. Missing translations fall back to source
+English. When changing a persisted template, keep an alias from its old wording
+to the new key. Aliases are resolved before translation and parameter rendering.
+Catalog loading rejects duplicate keys and changes to placeholder names,
+conversions or format specifications. The localization regression test checks
+Chinese coverage against source templates, dynamic job stages and executable
+command words in help. Historical error/stage entries remain for older task
+records; obsolete help blocks have been removed.
 
 Persisted backup errors and RPC errors preserve templates plus parameters.
 Rendering uses the viewer's current language, including after a restart or a

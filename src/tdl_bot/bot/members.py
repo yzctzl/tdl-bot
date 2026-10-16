@@ -103,7 +103,8 @@ class MemberCommands(CommandGroup):
         if len(args) != count:
             raise UserError(
                 tr(
-                    "/{p0} requires {p1} arguments. See /help.",
+                    "Incorrect arguments for /{p0} (expected: {p1}). "
+                    "See /help.",
                     p0=command.command,
                     p1=count,
                 )
