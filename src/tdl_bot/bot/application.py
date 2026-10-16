@@ -75,6 +75,9 @@ class BotApplication:
         router.callback_query.register(
             self.select_language, F.data.startswith("language:")
         )
+        router.callback_query.register(
+            self.members.users_page, F.data.startswith("users:")
+        )
         router.errors.register(self.error)
         self.dispatcher = Dispatcher()
         self.dispatcher.include_router(router)

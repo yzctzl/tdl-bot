@@ -5,8 +5,12 @@ from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandObject
 from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     LinkPreviewOptions,
     Message,
 )
@@ -14,7 +18,6 @@ from telethon import errors
 
 from tdl_bot.bot.commands import USER_HELP
 from tdl_bot.bot.context import CommandGroup
-from tdl_bot.bot.formatting import page_number
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 
@@ -113,17 +116,29 @@ class MemberCommands(CommandGroup):
 
     @localized
     async def users(self, message: Message, command: CommandObject) -> None:
-        assert message.from_user is not None
-        if not self.policy.is_admin(message.from_user.id):
+        actor, _ = self._admin_args(message, command, 0)
+        text, markup = await self._member_page(actor, 1)
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=markup,
+        )
+
+    async def _member_page(self, actor, page):
+        if not self.policy.is_admin(actor):
             raise UserError(tr("Only administrators can view the member list."))
         members = self.store.members()
-        page = page_number(command.args)
+        pages = max(1, (len(members) + 9) // 10)
+        page = min(max(1, page), pages)
         selected = members[(page - 1) * 10 : page * 10]
-        if not selected:
-            await message.answer(tr("No members on this page."))
-            return
         lines = [
-            tr("Members (page {p0}, {p1} total):", p0=page, p1=len(members))
+            tr(
+                "Members (page {page}/{pages}, {total} total):",
+                page=page,
+                pages=pages,
+                total=len(members),
+            )
         ]
         counts = {}
         for task in self.store.backups.all():
@@ -164,13 +179,65 @@ class MemberCommands(CommandGroup):
                     limit=limit,
                 )
             )
-        if not self.policy.is_admin(message.from_user.id):
+        if not self.policy.is_admin(actor):
             raise UserError(tr("Only administrators can view the member list."))
-        await message.answer(
-            "\n".join(lines),
-            parse_mode="HTML",
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        buttons = []
+        if page > 1:
+            buttons.append(
+                InlineKeyboardButton(
+                    text=tr("Previous"),
+                    callback_data=f"users:{actor}:{page - 1}",
+                )
+            )
+        if page < pages:
+            buttons.append(
+                InlineKeyboardButton(
+                    text=tr("Next"), callback_data=f"users:{actor}:{page + 1}"
+                )
+            )
+        markup = (
+            InlineKeyboardMarkup(inline_keyboard=[buttons]) if buttons else None
         )
+        return "\n".join(lines), markup
+
+    @localized
+    async def users_page(self, query: CallbackQuery) -> None:
+        actor = query.from_user.id
+        parts = (query.data or "").split(":")
+        if (
+            not self.policy.is_admin(actor)
+            or not isinstance(query.message, Message)
+            or query.message.chat.type != "private"
+            or query.message.chat.id != actor
+            or len(parts) != 3
+            or parts[0] != "users"
+            or parts[1] != str(actor)
+            or not parts[2].isascii()
+            or not parts[2].isdigit()
+            or len(parts[2]) > 9
+            or int(parts[2]) < 1
+        ):
+            await query.answer(
+                tr("Member list is unavailable."), show_alert=True
+            )
+            return
+        await query.answer()
+        try:
+            text, markup = await self._member_page(actor, int(parts[2]))
+        except UserError:
+            return  # An administrator may have been demoted during lookup.
+        try:
+            await self.bot.edit_message_text(
+                chat_id=actor,
+                message_id=query.message.message_id,
+                text=text,
+                parse_mode="HTML",
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+                reply_markup=markup,
+            )
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in exc.message.lower():
+                raise
 
     @localized
     async def user_add(self, message: Message, command: CommandObject) -> None:

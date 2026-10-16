@@ -228,7 +228,7 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     assert not j.service.policy.is_admin(3)
     await j.send("/user follow 3 7", user=1)
     assert j.service.store.follow_limit(3) == 7
-    await j.send("/user list 1", user=1)
+    await j.send("/user list", user=1)
     assert "Follow slots: 0/7" in j.transport.last().text
     await j.send("/user history 3", user=1)
     assert "Set follow limit: 7" in j.transport.last().text
@@ -343,3 +343,51 @@ async def test_remote_engine_bootstrap_retry_and_shutdown_lifecycle(
         for task in engines:
             task.cancel()
         await asyncio.gather(*engines, return_exceptions=True)
+
+
+async def test_member_buttons_page_live_data_and_recheck_admin_access(journey):
+    j = journey
+    for user in range(3, 23):
+        j.store.add_member(1, user)
+    await j.send("/user list", user=1)
+    first = j.transport.last()
+    assert "page 1/3" in first.text
+    assert [b.callback_data for b in first.reply_markup.inline_keyboard[0]] == [
+        "users:1:2"
+    ]
+    await j.send("", user=1, callback="users:1:2")
+    second = j.transport.last("EditMessageText")
+    assert "page 2/3" in second.text
+    assert [
+        b.callback_data for b in second.reply_markup.inline_keyboard[0]
+    ] == ["users:1:1", "users:1:3"]
+    await j.send("", user=1, callback="users:1:3")
+    assert "page 3/3" in j.transport.last("EditMessageText").text
+    for actor, payload, chat in [
+        (2, "users:2:1", "private"),
+        (1, "users:2:1", "private"),
+        (1, "users:1:0", "private"),
+        (1, "users:1:bad", "private"),
+        (1, "users:1:1:extra", "private"),
+        (1, "users:1:1", "group"),
+    ]:
+        edits = sum(
+            type(c).__name__ == "EditMessageText" for c in j.transport.calls
+        )
+        await j.send("", user=actor, callback=payload, chat_type=chat)
+        assert j.transport.last("AnswerCallbackQuery").show_alert
+        assert (
+            sum(
+                type(c).__name__ == "EditMessageText" for c in j.transport.calls
+            )
+            == edits
+        )
+    for user in range(3, 23):
+        j.store.remove_member(1, user)
+    await j.send("", user=1, callback="users:1:3")
+    refreshed = j.transport.last("EditMessageText")
+    assert "page 1/1" in refreshed.text and refreshed.reply_markup is None
+    j.store.set_member_role(1, 2, "admin")
+    j.store.set_member_role(2, 1, "user")
+    await j.send("", user=1, callback="users:1:1")
+    assert j.transport.last("AnswerCallbackQuery").show_alert

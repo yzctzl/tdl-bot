@@ -58,7 +58,7 @@ HELP = (
 
 USER_HELP = (
     "User management:\n"
-    "/user list [page] List members\n"
+    "/user list List members\n"
     "/user add <UID|@username> Add a regular account\n"
     "/user remove <UID|@username> Remove an account\n"
     "/user ban <UID|@username> <1d|1w|1m> "
