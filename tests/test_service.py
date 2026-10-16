@@ -508,7 +508,17 @@ async def test_activity_links_precede_media_and_cached_results_only_link_back(
         in bot.edit_message_text.call_args.kwargs["text"]
     )
     assert service.delivery.await_count == 2
-    assert "UID:" not in bot.send_message.call_args_list[0].kwargs["text"]
+    first_text = bot.send_message.call_args_list[0].kwargs["text"]
+    assert "UID:" not in first_text and "\n" not in first_text
+    assert '@example · <a href="https://t.me/channel/20">Link</a>' in first_text
+    from tdl_bot.transfers.activity import activity_line
+
+    event = store.activity.list()[0]
+    for status in ("failed", "cancelled"):
+        text = activity_line(event | {"status": status}, "@example")
+        assert '<s><a href="https://t.me/channel/20">Link</a></s>' in text
+        assert "\n" not in text
+    assert "<s>" not in activity_line(event, "@example")
     # Recovered jobs reuse acknowledged records instead of posting another link.
     event = store.activity.list()[0]
     await service.activity.begin(

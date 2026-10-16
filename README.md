@@ -703,7 +703,12 @@ and result (joined, approval pending, or failed). Other commands and background
 backup units do not create activity posts.
 
 Administrators can use `/user activity` or `/user activity <UID|@username>` to
-view records with pagination buttons. The database retains UIDs for accurate
+view 20 compact records per page with pagination buttons. Both the list and
+shared-target posts use `timestamp · @username · Link` (or `Join`). Failed or
+cancelled links are struck through; successful rows need no status line. A
+successful media row links its timestamp to the stored media, preserving reuse
+navigation without an extra field. Pending approval keeps a short status suffix.
+The database retains UIDs for accurate
 filtering; displays prefer `@username` and only fall back to a UID when needed.
 Activity records are durable across reloads. Database schema v9 adds the activity
 table and backs up an existing v8 database before migrating. No past actions are

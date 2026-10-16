@@ -1,7 +1,9 @@
 """Mirror the two supported activity kinds into internal storage."""
 
 import logging
+from datetime import datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import LinkPreviewOptions
@@ -20,39 +22,36 @@ def media_link(chat, ids):
     return None
 
 
+def activity_line(event, label):
+    """Share one compact HTML row between storage posts and admin pages."""
+    timestamp = datetime.fromtimestamp(
+        event["created"], ZoneInfo("Asia/Tokyo")
+    ).strftime("%Y-%m-%d %H:%M JST")
+    result = media_link(
+        event.get("result_chat", ""), event.get("result_ids", [])
+    )
+    if result:
+        # Keep stored media accessible without another visible field.
+        timestamp = f'<a href="{escape(result, quote=True)}">{timestamp}</a>'
+    action = tr("Link") if event["kind"] == "media" else tr("Join")
+    link = f'<a href="{escape(event["url"], quote=True)}">{escape(action)}</a>'
+    if event.get("status") in {"failed", "cancelled"}:
+        link = f"<s>{link}</s>"
+    suffix = ""
+    if event.get("status") == "pending":
+        suffix = " · " + escape(tr("Awaiting approval"))
+    elif event.get("status") in {"recording", "recorded"}:
+        suffix = " · …"
+    return f"{timestamp} · {escape(' '.join(label.split()))} · {link}{suffix}"
+
+
 class ActivityRecorder:
     def __init__(self, bot, store):
         self.bot = bot
         self.store = store
 
     def text(self, event):
-        label = escape(self.store.user_label(event["user_id"]))
-        action = (
-            tr("Media link") if event["kind"] == "media" else tr("Join chat")
-        )
-        text = f"{label} · {escape(action)}\n{escape(event['url'])}"
-        if event.get("title"):
-            text += "\n" + escape(event["title"])
-        if event.get("chat"):
-            text += "\n" + escape(str(event["chat"]))
-        if event.get("status") not in {None, "recording", "recorded"}:
-            labels = {
-                "joined": tr("Joined"),
-                "pending": tr("Awaiting approval"),
-                "failed": tr("Failed"),
-                "cancelled": tr("Cancelled"),
-            }
-            if event["status"] in labels:
-                text += "\n" + escape(labels[event["status"]])
-        link = media_link(
-            event.get("result_chat", ""), event.get("result_ids", [])
-        )
-        if link:
-            text += (
-                f'\n<a href="{escape(link, quote=True)}">'
-                f"{escape(tr('Media'))}</a>"
-            )
-        return text
+        return activity_line(event, self.store.user_label(event["user_id"]))
 
     async def begin(self, key, kind, user_id, url, target, executor_key):
         event = self.store.activity.get(key)

@@ -814,7 +814,7 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
 
     app, _, store, _ = managed
     store.remember_user(2, "example", "Test")
-    for i in range(7):
+    for i in range(22):
         store.activity.create(
             str(i),
             "join",
@@ -831,7 +831,12 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
     event = message(1)
     await app.members.user_activity(event, command("user activity", "2"))
     assert "@example" in event.answer.call_args.args[0]
-    assert "A &lt; B" in event.answer.call_args.args[0]
+    text = event.answer.call_args.args[0]
+    assert (
+        len(text.splitlines()) == 21
+    )  # Header plus twenty single-line records.
+    assert "A &lt; B" not in text and "已加入" not in text
+    assert '<a href="https://t.me/example">Join</a>' in text
     assert "t.me/other" not in event.answer.call_args.args[0]
     markup = event.answer.call_args.kwargs["reply_markup"]
     assert markup.inline_keyboard[0][0].callback_data == "activity:1:2:2"

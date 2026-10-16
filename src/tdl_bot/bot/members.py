@@ -20,6 +20,7 @@ from tdl_bot.bot.commands import USER_HELP
 from tdl_bot.bot.context import CommandGroup
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
+from tdl_bot.transfers.activity import activity_line
 
 
 class MemberCommands(CommandGroup):
@@ -395,45 +396,15 @@ class MemberCommands(CommandGroup):
                 tr("Only administrators can view activity records.")
             )
         page = max(1, page)
-        events = self.store.activity.list(owner, offset=(page - 1) * 5, limit=6)
+        page_size = 20
+        events = self.store.activity.list(
+            owner, offset=(page - 1) * page_size, limit=page_size + 1
+        )
         lines = [tr("Activity records (page {page}):", page=page)]
-        for event in events[:5]:
-            kind = (
-                tr("Media link")
-                if event["kind"] == "media"
-                else tr("Join chat")
-            )
-            labels = {
-                "completed": tr("Completed"),
-                "joined": tr("Joined"),
-                "pending": tr("Awaiting approval"),
-                "failed": tr("Failed"),
-                "cancelled": tr("Cancelled"),
-                "recording": tr("In progress"),
-                "recorded": tr("In progress"),
-            }
-            lines.append(
-                escape(
-                    f"{self._deadline(event['created'])} · "
-                    f"{self.store.user_label(event['user_id'])} · {kind}"
-                    f"\n{event['url']}\n"
-                    f"{labels.get(event.get('status'), tr('In progress'))}"
-                    + (f" · {event['title']}" if event.get("title") else "")
-                    + (f" ({event['chat']})" if event.get("chat") else "")
-                )
-            )
-            from tdl_bot.transfers.activity import media_link
-
-            link = (
-                media_link(event.get("target", ""), [event["message_id"]])
-                if event.get("message_id")
-                else None
-            )
-            if link:
-                lines.append(
-                    f'<a href="{escape(link, quote=True)}">'
-                    f"{escape(tr('View record'))}</a>"
-                )
+        lines.extend(
+            activity_line(event, self.store.user_label(event["user_id"]))
+            for event in events[:page_size]
+        )
         if not events:
             lines.append(tr("No activity records."))
         buttons = []
@@ -444,14 +415,14 @@ class MemberCommands(CommandGroup):
                     callback_data=f"activity:{actor}:{owner or 0}:{page - 1}",
                 )
             )
-        if len(events) > 5:
+        if len(events) > page_size:
             buttons.append(
                 InlineKeyboardButton(
                     text="›",
                     callback_data=f"activity:{actor}:{owner or 0}:{page + 1}",
                 )
             )
-        return "\n\n".join(lines), InlineKeyboardMarkup(
+        return "\n".join(lines), InlineKeyboardMarkup(
             inline_keyboard=[buttons]
         ) if buttons else None
 
