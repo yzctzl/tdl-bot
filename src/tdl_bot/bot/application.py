@@ -13,7 +13,6 @@ from aiogram.types import (
     CallbackQuery,
     ErrorEvent,
     InlineKeyboardButton,
-    InlineKeyboardMarkup,
     Message,
 )
 from telethon import errors
@@ -23,6 +22,8 @@ from tdl_bot.bot.backups import BackupCommands
 from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP, USER_HELP
 from tdl_bot.bot.destinations import DestinationCommands
 from tdl_bot.bot.members import MemberCommands
+from tdl_bot.bot.menus import Menus
+from tdl_bot.bot.menus.base import keyboard
 from tdl_bot.bot.middleware import Authorization
 from tdl_bot.bot.tasks import TaskCommands
 from tdl_bot.core.config import Settings
@@ -66,13 +67,18 @@ class BotApplication:
         self.tasks = TaskCommands(self)
         self.execution = ExecutionCommands(self)
         self.backups = BackupCommands(self)
+        self.command_registry = COMMANDS
+        self.menus = Menus(self)
         router = Router()
         router.message.outer_middleware(
             Authorization(self.policy, self.refresh_menu)
         )
         for name, handler, _, _ in COMMANDS:
             router.message.register(self.handler(handler), Command(name))
-        router.message.register(self.tasks.url, F.text)
+        router.message.register(self.menus.text, F.text)
+        router.callback_query.register(
+            self.menus.callback, F.data.startswith("menu:")
+        )
         router.callback_query.register(
             self.tasks.cancel, F.data.startswith("cancel:")
         )
@@ -165,7 +171,7 @@ class BotApplication:
         """Ask first-time operators to choose a language explicitly."""
         assert message.from_user is not None
         if self.store.has_language(message.from_user.id):
-            await self.help(message)
+            await self.menus.open(message)
             return
         with use_language("en"):
             english = tr("Welcome! Please choose your language to get started.")
@@ -173,8 +179,8 @@ class BotApplication:
             chinese = tr("Welcome! Please choose your language to get started.")
         await message.answer(
             f"{english}\n\n{chinese}",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
+            reply_markup=keyboard(
+                [
                     [
                         InlineKeyboardButton(
                             text=catalog["name"],
@@ -210,8 +216,11 @@ class BotApplication:
             await self.bot.edit_message_text(
                 chat_id=user_id,
                 message_id=query.message.message_id,
-                text=self._help_text(user_id),
+                text=tr("Language selected."),
                 reply_markup=None,
+            )
+            await self.menus.open(
+                query.message.model_copy(update={"from_user": query.from_user})
             )
 
     @localized
@@ -316,4 +325,12 @@ class BotApplication:
             )
         if message:
             await message.answer(text)
+        elif event.update.callback_query:
+            query = event.update.callback_query
+            if (
+                isinstance(query.message, Message)
+                and query.message.chat.type == "private"
+                and query.message.chat.id == query.from_user.id
+            ):
+                await self.bot.send_message(query.from_user.id, text)
         return True

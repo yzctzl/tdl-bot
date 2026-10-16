@@ -10,7 +10,7 @@ COMMANDS = (
         True,
     ),
     ("language", "language", "Choose your language", False),
-    ("start", "start", "Get started", False),
+    ("start", "start", "Open main menu", False),
     ("help", "help", "Show help", False),
     ("whoami", "whoami", "Show your account ID", False),
     (
@@ -54,13 +54,14 @@ HELP = (
     "/pending List pending retries\n"
     "/retry [id] Retry a task\n"
     "/retry_cancel <id> Remove a retry\n"
-    "/join <group_url> [id] Join and retry"
-    "\n\nChannel tracking:\n"
+    "/join <group_url> [id] Join a group or join and retry"
+    "\n\nScheduled tracking:\n"
     "/follow <source> [to <chat>] [every 5m] Track new messages\n"
     "/follow List tasks\n"
     "/follow pause|resume|cancel <id> Manage a task\n"
     "/follow interval <id> <60s|5m|1h> Change the interval"
     "\n\nOther:\n"
+    "/start Open main menu\n"
     "/language [en|zh] Choose your language\n"
     "/whoami Show your account ID\n"
     "/help Show help"

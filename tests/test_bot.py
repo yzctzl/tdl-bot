@@ -31,6 +31,7 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
     service = SimpleNamespace(
         policy=AccessPolicy(frozenset({1}), frozenset({1})),
         pending_record=Mock(return_value=item),
+        pending_items=Mock(return_value=[item]),
         retry=AsyncMock(),
         accounts=AccountPool(
             Executor("shared", SimpleNamespace(gate=UpdateGate()), media)

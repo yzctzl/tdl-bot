@@ -165,17 +165,33 @@ class TaskCommands(CommandGroup):
         if len(args) not in (1, 2):
             raise UserError(tr("Usage: /join <group_url> [retry_id]"))
         operator = message.from_user.id
-        item = self.service.pending_record(
-            operator, self._pending_id(args[1] if len(args) == 2 else None)
+        item = None
+        if len(args) == 2:
+            item = self.service.pending_record(
+                operator, self._pending_id(args[1])
+            )
+        elif len(self.service.pending_items(operator)) == 1:
+            item = self.service.pending_record(operator)
+        executor_key = (
+            item.executor_key
+            if item
+            else self.service.execution_account(operator).key
         )
         try:
-            await self.service.join(operator, args[0], item.executor_key)
+            await self.service.join(operator, args[0], executor_key)
         except JoinPending as exc:
-            await message.answer(str(exc))
+            await message.answer(
+                str(exc)
+                if item
+                else tr("Join request submitted. Waiting for approval.")
+            )
             return
-        await self.service.retry(
-            operator, item.id, source_message_id=message.message_id
-        )
+        if item:
+            await self.service.retry(
+                operator, item.id, source_message_id=message.message_id
+            )
+        else:
+            await message.answer(tr("Joined successfully."))
 
     @localized
     async def retry(self, message: Message, command: CommandObject) -> None:

@@ -35,6 +35,17 @@ class Authorization(BaseMiddleware):
                 getattr(event.from_user, "full_name", ""),
             )
         command = (event.text or "").split(maxsplit=1)[0:1]
+        if (
+            command
+            and command[0].startswith("/")
+            and self.policy.store is not None
+        ):
+            state = self.policy.store.menu(event.from_user.id)
+            if state:
+                state.pop("wait", None)
+                state.pop("confirmation", None)
+                state["version"] += 1
+                self.policy.store.save_menu(event.from_user.id, state)
         if command and command[0].split("@")[0] == "/whoami":
             return await handler(event, data)
         if not self.policy.is_allowed(event.from_user.id):

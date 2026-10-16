@@ -134,14 +134,36 @@ Telethon 内存会话。临时备份在权限为 0700 的目录内，读取后�
 仅此模式会生成 `data/telegram.session`，并要求其账号与 tdl 下载账号一致。
 请保护 `.env` 和 `TDL_DIR` 指定的会话目录。
 
+## Bot 菜单
+
+`/start` 打开主菜单，显示账号、接收位置和任务概况。按钮分为任务管理、
+定时追踪、设置和帮助；管理员在第二行看到用户管理和 Bot 管理。
+
+- 任务管理：当前状态、活动任务、待重试记录，以及独立加群。
+- 待重试记录支持重试、加群后重试和删除。独立加群使用当前执行账号，
+  加群后重试始终使用原任务的执行账号。
+- 定时追踪：创建、查看、暂停、恢复、修改间隔和取消。发送结果不确定时，
+  检查接收位置后再选择重试或跳过当前项。
+- 用户管理：管理员直接查看成员列表，选择账号后管理权限、配额和接收位置。
+  操作完成后直接显示更新后的详情。
+- Bot 管理：历史搬运、内部存储、执行账号选择和 tdl 更新。
+
+设置、Bot 管理及任务列表直接显示配置与状态摘要，进入或返回页面时自动读取最新信息。
+仅动态任务列表和进度详情保留刷新按钮。
+内部存储显示配置位置，已登录账号表示已加载的会话，不代表实时网络健康检查。
+
+原命令全部保留，帮助直接显示当前权限可用的命令。发送媒体消息链接的操作
+保持不变。菜单输入步骤保存在数据库中，手动 reload 后可继续；输入命令会
+退出当前输入步骤。旧菜单按钮失效时，用 `/start` 重新打开。
+
 ## 语言选择
 
 Bot 默认使用英文，不自动跟随 Telegram 客户端的语言。每个操作账号可以
 独立选择语言，设置保存在当前工作空间数据库中，重启后保留：
 
 首次发送 `/start` 时，Bot 先显示中英双语欢迎消息和各语言按钮。点击后保存
-语言选择，并将欢迎消息替换为对应语言的使用说明。已有语言设置的账号再次
-使用 `/start` 时直接显示说明；也可以使用下面的命令随时修改语言：
+语言选择并打开主菜单。已有语言设置的账号再次使用 `/start` 时直接打开主菜单。
+也可以使用下面的命令随时修改语言：
 
 ```text
 /language
@@ -257,7 +279,7 @@ chat IDs or usernames as `/target`, plus an optional topic ID. Prepare the targe
 channel/group first and give the Bot permission to post there. The Bot also
 needs access to internal storage for final delivery. No channels are created.
 
-Omitting `to` saves only to internal shared storage, with no second delivery.
+Omitting `to` saves only to internal internal storage, with no second delivery.
 Regular users see “Default storage” rather than the internal location. Existing
 results are reused before any new byte transfer; an explicit destination still
 receives every new source post. Starting a new dump after a completed one can

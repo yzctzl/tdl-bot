@@ -159,6 +159,9 @@ class EngineServer:
         if method in {"cancel", "cancel_submitted", "reconcile_permissions"}:
             return await getattr(service, method)(**args)
         executor = service.accounts.get(args.pop("executor_key", "shared"))
+        if method == "tdl_version":
+            async with executor.tdl.gate.job():
+                return await executor.tdl.version()
         if method == "update":
             return await executor.tdl.update(**args)
         async with executor.tdl.gate.job():
@@ -266,6 +269,9 @@ class RemoteTdl:
     def __init__(self, runtime):
         self.runtime = runtime
         self.gate = RemoteGate()
+
+    async def version(self):
+        return await self.runtime.call("tdl_version")
 
     async def update(self, version="latest"):
         return await self.runtime.call("update", version=version)

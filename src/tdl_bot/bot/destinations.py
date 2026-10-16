@@ -190,6 +190,24 @@ class DestinationCommands(CommandGroup):
                         "destination."
                     )
                 )
+        values = await self.status_values(actor, operator)
+        await message.answer(
+            tr(
+                (
+                    "Account: {p0}\nDestination: {p1}\nExecution account: "
+                    "{p2}\nManageable tasks: {p3}; pending retries: "
+                    "{p4}\nYour pending retry quota: {p5}\nUse /target bot "
+                    "to receive here, or /target &lt;group_or_channel&gt; "
+                    "to choose another destination."
+                ),
+                **values,
+            ),
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+
+    async def status_values(self, actor, operator):
+        """Share status facts between command output and menu navigation."""
         target = self.store.recipient(operator).target
         executor = self.service.execution_account(operator)
         account = (
@@ -211,25 +229,14 @@ class DestinationCommands(CommandGroup):
                     "destination."
                 )
             )
-        await message.answer(
-            tr(
-                (
-                    "Account: {p0}\nDestination: {p1}\nExecution account: "
-                    "{p2}\nManageable tasks: {p3}; pending retries: "
-                    "{p4}\nYour pending retry quota: {p5}\nUse /target bot "
-                    "to receive here, or /target &lt;group_or_channel&gt; "
-                    "to choose another destination."
-                ),
-                p0=self.app.members.user_link(operator),
-                p1=target_link,
-                p2=account,
-                p3=len(self.service.jobs(operator)),
-                p4=len(self.service.pending_items(operator)),
-                p5=quota,
-            ),
-            parse_mode="HTML",
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
+        return {
+            "p0": self.app.members.user_link(operator),
+            "p1": target_link,
+            "p2": account,
+            "p3": len(self.service.jobs(operator)),
+            "p4": len(self.service.pending_items(operator)),
+            "p5": quota,
+        }
 
     async def target_link(self, target: Target, operator: int) -> str:
         if target.chat.isdigit() and int(target.chat) != operator:

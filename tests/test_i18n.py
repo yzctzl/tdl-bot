@@ -394,3 +394,17 @@ async def test_saved_errors_retranslate_after_reload_and_language_change(
         )
         assert user.answer.call_args.args[0] == expected
     assert pack_message("legacy error") == "legacy error"
+
+
+def test_menu_copy_preserves_dynamic_identifiers_and_uses_light_punctuation():
+    from tdl_bot.bot.menus.copy import tr as menu_tr
+
+    source = "Release v0.20.4. https://t.me/example/10"
+    assert menu_tr("Source: {source}", source=source) == "Source: " + source
+    for language in ("en", "zh"):
+        with use_language(language):
+            text = menu_tr(
+                "Only new messages will be tracked. History is not included."
+            )
+            assert not text.endswith((".", "。"))
+            assert ". " not in text and "。" not in text

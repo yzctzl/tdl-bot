@@ -16,6 +16,21 @@ from tdl_bot.storage.schema import SchemaMigrations
 class Store:
     """Small workspace transactions used only on the event-loop thread."""
 
+    def menu(self, user_id: int) -> dict | None:
+        """Keep navigation and unfinished input across manual reloads."""
+        row = self._db.execute(
+            "SELECT value FROM workspace_metadata WHERE key=?",
+            (f"menu:{user_id}",),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_menu(self, user_id: int, state: dict) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO workspace_metadata VALUES (?, ?)",
+                (f"menu:{user_id}", json.dumps(state)),
+            )
+
     def has_language(self, user_id: int) -> bool:
         """Distinguish a deliberate choice from the English fallback."""
         from tdl_bot.core.i18n import CATALOGS
