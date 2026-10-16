@@ -6,7 +6,7 @@ from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
 
 
-def initialize(directory):
+def initialize(directory, *, announce=True):
     root = directory.expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     config = root / ".env"
@@ -22,6 +22,10 @@ def initialize(directory):
     for name in ("data", "bin"):
         (root / name).mkdir(exist_ok=True, mode=0o700)
     (root / "data" / "tdl").mkdir(exist_ok=True, mode=0o700)
-    print(
-        tr("Workspace created: {path}. Edit .env, then run login.", path=root)
-    )
+    if announce:
+        print(
+            tr(
+                "Workspace created: {path}. Edit .env, then run login.",
+                path=root,
+            )
+        )

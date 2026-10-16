@@ -71,7 +71,19 @@ still starts the Bot.
 `TDL_BOT_ENV_FILE` is an alternative to `--env-file`. Otherwise the CLI uses
 `.env` in the current directory. All spawned processes inherit the resolved
 configuration filename. Use the same workspace for login, run, reload and stop.
-`setup` never replaces an existing `.env`.
+`setup` creates a template and refuses to replace an existing `.env`.
+Use `tdl-bot setup -i` for native interactive onboarding, or
+`setup -i -d <workspace>` for another directory. It verifies the Bot token,
+reuses or creates a native tdl login, explicitly confirms administrators,
+and lists joined channels/groups for storage selection. No UID lookup is
+needed when the signed-in account is the administrator. Both Bot and execution
+account permissions are checked without sending test messages. Add the Bot to
+storage with posting permissions first.
+
+Enter keeps existing values; completed steps are saved with private file
+permissions. Existing database membership and advanced settings are preserved.
+Stop the service before interactive setup. The Compose workspace is read-only;
+its existing manual configuration/login flow remains required for containers.
 
 Before changing data, session, binary or runtime locations, stop the old instance
 with its original configuration. Move data explicitly, edit the paths, then

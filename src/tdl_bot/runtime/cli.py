@@ -364,7 +364,7 @@ def parse_arguments(argv=None):
         "login": "Sign in to a Telegram execution account",
         "reload": "Restart the Bot without interrupting active transfers",
         "stop": "Stop the Bot and drain active transfers",
-        "setup": "Create a workspace and configuration template",
+        "setup": "Create or interactively configure a workspace",
         "health": "Check the Bot supervisor and task engine",
         "container": "Run with graceful container shutdown",
         "engine": "Run the task engine (internal)",
@@ -385,6 +385,15 @@ def parse_arguments(argv=None):
         type=Path,
         default=Path("."),
         help="Workspace to initialize (default: current directory)",
+    )
+    pages["setup"].add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help=(
+            "Configure the Bot, Telegram login, administrator and storage "
+            "interactively"
+        ),
     )
     pages["login"].add_argument(
         "-n", "--namespace", help="Namespace to sign in to"
@@ -425,7 +434,12 @@ def main() -> None:
         if args.command == "setup":
             from tdl_bot.runtime.setup import initialize
 
-            initialize(args.directory)
+            if args.interactive:
+                from tdl_bot.runtime.wizard import configure
+
+                configure(args.directory)
+            else:
+                initialize(args.directory)
             return
         settings = Settings.from_env(
             login_only=args.command == "login", env_file=args.env_file

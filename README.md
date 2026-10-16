@@ -45,6 +45,7 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 - **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
 - `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
 - 在当前目录运行 `tdl-bot setup` 即可初始化；其他目录用 `setup -d <目录>`。源码运行加 `uv run` 前缀。
+- 本机推荐 `tdl-bot setup -i` 交互配置：Token → Telegram 登录 → 确认管理员 → 选择存储频道。其他目录加 `-d <目录>`；已有配置可回车保留，运行中的服务需先停止。Docker 目前继续使用下文的配置流程。
 - 常用短选项：`-e` 配置文件、`-d` 工作目录、`-n` 登录 namespace、`-m` 登录方式；长选项仍支持。
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
