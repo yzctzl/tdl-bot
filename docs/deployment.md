@@ -192,7 +192,7 @@ docker compose up -d
 docker compose logs -f bot
 ```
 
-Login automatically installs a missing tdl into the mapped binary directory
+Startup and login automatically install a missing tdl into the mapped binary directory
 using the existing checksum/version verification. Interactive QR/code login
 uses the same mounted session directory as the service. For another namespace,
 stop the service and run `docker compose run --rm bot login -n personal`.

@@ -13,7 +13,7 @@
 - Docker，或 Windows/Linux/macOS 中的 Python 3.12+ 和 uv。
 - 由 @BotFather 创建的 Bot token。
 - 用户配置 `TDL_DIR` 中的 Telegram 会话，可通过下方登录命令创建。
-- tdl 可执行文件；登录命令会在缺少时下载官方发行包并校验后安装。
+- tdl 可执行文件；启动或登录时缺少程序，会下载官方发行包并校验后安装。
 - 默认直接复用 tdl 的已有授权。来源群的读取和入群、目标的写入均使用
   该账号；最终发送使用 Bot，无需让 tdl-bot 再次登录。
 

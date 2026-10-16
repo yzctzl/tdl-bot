@@ -21,6 +21,9 @@ pytestmark = pytest.mark.usefixtures("chinese")
 async def test_account_startup_validates_and_disconnects_all_clients(
     tmp_path, monkeypatch, failure
 ):
+    # Exercise shared account setup with a stubbed engine on every host.
+    monkeypatch.setattr("tdl_bot.runtime.cli.WINDOWS", False)
+
     def imported(key):
         session = MemorySession()
         session.auth_key = AuthKey(bytes([key]) * 256)
@@ -64,6 +67,7 @@ async def test_account_startup_validates_and_disconnects_all_clients(
 
     def make_tdl(binary, namespace, *args, **kwargs):
         tdl = SimpleNamespace(
+            binary=binary,
             gate=UpdateGate(),
             account_lock=AccountLock(),
             version=AsyncMock(),
@@ -95,6 +99,7 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         tmp_path / "tdl",
         tdl_dir=tmp_path / "shared",
     )
+    settings.tdl_binary.touch()
     if failure == "connect":
         with pytest.raises(OSError):
             await run(settings, "run")

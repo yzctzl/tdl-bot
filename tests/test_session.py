@@ -302,3 +302,47 @@ async def test_discovery_reads_all_namespaces_and_skips_invalid_sessions(
     assert set(sessions) == {"default", "personal"}
     assert sessions["personal"].session.auth_key.key == bytes(range(256))
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("state", ["existing", "missing", "install_failed"])
+async def test_startup_installs_tdl_before_reading_session(
+    tmp_path, monkeypatch, state
+):
+    from tdl_bot.runtime import cli
+
+    binary = tmp_path / "tdl.exe"
+    if state == "existing":
+        binary.write_bytes(b"existing")
+    settings = Settings(
+        "99:TEST", 0, "", frozenset({1}), frozenset({1}), tmp_path, binary
+    )
+
+    async def install():
+        if state == "install_failed":
+            raise UserError("Installation failed")
+        binary.write_bytes(b"downloaded")
+
+    async def read_session(*args):
+        assert binary.is_file()
+        raise UserError("Session metadata reached")
+
+    update = AsyncMock(side_effect=install)
+    session = AsyncMock(side_effect=read_session)
+    login = AsyncMock()
+    monkeypatch.setattr(Tdl, "update", update)
+    monkeypatch.setattr(Tdl, "login", login)
+    monkeypatch.setattr(cli, "load_tdl_session", session)
+    with pytest.raises(
+        UserError,
+        match=(
+            "Installation failed"
+            if state == "install_failed"
+            else "Session metadata reached"
+        ),
+    ):
+        await cli.run(settings, "run")
+    assert update.await_count == (state != "existing")
+    assert session.await_count == (state != "install_failed")
+    login.assert_not_awaited()
+    if state == "existing":
+        assert binary.read_bytes() == b"existing"

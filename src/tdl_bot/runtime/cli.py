@@ -43,7 +43,7 @@ from tdl_bot.runtime.engine import (
     exchange,
     maintain_engine,
 )
-from tdl_bot.runtime.login import native_login
+from tdl_bot.runtime.login import ensure_binary, native_login
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
 from tdl_bot.transfers.activity import ActivityRecorder
@@ -91,6 +91,8 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
         await native_login(tdl, settings.data_dir, login_method)
         return
     proxy = proxy_settings(settings.tdl_proxy)
+    if command != "login":
+        await ensure_binary(tdl)
     if settings.session_source == "tdl":
         imported = await load_tdl_session(tdl, settings.data_dir)
         client = SharedSessionClient(

@@ -10,8 +10,8 @@ from tdl_bot.integrations.tdl.session import load_tdl_session, proxy_settings
 from tdl_bot.integrations.telegram.client import SharedSessionClient
 
 
-async def native_login(tdl, temporary_root, method="qr"):
-    proxy_settings(tdl.proxy)
+async def ensure_binary(tdl):
+    """Install a missing executable through the verified release updater."""
     if not tdl.binary.is_file():
         print(
             tr(
@@ -20,6 +20,11 @@ async def native_login(tdl, temporary_root, method="qr"):
             )
         )
         await tdl.update()
+
+
+async def native_login(tdl, temporary_root, method="qr"):
+    proxy_settings(tdl.proxy)
+    await ensure_binary(tdl)
     user = await _authorized_user(tdl, temporary_root)
     if user is None:
         print(
