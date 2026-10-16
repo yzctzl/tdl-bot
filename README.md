@@ -10,9 +10,9 @@
 
 ## 运行条件
 
-- Python 3.12+、uv，Linux 或 macOS。
+- Docker，或 Linux/macOS/WSL2 中的 Python 3.12+ 和 uv。
 - 由 @BotFather 创建的 Bot token。
-- 项目 `./.tdl` 目录中的 Telegram 用户会话，可通过下方登录命令创建。
+- 用户配置 `TDL_DIR` 中的 Telegram 会话，可通过下方登录命令创建。
 - tdl 可执行文件；登录命令会在缺少时下载官方发行包并校验后安装。
 - 默认直接复用 tdl 的已有授权。来源群的读取和入群、目标的写入均使用
   该账号；最终发送使用 Bot，无需让 tdl-bot 再次登录。
@@ -27,12 +27,28 @@ tdl 通过原生 clone 传输受限媒体，保留原 MIME、视频属性和预�
 当前版本不支持 Windows 原生运行。静态检查发现：启动入口和任务引擎直接
 导入 `fcntl` 并使用 `flock`；进程通信使用 asyncio Unix socket；手动热重启
 依赖 `SIGHUP` 和事件循环的 Unix 信号处理接口。这些依赖尚未提供 Windows
-替代实现，原生启动会先在导入 `fcntl` 时失败。
+替代实现；原生 Windows 入口会明确提示使用 Docker／WSL2。
 
 tdl 更新器能选择 Windows 压缩包，并不代表整个 Bot 支持 Windows。
-Windows 用户可考虑在 WSL2 的 Linux 环境中部署，使用 Linux 版 Python、uv
+Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 环境中部署，使用 Linux 版 Python、uv
 和 tdl，并将项目、会话及运行数据放在 WSL 的 Linux 文件系统内。
 本次仅做代码静态检查，未在 Windows 或 WSL 上实测。
+
+## 部署方式
+
+支持 Docker Compose、`uv tool` 和 Git 源码运行，统一使用用户指定的工作目录。
+`.env` 必须存在，`DATA_DIR` 和 `BIN_DIR` 显式配置；原有 `TDL_BINARY` 仍兼容。
+所有相对路径均以 `.env` 所在目录为基准，程序安装与更新不改变用户数据位置。
+
+- Docker／WSL2 是 Windows 的首选入口；原生 Windows 暂不支持。
+- Docker 支持容器内 `docker compose exec bot tdl-bot reload`，当前任务继续。
+- **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
+- `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
+- 新工作目录可用 `tdl-bot init --directory <目录>` 初始化；源码运行加 `uv run` 前缀。
+
+完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
+仓库包含 Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
+镜像需待对应 GitHub Actions 成功发布后才能拉取。
 
 ## 安装与登录
 
@@ -44,9 +60,9 @@ cp .env.example .env
 uv run tdl-bot login
 ```
 
-登录命令默认使用二维码，直接调用原生 tdl，并显式指定项目的 `.tdl/data`
-和 `default` namespace。缺少 `TDL_BINARY` 时，先下载官方发行包，验证
-SHA-256 和程序版本，再安装到默认的 `bin/tdl`。已有有效授权时仅验证并复用，
+登录命令默认使用二维码，直接调用原生 tdl，读取 `.env` 中的会话目录
+和 `default` namespace。新模板使用 `data/tdl`，缺少程序时下载官方发行包，
+验证 SHA-256 和版本，再安装到 `BIN_DIR/<系统-架构>/tdl`。已有有效授权时仅验证并复用，
 不重新登录。验证码／两步验证交互直接由 tdl 在终端处理，Bot 不收集登录凭据。
 
 验证码登录或导入 Telegram Desktop 会话可分别使用：
@@ -61,7 +77,9 @@ uv run tdl-bot login --login-method desktop
 
 ```dotenv
 SESSION_SOURCE=tdl
-TDL_DIR=.tdl
+DATA_DIR=./data
+BIN_DIR=./bin
+TDL_DIR=./data/tdl
 TDL_NAMESPACE=default
 ```
 
@@ -80,16 +98,13 @@ uv run tdl-bot
 重新添加成员或重置角色，后续启动也无需再次配置 `ADMIN_USER_IDS`。
 登录命令不要求 Bot token 或管理员 UID，可以先登录再填写首次运行所需配置。
 
-`TDL_DIR` 指 tdl 根目录，而不是其中的 `data` 子目录；相对路径从运行命令的
-工作目录解析，因此请始终在项目根目录执行。也支持自定义绝对路径、`~` 路径，
+`TDL_DIR` 指 tdl 根目录，而不是其中的 `data` 子目录；相对路径均从 `.env`
+所在目录解析。其他位置启动可用 `--env-file` 指定配置。也支持绝对路径、`~` 路径，
 以及仅有 `data.kv` 的旧版 legacy 存储。Bot 不会自动从家目录复制登录信息。
 
-普通的 `tdl login` 仍使用 tdl 自身的默认 `~/.tdl`。要把授权保存在项目内，
-使用上述 `tdl-bot login`，或显式指定相同存储：
-
-```bash
-bin/tdl --storage type=bolt,path=./.tdl/data --ns default login --type qr
-```
+普通的 `tdl login` 仍使用 tdl 自身的默认 `~/.tdl`。使用上述 `tdl-bot login`
+即可将授权放入配置位置。已有 `TDL_DIR=.tdl`、`TDL_BINARY=bin/tdl` 的
+安装会继续复用原位置；需要移动时先停止服务，再修改配置并显式迁移文件。
 
 tdl 自身仍可能在 `~/.tdl` 创建日志和扩展目录；这不改变显式 storage 指定的
 登录凭据位置。通过 `tdl-bot login` 登录时需先停止服务，进程锁会防止改写
@@ -107,7 +122,7 @@ Telethon 内存会话。临时备份在权限为 0700 的目录内，读取后�
 `SESSION_SOURCE=telethon`，填写从 <https://my.telegram.org> 获取的
 `TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH`，再执行 `uv run tdl-bot login`。
 仅此模式会生成 `data/telegram.session`，并要求其账号与 tdl 下载账号一致。
-请保护 `.env` 和 `.tdl` 会话目录。
+请保护 `.env` 和 `TDL_DIR` 指定的会话目录。
 
 ## 语言选择
 
@@ -504,8 +519,9 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 任务引擎意外退出时，下一次启动恢复尚未执行远程写入的任务；若中断发生在
 上传／发送过程中，程序会提示检查接收位置后重新提交，避免自动重复发送。
 这类崩溃恢复不能保证 Telegram 写入恰好一次；正常热重启不终止执行进程。
-数据库升级到版本 7；已有版本 5 先生成 `state.sqlite3.pre-history` 私有备份，
+数据库升级到版本 8；已有版本 5 先生成 `state.sqlite3.pre-history` 私有备份，
 版本 6 先生成 `state.sqlite3.pre-availability`，补齐早期版本可能缺少的缓存可用性字段。
+版本 7 升级前生成 `state.sqlite3.pre-backups`，新增 dump/follow 持久化任务表。
 交互进程不迁移仍由旧引擎使用的数据库，新引擎空闲切换后负责升级。
 
 ## 配置
@@ -514,11 +530,14 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | --- | --- | --- |
 | `BOT_TOKEN` | 必填 | aiogram Bot token |
 | `SESSION_SOURCE` | `tdl` | 复用已有 tdl 授权；`telethon` 为独立登录模式 |
-| `TDL_DIR` | `.tdl` | 已登录的 tdl 根目录（其下包含 `data/` 或 `data.kv`） |
+| `TDL_DIR` | `DATA_DIR/tdl` | 已登录的 tdl 根目录（其下包含 `data/` 或 `data.kv`） |
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | 默认不需要 | 仅独立登录模式需要 |
 | `ADMIN_USER_IDS` | 首次初始化必填 | 显式指定初始管理员 UID；初始化后由数据库管理 |
-| `DATA_DIR` | `data` | 会话、SQLite 和任务临时目录 |
-| `TDL_BINARY` | `bin/tdl` | tdl 可执行程序路径 |
+| `DATA_DIR` | 显式配置 | SQLite、任务临时目录和日志 |
+| `BIN_DIR` | 显式配置 | 按系统／架构保存托管 tdl；已有 `TDL_BINARY` 可替代此项 |
+| `RUNTIME_DIR` | `DATA_DIR` | socket、PID 和交互进程锁；Compose 使用容器内 tmpfs |
+| `TDL_BOT_ENV_FILE` | 当前目录 `.env` | 配置文件；CLI `--env-file` 优先 |
+| `TDL_BINARY` | 可选 | 原生运行时显式覆盖托管 tdl 可执行程序路径 |
 | `TDL_NAMESPACE` | `default` | tdl 登录 namespace |
 | `TDL_PROXY` | 空 | tdl 和 Telethon 共享的 socks5／socks4／http 代理 |
 | `WORKERS` | `2` | 后台任务 worker 数量 |

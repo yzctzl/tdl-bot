@@ -161,3 +161,25 @@ active/paused tasks. Admin-only quota changes use the existing membership audit
 log and are read again on creation/resume. Lower limits preserve existing tasks.
 Cancelled snapshots retain a timestamp; list pagination excludes cancellations
 older than seven days without deleting request identities or checkpoints.
+
+## Deployment boundaries
+
+Configuration is parsed from an explicit workspace `.env`, without exporting
+file values into the process environment. Paths resolve against that file's
+parent. Child processes receive its absolute filename through
+`TDL_BOT_ENV_FILE`, so manual reload reads fresh values. An explicit environment
+override takes priority. New managed binaries are scoped by OS/architecture;
+legacy executable/session paths remain explicit overrides.
+
+`RUNTIME_DIR` separates Unix sockets and frontend control files from persistent
+data. Compose keeps these on a private tmpfs while resource leases stay next to
+the database, sessions and executable. The configuration directory is mounted
+read-only, so atomic `.env` replacements remain visible. Other writable mounts
+use fixed container paths and caller-selected host paths.
+
+The container entrypoint uses the normal frontend supervisor with an additional
+shutdown hook. Reload only restarts the frontend. Container shutdown reaps that
+frontend first, drains the engine through an idempotent shutdown RPC, then waits
+for the engine's instance lease to be released. Engine shutdown rejects new URL
+jobs before quiescing backups. Replacing a container or Python dependency
+environment requires this graceful stop; it is not cross-version hot upgrade.
