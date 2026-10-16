@@ -195,5 +195,6 @@ identifies each job, and the shared-storage message is acknowledged before media
 processing or joining begins. An unacknowledged record is not blindly reposted.
 The stored-results ledger remains the source of media reuse; activity posts link
 to its existing messages rather than creating duplicate media. Administrators
-query by immutable UID through `/user activity`, with ownership-checked callback
-pagination. Display names prefer usernames without appending a redundant UID.
+query by immutable UID through `/user history`, with ownership-checked callback pagination. Tabs
+switch between link/join events and administrator management history, retaining
+the member filter and showing 20 compact rows per page. Display names prefer usernames without appending a redundant UID.

@@ -304,6 +304,15 @@ class Store:
             (user_id,),
         ).fetchall()
 
+    def management_history(self, actor_id, user_id=None, *, offset=0, limit=21):
+        self._require_admin(actor_id)
+        return self._db.execute(
+            "SELECT actor_id, member_id, action, created_at FROM member_events "
+            "WHERE (? IS NULL OR member_id=?) ORDER BY id DESC "
+            "LIMIT ? OFFSET ?",
+            (user_id, user_id, limit, offset),
+        ).fetchall()
+
     def private_selected(self, operator_id: int) -> bool:
         """Default every operator to the shared destination."""
         row = self._db.execute(

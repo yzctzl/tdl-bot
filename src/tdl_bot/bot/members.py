@@ -42,7 +42,6 @@ class MemberCommands(CommandGroup):
             "unban": self.user_unban,
             "role": self.user_role,
             "history": self.user_history,
-            "activity": self.user_activity,
             "follow": self.user_follow,
         }
         action = command_prefix(parts[0], handlers)
@@ -340,12 +339,85 @@ class MemberCommands(CommandGroup):
         )
 
     @localized
-    async def user_history(
-        self, message: Message, command: CommandObject
-    ) -> None:
-        actor, args = self._admin_args(message, command, 1)
-        user_id = await self.resolve_user(args[0])
-        rows = self.store.member_history(actor, user_id)
+    async def user_history(self, message: Message, command: CommandObject):
+        if message.from_user is None or not self.policy.is_admin(
+            message.from_user.id
+        ):
+            raise UserError(tr("Only administrators can view history."))
+        parts = (command.args or "").split()
+        if len(parts) > 1:
+            raise UserError(tr("Usage: /user history [UID|@username]"))
+        owner = await self.resolve_user(parts[0]) if parts else None
+        text, markup = self._history_page(message.from_user.id, owner, 1)
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+
+    def _history_page(self, actor, owner, page, kind="activity"):
+        if not self.policy.is_admin(actor):
+            raise UserError(tr("Only administrators can view history."))
+        page = max(1, page)
+        page_size = 20
+        if kind == "management":
+            events = self.store.management_history(
+                actor, owner, offset=(page - 1) * page_size, limit=page_size + 1
+            )
+            heading = tr("Management history (page {page}):", page=page)
+            rows = [
+                self._management_line(event) for event in events[:page_size]
+            ]
+        else:
+            events = self.store.activity.list(
+                owner, offset=(page - 1) * page_size, limit=page_size + 1
+            )
+            heading = tr("History (page {page}):", page=page)
+            rows = [
+                activity_line(event, self.store.user_label(event["user_id"]))
+                for event in events[:page_size]
+            ]
+        if owner is not None:
+            heading += " · " + escape(self.store.user_label(owner))
+        lines = (
+            [heading, *rows] if rows else [heading, tr("No history records.")]
+        )
+        buttons = []
+        if page > 1:
+            buttons.append(
+                InlineKeyboardButton(
+                    text="‹",
+                    callback_data=(
+                        f"history:{actor}:{owner or 0}:{kind}:{page - 1}"
+                    ),
+                )
+            )
+        if len(events) > page_size:
+            buttons.append(
+                InlineKeyboardButton(
+                    text="›",
+                    callback_data=(
+                        f"history:{actor}:{owner or 0}:{kind}:{page + 1}"
+                    ),
+                )
+            )
+        tabs = [
+            InlineKeyboardButton(
+                text=("✓ " if kind == tab else "") + label,
+                callback_data=f"history:{actor}:{owner or 0}:{tab}:1",
+            )
+            for tab, label in (
+                ("activity", tr("Links and joins")),
+                ("management", tr("Management records")),
+            )
+        ]
+        return "\n".join(lines), InlineKeyboardMarkup(
+            inline_keyboard=[tabs, buttons] if buttons else [tabs]
+        )
+
+    def _management_line(self, event):
+        actor, member, action, created = event
         names = {
             "add": tr("Add regular account"),
             "remove": tr("Remove account"),
@@ -356,83 +428,26 @@ class MemberCommands(CommandGroup):
             "ban:604800": tr("Ban for one week"),
             "ban:2592000": tr("Ban for 30 days"),
         }
-        for _, action, _ in rows:
-            if action.startswith("follow_limit:"):
-                names[action] = tr(
-                    "Set follow limit: {limit}", limit=action.split(":", 1)[1]
-                )
-        text = "\n".join(
-            f"{self._deadline(created)} · {self.store.user_label(admin)} · "
-            f"{names.get(action, action)}"
-            for admin, action, created in rows
-        )
-        await message.answer(
-            f"{self.store.user_label(user_id)}\n"
-            + (text or tr("No account management history."))
+        description = names.get(action, action)
+        if action.startswith("follow_limit:"):
+            description = tr(
+                "Set follow limit: {limit}", limit=action.split(":", 1)[1]
+            )
+        return escape(
+            f"{self._deadline(created)} · {self.store.user_label(actor)} → "
+            f"{self.store.user_label(member)} · {description}"
         )
 
     @localized
-    async def user_activity(self, message: Message, command: CommandObject):
-        if message.from_user is None or not self.policy.is_admin(
-            message.from_user.id
-        ):
-            raise UserError(
-                tr("Only administrators can view activity records.")
-            )
-        parts = (command.args or "").split()
-        if len(parts) > 1:
-            raise UserError(tr("Usage: /user activity [UID|@username]"))
-        owner = await self.resolve_user(parts[0]) if parts else None
-        text, markup = self._activity_page(message.from_user.id, owner, 1)
-        await message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=markup,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-
-    def _activity_page(self, actor, owner, page):
-        if not self.policy.is_admin(actor):
-            raise UserError(
-                tr("Only administrators can view activity records.")
-            )
-        page = max(1, page)
-        page_size = 20
-        events = self.store.activity.list(
-            owner, offset=(page - 1) * page_size, limit=page_size + 1
-        )
-        lines = [tr("Activity records (page {page}):", page=page)]
-        lines.extend(
-            activity_line(event, self.store.user_label(event["user_id"]))
-            for event in events[:page_size]
-        )
-        if not events:
-            lines.append(tr("No activity records."))
-        buttons = []
-        if page > 1:
-            buttons.append(
-                InlineKeyboardButton(
-                    text="‹",
-                    callback_data=f"activity:{actor}:{owner or 0}:{page - 1}",
-                )
-            )
-        if len(events) > page_size:
-            buttons.append(
-                InlineKeyboardButton(
-                    text="›",
-                    callback_data=f"activity:{actor}:{owner or 0}:{page + 1}",
-                )
-            )
-        return "\n".join(lines), InlineKeyboardMarkup(
-            inline_keyboard=[buttons]
-        ) if buttons else None
-
-    @localized
-    async def activity_page(self, query: CallbackQuery):
+    async def history_page(self, query: CallbackQuery):
         parts = (query.data or "").split(":")
+        # Old activity-page buttons keep working after the entry-point merge.
+        if len(parts) == 4 and parts[0] == "activity":
+            parts = ["history", parts[1], parts[2], "activity", parts[3]]
         if (
-            len(parts) != 4
-            or not all(p.isdigit() for p in parts[1:])
+            len(parts) != 5
+            or parts[3] not in {"activity", "management"}
+            or not all(parts[i].isdigit() for i in (1, 2, 4))
             or int(parts[1]) != query.from_user.id
             or not self.policy.is_admin(query.from_user.id)
             or not isinstance(query.message, Message)
@@ -442,8 +457,8 @@ class MemberCommands(CommandGroup):
             await query.answer(tr("Access denied."), show_alert=True)
             return
         await query.answer()
-        text, markup = self._activity_page(
-            query.from_user.id, int(parts[2]) or None, int(parts[3])
+        text, markup = self._history_page(
+            query.from_user.id, int(parts[2]) or None, int(parts[4]), parts[3]
         )
         try:
             await query.message.edit_text(

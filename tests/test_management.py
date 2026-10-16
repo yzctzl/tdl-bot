@@ -807,7 +807,7 @@ async def test_target_channel_query_and_save_feedback_show_destination_link(
     assert store.recipient(2).target == Target("-1001234567890", topic)
 
 
-async def test_activity_view_is_admin_only_filtered_and_paginated(
+async def test_history_view_is_admin_only_filtered_and_paginated(
     managed, monkeypatch
 ):
     from aiogram.types import Chat
@@ -829,7 +829,7 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
         "other", "media", 3, url="https://t.me/other/1", status="completed"
     )
     event = message(1)
-    await app.members.user_activity(event, command("user activity", "2"))
+    await app.members.user_history(event, command("user history", "2"))
     assert "@example" in event.answer.call_args.args[0]
     text = event.answer.call_args.args[0]
     assert (
@@ -839,10 +839,12 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
     assert '<a href="https://t.me/example">Join</a>' in text
     assert "t.me/other" not in event.answer.call_args.args[0]
     markup = event.answer.call_args.kwargs["reply_markup"]
-    assert markup.inline_keyboard[0][0].callback_data == "activity:1:2:2"
+    assert (
+        markup.inline_keyboard[1][0].callback_data == "history:1:2:activity:2"
+    )
     with pytest.raises(UserError):
-        await app.members.user_activity(
-            message(2), command("user activity", None)
+        await app.members.user_history(
+            message(2), command("user history", None)
         )
     # Callback ownership and current administrator role are both mandatory.
     edit = AsyncMock()
@@ -853,11 +855,31 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
         answer=AsyncMock(),
         message=Message(message_id=1, date=0, chat=Chat(id=1, type="private")),
     )
-    await app.members.activity_page(query)
+    await app.members.history_page(query)
+    assert "https://t.me/example" in edit.call_args.args[0]
+    store.remember_user(1, "admin", "Admin")
+    for _ in range(22):
+        store.set_follow_limit(1, 2, 7)
+    store.set_follow_limit(1, 3, 8)
+    query.data = "history:1:2:management:1"
+    await app.members.history_page(query)
+    text = edit.call_args.args[0]
+    assert len(text.splitlines()) == 21
+    assert "@admin → @example" in text and "follow 上限：7" in text
+    assert "上限：8" not in text and "https://" not in text
+    markup = edit.call_args.kwargs["reply_markup"]
+    assert (
+        markup.inline_keyboard[1][0].callback_data == "history:1:2:management:2"
+    )
+    query.data = "history:1:2:management:2"
+    await app.members.history_page(query)
+    assert len(edit.call_args.args[0].splitlines()) == 3
+    query.data = "history:1:2:activity:1"
+    await app.members.history_page(query)
     assert "https://t.me/example" in edit.call_args.args[0]
     query.from_user.id = 2
     edit.reset_mock()
-    await app.members.activity_page(query)
+    await app.members.history_page(query)
     edit.assert_not_awaited()
     assert query.answer.call_args.kwargs["show_alert"]
 
@@ -869,16 +891,16 @@ async def test_user_subcommands_accept_unique_prefixes_without_ambiguous_writes(
     history, add = AsyncMock(), AsyncMock()
     monkeypatch.setattr(app.members, "user_history", history)
     monkeypatch.setattr(app.members, "user_add", add)
-    for prefix in ("h", "hist", "history"):
+    for prefix in ("h", "hi", "hist", "history"):
         await app.members.user(message(1), command("user", prefix + " 2"))
         forwarded = history.call_args.args[1]
         assert forwarded.command == "user history" and forwarded.args == "2"
     await app.members.user(message(1), command("user", "ad 4"))
     assert add.call_args.args[1].command == "user add"
-    for prefix in ("a", "r"):
+    for prefix in ("r",):
         with pytest.raises(UserError, match="歧义"):
             await app.members.user(message(1), command("user", prefix + " 4"))
-    assert add.await_count == 1 and history.await_count == 3
+    assert add.await_count == 1 and history.await_count == 4
     assert store.member(4) is None
     with pytest.raises(UserError):
         await app.members.user(message(2), command("user", "ad 4"))

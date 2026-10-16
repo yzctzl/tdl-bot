@@ -79,7 +79,8 @@ class BotApplication:
             self.members.users_page, F.data.startswith("users:")
         )
         router.callback_query.register(
-            self.members.activity_page, F.data.startswith("activity:")
+            self.members.history_page,
+            F.data.startswith("history:") | F.data.startswith("activity:"),
         )
         router.errors.register(self.error)
         self.dispatcher = Dispatcher()

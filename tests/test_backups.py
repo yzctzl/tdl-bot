@@ -485,7 +485,10 @@ async def test_commands_and_rpc_hide_storage_and_register_role_menus(
     await app.members.user_history(
         admin, CommandObject(command="user_history", args="@operator")
     )
-    assert "Set follow limit: 5" in admin.answer.call_args.args[0]
+    tabs = admin.answer.call_args.kwargs["reply_markup"].inline_keyboard[0]
+    assert tabs[1].callback_data == "history:1:2:management:1"
+    text, _ = app.members._history_page(1, 2, 1, "management")
+    assert "Set follow limit: 5" in text
     await app.backups.follow(event, CommandObject(command="follow"))
     assert "Follow slots: 1/5" in event.answer.call_args.args[0]
     assert "dump" in {item.command for item in app.command_menu(admin=True)}

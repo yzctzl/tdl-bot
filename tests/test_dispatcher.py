@@ -230,8 +230,10 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     assert j.service.store.follow_limit(3) == 7
     await j.send("/user list", user=1)
     assert "Follow slots: 0/7" in j.transport.last().text
-    await j.send("/user history 3", user=1)
-    assert "Set follow limit: 7" in j.transport.last().text
+    await j.send("/user hi 3", user=1)
+    assert "History" in j.transport.last().text
+    await j.send("", user=1, callback="history:1:3:management:1")
+    assert "Set follow limit: 7" in j.transport.last("EditMessageText").text
     await j.send("/user remove 3", user=1)
     assert not j.service.policy.is_allowed(3)
 

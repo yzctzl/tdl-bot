@@ -702,8 +702,11 @@ user, execution account, supplied link, resolved chat identity when available,
 and result (joined, approval pending, or failed). Other commands and background
 backup units do not create activity posts.
 
-Administrators can use `/user activity` or `/user activity <UID|@username>` to
-view 20 compact records per page with pagination buttons. Both the list and
+Administrators can use `/user history` or `/user history <UID|@username>` to
+view 20 compact records per page with pagination buttons. History opens links
+and joins by default; the Management records button switches to administrator
+actions while retaining the selected user. `/user h` and `/user hi` are aliases
+through unique prefix matching. The separate activity command has been removed. Both the list and
 shared-target posts use `timestamp · @username · Link` (or `Join`). Failed or
 cancelled links are struck through; successful rows need no status line. A
 successful media row links its timestamp to the stored media, preserving reuse
@@ -720,7 +723,7 @@ mean `/user history 123`; `/follow p <id>` pauses a follow, and
 `/follow res <id>` resumes it. `/target b` selects the Bot conversation;
 `/account a` selects automatic routing. Full words remain supported.
 Ambiguous prefixes only show candidates and never execute an operation:
-`/user a` matches `add` and `activity`, `/user r` matches `remove` and `role`,
+`/user r` matches `remove` and `role`,
 and `/follow r` matches `remove` and `resume`. Use a longer prefix to choose.
 `/user help` remains explicit so `/user h` selects history. Usernames, links,
 IDs and other values are preserved; only command words and option keywords
