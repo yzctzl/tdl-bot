@@ -12,6 +12,7 @@ from tdl_bot.core.i18n import saved_label, tr, use_language
 from tdl_bot.integrations.telegram.history import read_page, source
 from tdl_bot.storage.backups import Backup
 from tdl_bot.storage.models import Target
+from tdl_bot.transfers.backups.pacing import BackupPacer
 from tdl_bot.transfers.jobs import Job
 
 _LOG = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class BackupService:
         self.closing = False
         self.wake = asyncio.Event()
         self.runner = None
+        self.pacer = BackupPacer()
+        self.write_lock = asyncio.Lock()
 
     @property
     def busy(self):
@@ -376,6 +379,11 @@ class BackupService:
                         )
                     )
                 executor = self.transfers.accounts.get(record.executor)
+                cooldown = self.pacer.remaining(executor.key)
+                if cooldown > 0:
+                    record.next_run = self.store.now() + cooldown
+                    self.store.backups.save(record)
+                    return
                 async with executor.tdl.gate.job(), asyncio.timeout(60):
                     try:
                         chat, _, latest = await source(
@@ -425,9 +433,26 @@ class BackupService:
                         storage_only=record.target is None,
                         quiet=True,
                     )
-                    record.phase, record.inflight = "writing", unit.end_id
-                    self.store.backups.save(record)
-                    await self.transfers.backup_group(job, unit)
+                    # Avoid backup bursts after long uploads.
+                    async with self.write_lock:
+                        keys = self.pacer.keys(
+                            record.executor, record.storage, record.target
+                        )
+                        if not await self.pacer.wait(
+                            keys,
+                            lambda: self.draining or record.state != "active",
+                        ):
+                            return
+                        if not self._allowed(record):
+                            raise UserError(
+                                tr("This account is unauthorized or banned.")
+                            )
+                        record.phase, record.inflight = "writing", unit.end_id
+                        self.store.backups.save(record)
+                        try:
+                            await self.transfers.backup_group(job, unit)
+                        finally:
+                            self.pacer.charge(keys, len(unit.messages))
                     record.cursor = unit.end_id
                     record.phase, record.error, record.attempts = "idle", "", 0
                     record.processed += 1
@@ -477,6 +502,12 @@ class BackupService:
                 uncertain = job is not None and (
                     job.upload_started or job.delivery_started
                 )
+                if delay is not None:
+                    self.pacer.cooldown(
+                        record.executor,
+                        delay,
+                        bot=isinstance(cause, TelegramRetryAfter),
+                    )
                 if delay is not None or (
                     isinstance(cause, (OSError, TimeoutError, ClientError))
                     and not uncertain

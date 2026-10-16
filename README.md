@@ -266,7 +266,14 @@ a minimum of 60 seconds.
 
 Cursors advance only after a whole unit is successfully saved/delivered. Safe
 network failures back off automatically, and Telegram rate limits respect the
-reported delay. Other errors pause the task. If a write was interrupted or its
+reported delay. Backup writes are serialized and paced per execution account
+(1 second per message) and per destination chat (3 seconds per message), including
+all members of an album; topics share their parent chat limit. The gap is counted
+after a unit finishes, avoiding bursts after long transfers. A FloodWait cools
+down all backups using that account; a Bot API retry delay cools down backup
+Bot deliveries globally. These conservative application limits reduce risk, but
+Telegram may impose additional account- or method-specific limits. Other errors
+pause the task. If a write was interrupted or its
 acknowledgement was lost, check the destination and explicitly choose:
 
 ```text

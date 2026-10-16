@@ -134,6 +134,8 @@ async def workspace(tmp_path, monkeypatch):
     )
     transfers.jobs_dir.mkdir()
     manager = BackupService(transfers, notify=AsyncMock(), workers=1)
+    monkeypatch.setattr(manager.pacer, "wait", AsyncMock(return_value=True))
+    monkeypatch.setattr(manager.pacer, "remaining", lambda key: 0)
     transfers.backups = manager
     yield SimpleNamespace(
         manager=manager,
@@ -316,6 +318,11 @@ async def test_failures_never_advance_cursor_and_uncertain_resume_is_explicit(
         w.shared.media.copy_group.side_effect = OSError("acknowledgement lost")
     await w.manager._cycle(record)
     assert record.cursor == 0
+    if failure == "rate":
+        assert (
+            w.manager.pacer.deadlines[("account", "shared")]
+            > w.manager.pacer.clock()
+        )
     if failure in {"network", "rate"}:
         assert record.state == "active" and record.next_run > w.store.now()
     else:
@@ -609,3 +616,39 @@ async def test_idle_follow_restarts_after_reload_without_a_user_request(
                 await asyncio.gather(task, return_exceptions=True)
         if replacement is not None:
             await replacement.close()
+
+
+async def test_backup_pacing_shares_chats_cooldowns_and_stops_before_writes():
+    from tdl_bot.transfers.backups.pacing import BackupPacer
+
+    now = 100.0
+    waits = []
+    stop = False
+
+    async def sleep(delay):
+        nonlocal now
+        waits.append(delay)
+        now += delay
+
+    pacer = BackupPacer(clock=lambda: now, sleep=sleep)
+    storage = Target("-1000000999999")
+    first = pacer.keys("shared", storage, Target("@destination", 1))
+    other = pacer.keys("own", storage, Target("@destination", 2))
+    assert await pacer.wait(first, lambda: stop)
+    pacer.charge(first, 10)
+    assert pacer.remaining("shared") == 10
+    assert await pacer.wait(other, lambda: stop)
+    assert (
+        sum(waits) == 30
+    )  # Album members count individually; topics share limits.
+    pacer.cooldown("shared", 60)
+    pacer.cooldown("shared", 1)
+    assert pacer.remaining("shared") == 60
+    assert pacer.remaining("own") == 0
+    pacer.cooldown("shared", 90, bot=True)
+    started = now
+    assert await pacer.wait(other, lambda: stop)
+    assert now - started == 90
+    stop = True
+    assert not await pacer.wait(first, lambda: stop)
+    assert all(delay <= 1 for delay in waits)
