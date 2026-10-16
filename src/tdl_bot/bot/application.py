@@ -27,7 +27,14 @@ from tdl_bot.bot.middleware import Authorization
 from tdl_bot.bot.tasks import TaskCommands
 from tdl_bot.core.config import Settings
 from tdl_bot.core.errors import UserError
-from tdl_bot.core.i18n import CATALOGS, localized, tr, use_language
+from tdl_bot.core.i18n import (
+    CATALOGS,
+    error_message,
+    localized,
+    render,
+    tr,
+    use_language,
+)
 from tdl_bot.storage.store import Store
 
 _LOGGER = logging.getLogger(__name__)
@@ -295,7 +302,7 @@ class BotApplication:
         """Translate known errors without exposing session data to users."""
         message = event.update.message
         if isinstance(event.exception, UserError):
-            text = str(event.exception)
+            text = render(error_message(event.exception))
         elif isinstance(event.exception, errors.FloodWaitError):
             text = tr(
                 "Telegram rate limit. Retry in {p0} seconds.",

@@ -14,7 +14,14 @@ from types import SimpleNamespace
 
 from tdl_bot.core.config import runtime_directory
 from tdl_bot.core.errors import UserError
-from tdl_bot.core.i18n import current_language, tr, use_language
+from tdl_bot.core.i18n import (
+    current_language,
+    error_message,
+    pack_message,
+    render,
+    tr,
+    use_language,
+)
 from tdl_bot.storage.models import Target
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy
@@ -56,7 +63,9 @@ async def exchange(path: Path, request):
         await writer.drain()
         response = json.loads(await reader.readline())
         if "error" in response:
-            raise UserError(response["error"])
+            raise UserError(
+                render(response.get("error_template", response["error"]))
+            )
         return response["result"]
     finally:
         writer.close()
@@ -195,7 +204,7 @@ class EngineServer:
                     )
                 response = {"result": result}
             except UserError as exc:
-                response = {"error": str(exc)}
+                response = {"error": error_message(exc)}
             except Exception as exc:
                 _LOGGER.warning(
                     "Local operation failed: %s", type(exc).__name__
@@ -207,6 +216,9 @@ class EngineServer:
                             "Check the service logs."
                         )
                     }
+            if "error" in response:
+                response["error_template"] = pack_message(response["error"])
+                response["error"] = str(response["error"])
             try:
                 writer.write(json.dumps(response).encode() + b"\n")
                 await writer.drain()

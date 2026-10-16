@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass, field, fields
 from uuid import uuid4
 
+from tdl_bot.core.i18n import pack_message
 from tdl_bot.storage.models import Target
 
 
@@ -28,7 +29,7 @@ class Backup:
     messages: int = 0
     next_run: float = 0
     attempts: int = 0
-    error: str = ""
+    error: str | dict = ""
     request_id: int | None = None
     cancelled_at: float = 0
 
@@ -36,6 +37,7 @@ class Backup:
         return {
             item.name: getattr(self, item.name) for item in fields(self)
         } | {
+            "error": pack_message(self.error),
             "storage": asdict(self.storage),
             "target": asdict(self.target) if self.target else None,
         }

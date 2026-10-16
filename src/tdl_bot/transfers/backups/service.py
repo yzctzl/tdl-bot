@@ -8,7 +8,7 @@ from aiohttp import ClientError
 from telethon.errors import FloodWaitError
 
 from tdl_bot.core.errors import AccessDenied, UserError
-from tdl_bot.core.i18n import saved_label, tr, use_language
+from tdl_bot.core.i18n import error_message, saved_label, tr, use_language
 from tdl_bot.integrations.telegram.history import read_page, source
 from tdl_bot.storage.backups import Backup
 from tdl_bot.storage.models import Target
@@ -550,7 +550,7 @@ class BackupService:
                     record.state = "paused"
                     record.phase = "uncertain" if uncertain else "idle"
                     record.error = (
-                        str(exc)
+                        error_message(exc)
                         if isinstance(exc, UserError)
                         else tr(
                             "Backup failed. Check source access and "

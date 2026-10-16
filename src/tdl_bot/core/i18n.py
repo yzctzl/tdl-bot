@@ -79,11 +79,41 @@ class Translation(str):
         return instance
 
 
+def pack_message(value):
+    """Keep templates and parameters intact across JSON storage and RPC."""
+    if isinstance(value, Translation):
+        return {
+            "template": value.message,
+            "values": {
+                key: pack_message(item) for key, item in value.values.items()
+            },
+        }
+    if isinstance(value, (str, int, float, bool, dict, list, type(None))):
+        return value
+    return str(value)
+
+
+def error_message(error):
+    """Preserve a known error template instead of freezing its rendered text."""
+    if error.args and isinstance(error.args[0], Translation):
+        return error.args[0]
+    return str(error)
+
+
 def render(value):
     if isinstance(value, Translation):
         return tr(
             value.message,
             **{key: render(item) for key, item in value.values.items()},
+        )
+    if (
+        isinstance(value, dict)
+        and isinstance(value.get("template"), str)
+        and isinstance(value.get("values"), dict)
+    ):
+        return tr(
+            value["template"],
+            **{key: render(item) for key, item in value["values"].items()},
         )
     return value
 
@@ -99,7 +129,14 @@ def tr(message: str, **values) -> str:
 
 def saved_label(value: str) -> str:
     """Render persisted stage labels, including labels from Chinese releases."""
+    if isinstance(value, (Translation, dict)):
+        return render(value)
+    if value in CATALOGS[DEFAULT_LANGUAGE]["messages"]:
+        return tr(value)
     for catalog in CATALOGS.values():
+        alias = catalog.get("aliases", {}).get(value)
+        if alias is not None:
+            return tr(alias)
         for source, translated in catalog["messages"].items():
             if translated == value:
                 return tr(source)

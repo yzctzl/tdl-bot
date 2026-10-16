@@ -198,3 +198,24 @@ to its existing messages rather than creating duplicate media. Administrators
 query by immutable UID through `/user history`, with ownership-checked callback pagination. Tabs
 switch between link/join events and administrator management history, retaining
 the member filter and showing 20 compact rows per page. Display names prefer usernames without appending a redundant UID.
+
+
+## Bilingual message maintenance
+
+Application source and developer logs stay English; Chinese application copy
+belongs only in `src/tdl_bot/locales/zh.json`. English source templates are stable
+keys. Both `en.json` and `zh.json` contain the complete message set, so English
+wording can be polished without changing stored template identities. Missing
+translations fall back to the English catalog, then the source key. Catalog
+loading rejects duplicate keys and changes to placeholder names, conversions or
+format specifications. The existing localization regression test checks source
+coverage, dynamic job stages, language key parity and executable command words
+in help. Historical error/stage entries remain for older task records; obsolete
+help blocks have been removed.
+
+Persisted backup errors and RPC errors preserve templates plus parameters.
+Rendering uses the viewer's current language, including after a restart or a
+language change during a pending operation. The RPC response retains its plain
+error field for older clients. Legacy plain-text errors stay readable; exact
+catalog messages can be translated, while already-formatted old strings with
+lost parameters cannot always be reconstructed.

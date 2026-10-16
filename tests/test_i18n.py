@@ -17,6 +17,9 @@ from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import (
     CATALOGS,
     current_language,
+    error_message,
+    pack_message,
+    render,
     saved_label,
     tr,
     use_language,
@@ -278,6 +281,17 @@ async def test_rpc_errors_preserve_request_language(
     async def call(language):
         with use_language(language), pytest.raises(UserError) as error:
             await exchange(path, {"method": "test", "args": {}})
+        other = "zh" if language == "en" else "en"
+        source = (
+            "Task engine operation failed. Check the service logs."
+            if unexpected
+            else "You cannot manage this task."
+        )
+        with use_language(other):
+            assert (
+                render(error_message(error.value))
+                == CATALOGS[other]["messages"][source]
+            )
         return str(error.value)
 
     async with server:
@@ -327,6 +341,10 @@ def test_catalogs_cover_sources_and_keep_languages_in_sync():
         assert all(
             isinstance(value, str) and value for value in messages.values()
         )
+        for old_text, source in catalog.get("aliases", {}).items():
+            assert source in english
+            with use_language("en"):
+                assert saved_label(old_text) == tr(source)
         for template in (HELP, ADMIN_HELP, USER_HELP):
             assert Counter(commands.findall(template)) == Counter(
                 commands.findall(messages[template])
@@ -334,3 +352,41 @@ def test_catalogs_cover_sources_and_keep_languages_in_sync():
             assert Counter(verbs.findall(template)) == Counter(
                 verbs.findall(messages[template])
             )
+
+
+async def test_saved_errors_retranslate_after_reload_and_language_change(
+    bilingual,
+):
+    from tdl_bot.storage.backups import Backup
+    from tdl_bot.transfers.backups.service import BackupService
+
+    app, store, service = bilingual
+    source = "Telegram rate limit. Retry in {p0} seconds."
+    with use_language("zh"):
+        error = UserError(tr(source, p0=17))
+    record = Backup(
+        1, "follow", -10042, "@example", "Example", "shared", Target("-10043")
+    )
+    record.error = error_message(error)
+    store.backups.save(record)
+    restored = store.backups.all()[0]
+    assert restored.error == {"template": source, "values": {"p0": 17}}
+    notify = AsyncMock()
+    manager = BackupService(service, notify=notify)
+    for language in ("en", "zh"):
+        store.set_language(1, language)
+        expected = CATALOGS[language]["messages"][source].format(p0=17)
+        with use_language(language):
+            assert saved_label(restored.error) == expected
+            assert saved_label(source) == tr(source)
+        await manager._notify(restored)
+        assert expected in notify.call_args.args[1]
+        # Templates created before a language change use the current UI locale.
+        user = event(1)
+        await app.error(
+            SimpleNamespace(
+                update=SimpleNamespace(message=user), exception=error
+            )
+        )
+        assert user.answer.call_args.args[0] == expected
+    assert pack_message("legacy error") == "legacy error"

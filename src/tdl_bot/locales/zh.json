@@ -439,5 +439,33 @@
     "Management records": "管理记录",
     "Running": "运行中",
     "Send a Telegram message URL, not a group homepage.": "请发送 Telegram 消息链接，而非群组主页链接。"
+  },
+  "aliases": {
+    "已有进程使用该 data 目录或 tdl 程序。": "Another process is using this data directory or tdl binary.",
+    "没有运行中的 Bot 监控进程。": "No Bot supervisor is running.",
+    "结果已失效，需要重新处理来源。": "The saved result is unavailable. The source needs to be processed again.",
+    "TDL_PROXY 必须是 socks5、socks4 或 http 的代理 url。": "TDL_PROXY must be a socks5, socks4, or http proxy URL.",
+    "命令失败，请检查网络、群 url 或目标权限后重试。": "Command failed. Check the network, group URL, and destination permissions before retrying.",
+    "url 格式无效。": "Invalid URL format.",
+    "私密消息 url 格式无效。": "Invalid private message URL format.",
+    "请发送 Telegram 消息 url，而不是群主页。": "Send a Telegram message URL, not a group homepage.",
+    "群邀请 url 无效或已过期，请提供新的邀请。": "The group invite URL is invalid or expired. Provide a new invite.",
+    "tdl 未完整下载 media group，已停止上传并清理文件。": "tdl did not download the entire media group. Upload stopped and files cleaned up.",
+    "1/5 下载任务已加入队列。": "1/5 Download task queued.",
+    "tdl release 的 SHA-256 校验失败。": "tdl release SHA-256 verification failed.",
+    "release 资源地址不是官方 tdl 仓库。": "The release asset URL is not from the official tdl repository.",
+    "TDL_NAMESPACE 必须是单个 namespace 名称。": "TDL_NAMESPACE must be a single namespace name.",
+    "release 中没有有效的 tdl 程序。": "The release contains no valid tdl binary.",
+    "release 资源超出大小限制。": "The release asset exceeds the size limit.",
+    "release 版本格式无效，现有程序保留。": "Invalid release version. The existing binary was retained.",
+    "下载程序的版本与 release 不一致。": "The downloaded binary version does not match the release.",
+    "不支持该语言。使用 /language 查看可用语言。": "Unsupported language. Use /language to see available languages.",
+    "无法选择语言，请确认账号权限并在与 Bot 的私聊中重试。": "Language selection is unavailable.",
+    "语言已选择。": "Language selected.",
+    "tdl 上传后的媒体类型与原始媒体不一致。": "tdl returned an unexpected media type.",
+    "转存中": "Transferring",
+    "正在下载并校验官方 tdl 发行包…": "Installing tdl from the official release with checksum verification…",
+    "正在通过 tdl 登录。会话目录：{path}；namespace：{namespace}。": "Signing in with tdl. Session directory: {path}; namespace: {namespace}.",
+    "内部存储不能作为备份源，以免循环搬运。": "Internal storage cannot be used as a backup source."
   }
 }

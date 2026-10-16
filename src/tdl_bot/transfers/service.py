@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING
 from telethon import errors
 
 from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
-from tdl_bot.core.i18n import job_language, render, tr, use_language
+from tdl_bot.core.i18n import (
+    error_message,
+    job_language,
+    render,
+    tr,
+    use_language,
+)
 from tdl_bot.core.links import JoinLink, MessageLink
 from tdl_bot.integrations.telegram.delivery import MissingResult
 from tdl_bot.storage.models import Destination, PendingTransfer, Target
@@ -563,7 +569,7 @@ class TransferService:
                         finished=True,
                     )
                 except UserError as exc:
-                    await self._notify(job, str(exc), finished=True)
+                    await self._notify(job, error_message(exc), finished=True)
                 except errors.FloodWaitError as exc:
                     await self._notify(
                         job,
