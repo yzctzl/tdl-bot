@@ -244,3 +244,8 @@ cancellation still terminates and reaps its child.
 Native Windows has no reload, engine handoff or automatic frontend restart.
 Persisted jobs and backup checkpoints retain their existing recovery behavior.
 Linux/macOS and containers keep the resident engine and hot reload unchanged.
+
+
+Shutdown ordering keeps startup and cleanup separate: Windows monitors stop
+requests while command menus register, cancels unfinished registration, and
+finishes any permission-revocation cleanup before draining accepted commands.

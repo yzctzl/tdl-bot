@@ -226,6 +226,8 @@ async def test_native_commands_overlap_and_drain_with_permission_checks(
     release = asyncio.Event()
     exited = asyncio.Event()
     permissions_checked = asyncio.Event()
+    maintenance_entered = asyncio.Event()
+    maintenance_release = asyncio.Event()
     updates = []
 
     async def command(message):
@@ -234,6 +236,10 @@ async def test_native_commands_overlap_and_drain_with_permission_checks(
             await release.wait()
         else:
             fast_finished.set()
+
+    async def reconcile_permissions():
+        maintenance_entered.set()
+        await maintenance_release.wait()
 
     dispatcher.message.register(command)
 
@@ -266,7 +272,7 @@ async def test_native_commands_overlap_and_drain_with_permission_checks(
         dispatcher=dispatcher,
         register_commands=AsyncMock(),
         service=SimpleNamespace(
-            reconcile_permissions=AsyncMock(),
+            reconcile_permissions=AsyncMock(side_effect=reconcile_permissions),
             backups=SimpleNamespace(
                 quiesce=Mock(),
                 reconcile_permissions=AsyncMock(
@@ -281,21 +287,65 @@ async def test_native_commands_overlap_and_drain_with_permission_checks(
         await asyncio.wait_for(slow_started.wait(), 5)
         await asyncio.wait_for(fast_finished.wait(), 5)
         assert not release.is_set()
-        await asyncio.wait_for(permissions_checked.wait(), 5)
-        application.service.reconcile_permissions.assert_awaited()
-        application.service.backups.reconcile_permissions.assert_awaited()
+        await asyncio.wait_for(maintenance_entered.wait(), 5)
         (tmp_path / "stop.request").touch()
         await asyncio.wait_for(exited.wait(), 5)
         # Stop polling immediately, but let accepted commands finish first.
         assert not task.done()
         application.close.assert_not_awaited()
+        maintenance_release.set()
+        await asyncio.wait_for(permissions_checked.wait(), 5)
+        application.service.reconcile_permissions.assert_awaited()
+        application.service.backups.reconcile_permissions.assert_awaited()
+        assert not task.done()
         release.set()
         await asyncio.wait_for(task, 5)
         assert all(update.done() for update in updates)
         assert not dispatcher._running_lock.locked()
         application.close.assert_awaited_once()
     finally:
+        maintenance_release.set()
         release.set()
         task.cancel()
         await asyncio.gather(task, *updates, return_exceptions=True)
         await bot.session.close()
+
+
+async def test_native_stop_cancels_pending_command_registration(tmp_path):
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def register():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    application = SimpleNamespace(
+        settings=SimpleNamespace(data_dir=tmp_path),
+        bot=object(),
+        register_commands=register,
+        dispatcher=SimpleNamespace(
+            update=SimpleNamespace(outer_middleware=Mock()),
+            start_polling=AsyncMock(),
+            stop_polling=AsyncMock(),
+        ),
+        service=SimpleNamespace(
+            backups=None, reconcile_permissions=AsyncMock()
+        ),
+        close=AsyncMock(),
+    )
+    task = asyncio.create_task(windows.poll(application))
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        assert not (tmp_path / "polling.heartbeat").exists()
+        (tmp_path / "stop.request").touch()
+        await asyncio.wait_for(task, 3)
+        assert cancelled.is_set()
+        application.dispatcher.start_polling.assert_not_awaited()
+        application.dispatcher.stop_polling.assert_not_awaited()
+        application.close.assert_awaited_once()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
