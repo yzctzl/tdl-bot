@@ -354,7 +354,6 @@
     "Waiting to retry after a temporary network or rate limit error.": "遇到临时网络错误或限流，正在等待自动重试。",
     "You already have 3 active follow tasks. Pause or cancel one first.": "你已有 3 条启用中的跟踪任务，请先暂停或取消其中一条。",
     "The backup is still stopping. Try again shortly.": "备份仍在停止和清理中，请稍后重试。",
-    "Send a Telegram message URL to process its entire media group and captions.\n/target <chat> [topic_id] Set a destination group or channel\n/target bot Receive in this dialogue (default)\n/status View destination and task status\n/jobs List active tasks; /cancel <id> Cancel a task\n/pending List retries; /retry [id] Retry a task\n/retry_cancel <id> Remove a retry\n/join <group_url> [id] Join and retry\nRegular accounts can keep up to 3 pending retries.\n/status View status; /whoami View your account ID\n/language [en|zh] Choose your language\n/follow <source> [to <chat>] [every 5m] Track new messages\n/follow List tasks; /follow pause|resume|cancel <id> Manage a task": "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字\n/target <chat> [topic_id] 设置接收群／频道\n/target bot 接收到此对话（默认）\n/status 查看接收位置与任务状态\n/jobs 查看活动任务，/cancel <编号> 取消\n/pending 查看待重试记录，/retry [编号] 重试\n/retry_cancel <编号> 删除待重试记录\n/join <群 url> [编号] 入群后重试\n普通账号最多保存 3 条待重试记录。\n/status 查看状态，/whoami 查看自己的账号 ID\n/language [en|zh] 选择语言\n/follow <来源> [to <目标>] [every 5m] 跟踪新消息\n/follow 查看任务；/follow pause|resume|cancel <任务 ID> 管理任务",
     "This group was upgraded. Create a backup for its new supergroup.": "此群组已升级，请为升级后的超级群组创建备份。",
     "3/5 Preparing {p0} media files.": "3/5 正在准备 {p0} 个媒体文件。",
     "4/5 Copying {p0} media files without downloading.": "4/5 正在直接转存 {p0} 个媒体文件，无需下载。",
@@ -378,6 +377,7 @@
     "Members (page {page}/{pages}, {total} total):": "成员列表（第 {page}/{pages} 页，共 {total} 人）：",
     "Previous": "上一页",
     "Next": "下一页",
-    "Member list is unavailable.": "成员列表不可用。"
+    "Member list is unavailable.": "成员列表不可用。",
+    "Send a Telegram message URL to process its entire media group and captions.\n\nDestinations:\n/target bot Receive here (default)\n/target <chat> [topic_id] Set a group or channel\n/status View destination and task status\n\nTasks and retries:\n/jobs List active tasks\n/cancel <id> Cancel a task\n/pending List pending retries\n/retry [id] Retry a task\n/retry_cancel <id> Remove a retry\n/join <group_url> [id] Join and retry\n\nChannel tracking:\n/follow <source> [to <chat>] [every 5m] Track new messages\n/follow List tasks\n/follow pause|resume|cancel <id> Manage a task\n/follow interval <id> <60s|5m|1h> Change the interval\n\nOther:\n/language [en|zh] Choose your language\n/whoami Show your account ID\n/help Show help": "发送 Telegram 消息链接，即可处理整个媒体组及文字。\n\n接收设置：\n/target bot 接收到此对话（默认）\n/target <目标> [话题 ID] 设置接收群／频道\n/status 查看接收位置与任务状态\n\n任务与重试：\n/jobs 查看活动任务\n/cancel <编号> 取消任务\n/pending 查看待重试任务\n/retry [编号] 重试任务\n/retry_cancel <编号> 删除待重试任务\n/join <群链接> [编号] 入群并重试\n\n频道跟踪：\n/follow <来源> [to <目标>] [every 5m] 跟踪新消息\n/follow 查看跟踪任务\n/follow pause|resume|cancel <编号> 暂停／恢复／取消\n/follow interval <编号> <60s|5m|1h> 修改间隔\n\n其他：\n/language [en|zh] 选择语言\n/whoami 查看自己的账号 ID\n/help 查看帮助"
   }
 }
