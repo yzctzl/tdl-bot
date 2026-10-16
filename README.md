@@ -48,7 +48,9 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
 仓库包含 Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
-镜像需待对应 GitHub Actions 成功发布后才能拉取。
+普通提交和 PR 只运行检查；**仅推送 `vX.Y.Z` 版本 tag 才触发 Docker 构建与
+版本发布**，tag 需与 `pyproject.toml` 版本一致。成功后发布版本镜像和附带
+wheel／源码包的 GitHub Release。tag 由用户手动创建，工作流不自动打 tag。
 
 ## 安装与登录
 

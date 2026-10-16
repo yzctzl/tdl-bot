@@ -77,7 +77,7 @@ Images target `linux/amd64` and `linux/arm64`.
 
 Create a workspace. Place `compose.yaml` and `.env.example` from the same revision
 of this repository in it. Published images become available after the container
-workflow succeeds on the repository's default branch. Before then, build locally
+workflow succeeds for a manually pushed version tag (for example `v0.1.0`). Before then, build locally
 with `docker build -t tdl-bot:local <repository>` and set
 `TDL_BOT_IMAGE=tdl-bot:local` in `.env`.
 
@@ -228,15 +228,37 @@ run `uv sync --locked`, then start. No deployment mode watches file changes.
 
 ## CI and publishing
 
-`checks.yaml` runs Ruff, Ty, the offline test suite, and package builds on Linux
-and macOS. It installs the built wheel with uv tool and initializes a workspace
-outside the checkout. `container.yaml` runs those checks before Docker smoke
-checks and multi-architecture publishing to GHCR. Pull requests build/test only;
-publication uses the repository's default branch and `GITHUB_TOKEN` with package
-write permission. Public pull access may require making the GHCR package public
-once in GitHub's package settings. Forks should set `TDL_BOT_IMAGE` to their own
-GHCR image.
+`checks.yaml` runs on branch pushes and pull requests, and can also be called
+by the release workflow. It runs Ruff, Ty, offline tests and package checks on
+Linux/macOS, including a built-wheel uv tool install outside the checkout.
+Ordinary commits and pull requests do not build Docker images or publish releases.
 
-Images receive `latest` and `sha-<full-commit>` tags. Workflows do not create Git
-tags or publish to PyPI, and real Telegram transfers are not part of CI.
-Native Windows runtime support remains a separate future change.
+`container.yaml` triggers **only when a `vX.Y.Z` Git tag is pushed**. It validates
+that the tag matches `project.version` in `pyproject.toml`, then runs the reusable
+checks. After checks and Docker smoke checks pass, it builds/pushes
+`linux/amd64` and `linux/arm64` images to GHCR. A final job creates the GitHub
+Release for that existing tag and attaches the wheel and source archive. The
+workflow never creates Git tags or publishes to PyPI.
+
+For a release, update `project.version`, run `uv lock`, and commit both files
+before manually creating/pushing the matching tag:
+
+```sh
+# Example: pyproject.toml must already declare version = "0.1.0".
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Stable `vX.Y.Z` tags are supported; other tag names are not release versions.
+The release workflow has no manual-dispatch or branch-push release path.
+Rerunning a tagged workflow can refresh its existing release assets.
+
+Each release produces `vX.Y.Z`, `X.Y.Z`, `latest`, and `sha-<full-commit>` image
+tags. Set `TDL_BOT_IMAGE=ghcr.io/yzctzl/tdl-bot:v0.1.0` to select a version.
+Publishing uses `GITHUB_TOKEN`, scoped to package writes for the image job and
+repository contents writes for the release job. Public pull access may require
+making the GHCR package public once in GitHub's package settings. Forks should
+set `TDL_BOT_IMAGE` to their own GHCR image.
+
+Real Telegram transfers are not part of CI. Native Windows runtime support
+remains a separate future change.
