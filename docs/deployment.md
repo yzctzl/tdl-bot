@@ -59,8 +59,9 @@ tdl-bot reload -e /path/to/workspace/.env
 tdl-bot stop -e /path/to/workspace/.env
 ```
 
-Use `tdl-bot help` to list commands and `tdl-bot help login` (or
-`tdl-bot login --help`) for command options. Login options `--namespace` and
+Use `tdl-bot help` to list commands. `tdl-bot help login`,
+`tdl-bot login help`, and `tdl-bot login -h` (or `--help`) display identical
+command help and work before configuration. Login options `--namespace` and
 `--login-method` belong after `login`; `--directory` belongs after `setup`.
 Short options are `-e` (env file), `-d` (workspace), `-n` (namespace), and
 `-m` (login method). `setup` defaults to the current directory; `login`

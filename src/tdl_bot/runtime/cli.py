@@ -351,7 +351,7 @@ def parse_arguments(argv=None):
         description="tdl Telegram media-group Bot",
         parents=[common],
         epilog="Run without a command to start the Bot. Use 'help <command>' "
-        "for command options.",
+        "or '<command> help' for command options.",
     )
     parser.set_defaults(namespace=None, login_method="qr")
     # Keep the old no-op flag out of help; reloads are always manual.
@@ -379,6 +379,14 @@ def parse_arguments(argv=None):
             description=description,
             parents=[] if name in {"setup", "help"} else [common],
         )
+        if name != "help":
+            pages[name].add_argument(
+                "command_help",
+                nargs="?",
+                choices=["help"],
+                metavar="help",
+                help="Show this command's help",
+            )
     pages["setup"].add_argument(
         "-d",
         "--directory",
@@ -421,6 +429,9 @@ def parse_arguments(argv=None):
     args = parser.parse_args(argv)
     args.command = args.command or "run"
     args.env_file = getattr(args, "env_file", None)
+    if getattr(args, "command_help", None) == "help":
+        pages[args.command].print_help()
+        parser.exit()
     if (
         args.command == "reload"
         and args.all_instances

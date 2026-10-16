@@ -232,6 +232,33 @@ def test_help_exits_without_loading_configuration(monkeypatch, capsys):
             cli.main()
         assert error.value.code == 0
         assert expected in capsys.readouterr().out
+    for command in (
+        "run",
+        "login",
+        "reload",
+        "stop",
+        "setup",
+        "health",
+        "container",
+        "engine",
+        "frontend",
+    ):
+        outputs = []
+        for argv in (
+            ["help", command],
+            [command, "help"],
+            [command, "--help"],
+            [command, "-h"],
+        ):
+            monkeypatch.setattr("sys.argv", ["tdl-bot", *argv])
+            with pytest.raises(SystemExit) as error:
+                cli.main()
+            assert error.value.code == 0
+            outputs.append(capsys.readouterr().out)
+        assert all(output == outputs[0] for output in outputs)
+    # An option value named 'help' must not become a help request.
+    args = cli.parse_arguments(["login", "-n", "help"])[1]
+    assert args.namespace == "help" and args.command_help is None
     configure.assert_not_called()
 
 

@@ -503,7 +503,8 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 ```bash
 uv run tdl-bot                 # 启动；代码修改不会触发自动重载
 uv run tdl-bot help            # 查看所有子命令
-uv run tdl-bot help login      # 查看登录选项（也可用 login --help）
+uv run tdl-bot help login      # 查看登录选项
+uv run tdl-bot login help      # 同上，也支持 login -h / --help
 uv run tdl-bot reload          # 自动重载唯一运行实例
 uv run tdl-bot reload -a       # 重载当前系统用户的全部运行实例
 uv run tdl-bot reload -e ./workspace/.env  # 指定实例
