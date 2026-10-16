@@ -1,0 +1,42 @@
+services:
+  bot:
+    image: ${TDL_BOT_IMAGE:-ghcr.io/yzctzl/tdl-bot:latest}
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+    # Finite dumps/follows stop after the current unit; accepted URL jobs drain.
+    stop_grace_period: ${TDL_STOP_GRACE_PERIOD:-24h}
+    environment:
+      TDL_BOT_ENV_FILE: /workspace/.env
+      DATA_DIR: /data
+      BIN_DIR: /tdl-bin
+      # Ignore host-specific executable overrides; select this Linux architecture.
+      TDL_BINARY: ""
+      TDL_DIR: /data/tdl
+      RUNTIME_DIR: /run/tdl-bot
+      HOME: /data/tdl-home
+    volumes:
+      - type: bind
+        # Mount the directory so atomic .env replacements are visible on reload.
+        source: .
+        target: /workspace
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DATA_DIR:?Set DATA_DIR in .env}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BIN_DIR:?Set BIN_DIR in .env}
+        target: /tdl-bin
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TDL_DIR:-./data/tdl}
+        target: /data/tdl
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /run/tdl-bot:mode=0700,uid=${PUID:-1000},gid=${PGID:-1000}
