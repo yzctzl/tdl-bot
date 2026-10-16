@@ -20,7 +20,7 @@ from telethon import errors
 
 from tdl_bot.bot.accounts import ExecutionCommands
 from tdl_bot.bot.backups import BackupCommands
-from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP
+from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP, USER_HELP
 from tdl_bot.bot.destinations import DestinationCommands
 from tdl_bot.bot.members import MemberCommands
 from tdl_bot.bot.middleware import Authorization
@@ -143,7 +143,7 @@ class BotApplication:
     def _help_text(self, user_id: int) -> str:
         text = tr(HELP)
         if self.policy.is_admin(user_id):
-            text += tr(ADMIN_HELP)
+            text += tr(ADMIN_HELP) + "\n\n" + tr(USER_HELP)
         return text
 
     @localized

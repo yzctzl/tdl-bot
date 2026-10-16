@@ -57,6 +57,7 @@ HELP = (
 
 
 USER_HELP = (
+    "User management:\n"
     "/user list [page] List members\n"
     "/user add <UID|@username> Add a regular account\n"
     "/user remove <UID|@username> Remove an account\n"
@@ -65,23 +66,18 @@ USER_HELP = (
     "/user unban <UID|@username> Unban an account\n"
     "/user role <UID|@username> <user|admin> Set a role\n"
     "/user history <UID|@username> View account management history\n"
-    "/user follow_limit <UID|@username> <0-1000> Set follow quota"
+    "/user follow_limit <UID|@username> <0-1000> Set follow quota\n"
+    "/target for <UID|@username> [chat] [topic_id] Manage a personal "
+    "destination\n"
+    "/status <UID|@username> View another account's destination"
 )
 
 
 ADMIN_HELP = (
-    (
-        "\n\nAdministrators:\n"
-        "/storage <chat> [topic_id] Configure internal storage\n"
-        "/target for <UID|@username> [chat] [topic_id] Manage a personal "
-        "destination\n"
-    )
-    + USER_HELP
-    + (
-        "\n/status <UID|@username> View another account's destination\n"
-        "/update_tdl [latest|v0.20.4] Check and update tdl\n"
-        "/account <auto|shared|UID> Switch execution account\n"
-        "/dump <source> [to <chat>] Back up channel history\n"
-        "/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
-    )
+    "\n\nAdministrators:\n"
+    "/storage <chat> [topic_id] Configure internal storage\n"
+    "/update_tdl [latest|v0.20.4] Check and update tdl\n"
+    "/account <auto|shared|UID> Switch execution account\n"
+    "/dump <source> [to <chat>] Back up channel history\n"
+    "/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
 )
