@@ -577,7 +577,9 @@ async def test_worker_rechecks_changed_private_permissions(managed):
     service.accounts.shared.media.resolve.assert_not_awaited()
 
 
-async def test_username_management_resolves_live_uid_and_shows_both(managed):
+async def test_username_management_resolves_live_uid_and_prefers_username(
+    managed,
+):
     app, service, store, _ = managed
     service.accounts.shared.media.resolve_user = AsyncMock(
         return_value=SimpleNamespace(
@@ -591,7 +593,7 @@ async def test_username_management_resolves_live_uid_and_shows_both(managed):
     await app.members.user_add(event, command("user_add", "@example"))
     assert store.member(4)
     assert "@example" in event.answer.call_args.args[0]
-    assert "UID: 4" in event.answer.call_args.args[0]
+    assert "UID:" not in event.answer.call_args.args[0]
     # Reassigned usernames resolve to their current UID, never cached privilege.
     service.accounts.shared.media.resolve_user.return_value.id = 5
     await app.members.user_add(event, command("user_add", "@example"))
@@ -645,7 +647,7 @@ def test_result_cache_and_profiles_survive_restart(managed, tmp_path):
     store.save_result(["https://t.me/channel/1"], "shared", None, "me", [10])
     reopened = Store(tmp_path / "state.sqlite3")
     try:
-        assert reopened.user_label(2) == "@example (UID: 2)"
+        assert reopened.user_label(2) == "@example"
         assert reopened.saved_results(["https://t.me/channel/1"], "shared") == [
             (None, "me", [10])
         ]

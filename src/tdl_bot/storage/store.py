@@ -494,11 +494,9 @@ class Store:
             "SELECT username, name FROM user_profiles WHERE user_id=?",
             (user_id,),
         ).fetchone()
-        label = (
-            (f"@{row[0]}" if row[0] else row[1])
-            if row
-            else tr("Username unknown")
-        )
+        if row and row[0]:
+            return f"@{row[0]}"
+        label = row[1] if row else tr("Username unknown")
         return f"{label} (UID: {user_id})"
 
     def saved_results(self, urls, executor_key, *, internal_only=False):
