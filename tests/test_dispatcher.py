@@ -205,7 +205,7 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     assert len(j.transport.calls) == count
     await j.send("/user", user=1)
     assert "/user add" in j.transport.last().text
-    assert "/user follow_limit" in j.transport.last().text
+    assert "/user follow" in j.transport.last().text
     await j.send("/user unknown", user=1)
     assert "Unknown user operation" in j.transport.last().text
     await j.send("/user add", user=1)
@@ -226,7 +226,7 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     assert j.service.policy.is_admin(3)
     await j.send("/user role 3 user", user=1)
     assert not j.service.policy.is_admin(3)
-    await j.send("/user follow_limit 3 7", user=1)
+    await j.send("/user follow 3 7", user=1)
     assert j.service.store.follow_limit(3) == 7
     await j.send("/user list 1", user=1)
     assert "Follow slots: 0/7" in j.transport.last().text

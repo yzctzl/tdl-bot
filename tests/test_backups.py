@@ -469,12 +469,12 @@ async def test_commands_and_rpc_hide_storage_and_register_role_menus(
     admin = SimpleNamespace(from_user=SimpleNamespace(id=1), answer=AsyncMock())
     command = CommandObject(command="user_follow_limit", args="@operator 5")
     with pytest.raises(UserError):
-        await app.members.user_follow_limit(event, command)
-    await app.members.user_follow_limit(admin, command)
+        await app.members.user_follow(event, command)
+    await app.members.user_follow(admin, command)
     resolve_user.assert_awaited_with("@operator")
     assert w.store.follow_limit(2) == 5
     with pytest.raises(UserError):
-        await app.members.user_follow_limit(
+        await app.members.user_follow(
             admin,
             CommandObject(
                 command="user_follow_limit", args="@operator invalid"

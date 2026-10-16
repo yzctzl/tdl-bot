@@ -66,7 +66,7 @@ USER_HELP = (
     "/user unban <UID|@username> Unban an account\n"
     "/user role <UID|@username> <user|admin> Set a role\n"
     "/user history <UID|@username> View account management history\n"
-    "/user follow_limit <UID|@username> <0-1000> Set follow quota\n"
+    "/user follow <UID|@username> <0-1000> Set follow quota\n"
     "/target for <UID|@username> [chat] [topic_id] Manage a personal "
     "destination\n"
     "/status <UID|@username> View another account's destination"

@@ -236,7 +236,7 @@ intentionally send that history again.
 
 Ordinary members may have up to nine follows by default. Active and paused
 follows both count; cancellation releases a slot. Administrators can set a
-per-member limit with `/user follow_limit <UID|@username> <0-1000>` (0 prevents
+per-member limit with `/user follow <UID|@username> <0-1000>` (0 prevents
 new follows and resumes). Lowering a limit preserves existing tasks, while new
 follows and resumes must fit the new limit. `/user list` shows usage and limits;
 `/follow` shows the caller's quota. Changes persist and appear in `/user history`.
@@ -394,7 +394,7 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 | `/user unban <账号 ID>` | 提前解除封禁 |
 | `/user role <账号 ID> <user\|admin>` | 设置普通账号／管理员角色 |
 | `/user history <账号 ID>` | 查看最近十次账号管理操作 |
-| `/user follow_limit <UID或@用户名> <0-1000>` | 设置普通用户的 follow 数量上限 |
+| `/user follow <UID或@用户名> <0-1000>` | 设置普通用户的 follow 数量上限 |
 
 支持公开消息、`/c/` 私密消息、forum topic、`/s/` 预览 url、`?thread=` 和
 `?comment=` 讨论群评论 url；forum url 使用最后一段消息 ID。仅发送一个 url

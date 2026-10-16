@@ -38,7 +38,7 @@ class MemberCommands(CommandGroup):
             "unban": self.user_unban,
             "role": self.user_role,
             "history": self.user_history,
-            "follow_limit": self.user_follow_limit,
+            "follow": self.user_follow,
         }
         handler = handlers.get(action)
         if handler is None:
@@ -253,7 +253,7 @@ class MemberCommands(CommandGroup):
         )
 
     @localized
-    async def user_follow_limit(self, message: Message, command: CommandObject):
+    async def user_follow(self, message: Message, command: CommandObject):
         actor, args = self._admin_args(message, command, 2)
         if not args[1].isascii() or not args[1].isdigit() or len(args[1]) > 4:
             raise UserError(tr("Follow limits must be between 0 and 1000."))
