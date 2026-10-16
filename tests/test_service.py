@@ -463,3 +463,111 @@ async def test_transfer_and_cached_result_keep_numbered_progress(
         )
     tdl.download.assert_not_awaited()
     media.upload.assert_not_awaited()
+
+
+async def test_activity_links_precede_media_and_cached_results_only_link_back(
+    setup_service,
+):
+    from tdl_bot.transfers.activity import ActivityRecorder
+
+    service, _, media, store, _ = setup_service
+    bot = SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=50)),
+        edit_message_text=AsyncMock(),
+    )
+    service.activity = ActivityRecorder(bot, store)
+    service.delivery = AsyncMock(return_value=[300, 301])
+    store.remember_user(1, "example", "Test")
+
+    async def copy(group, target):
+        assert bot.send_message.await_count == 1
+        assert store.activity.list()[0]["status"] == "recorded"
+        assert (
+            "https://t.me/channel/20"
+            in bot.send_message.call_args.kwargs["text"]
+        )
+        return [100, 101]
+
+    media.copy_group = AsyncMock(side_effect=copy)
+    for user_id in (1, 2):
+        job = Job(
+            user_id,
+            "https://t.me/channel/20",
+            Target(str(user_id)),
+            storage_target=Target("-10042"),
+        )
+        await service._transfer(job)
+        event = store.activity.get("media:" + job.id)
+        assert (
+            event["result_ids"] == [100, 101] and event["status"] == "completed"
+        )
+    assert media.copy_group.await_count == 1
+    assert bot.send_message.await_count == 2
+    assert (
+        "https://t.me/c/42/100"
+        in bot.edit_message_text.call_args.kwargs["text"]
+    )
+    assert service.delivery.await_count == 2
+    assert "UID:" not in bot.send_message.call_args_list[0].kwargs["text"]
+    # Recovered jobs reuse acknowledged records instead of posting another link.
+    event = store.activity.list()[0]
+    await service.activity.begin(
+        event["id"], "media", 2, event["url"], Target("-10042"), "shared"
+    )
+    assert bot.send_message.await_count == 2
+    # An ambiguous recording failure must not silently replay the write.
+    from aiogram.exceptions import TelegramNetworkError
+
+    bot.send_message.side_effect = TelegramNetworkError(
+        method=None, message="lost acknowledgement"
+    )
+    uncertain = Job(
+        1,
+        "https://t.me/channel/30",
+        Target("1"),
+        storage_target=Target("-10042"),
+    )
+    for _ in range(2):
+        with pytest.raises(UserError):
+            await service._transfer(uncertain)
+    assert bot.send_message.await_count == 3
+    assert media.copy_group.await_count == 1
+
+
+@pytest.mark.parametrize("outcome", ["joined", "pending", "failed"])
+async def test_join_activity_records_actor_executor_link_and_outcome(
+    setup_service, outcome
+):
+    from tdl_bot.core.errors import JoinPending
+    from tdl_bot.transfers.activity import ActivityRecorder
+
+    service, _, media, store, _ = setup_service
+    bot = SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=9)),
+        edit_message_text=AsyncMock(),
+    )
+    service.activity = ActivityRecorder(bot, store)
+    store.set_target(1, Target("-10042"))
+    media.join = AsyncMock(return_value={"title": "Example", "chat": "-10042"})
+    if outcome != "joined":
+        media.join.side_effect = (
+            JoinPending("pending")
+            if outcome == "pending"
+            else UserError("failed")
+        )
+        with pytest.raises(UserError):
+            await service.join(1, "https://t.me/example", "shared")
+    else:
+        await service.join(1, "https://t.me/example", "shared")
+    event = store.activity.list()[0]
+    assert event["kind"] == "join" and event["user_id"] == 1
+    assert (
+        event["executor_key"] == "shared"
+        and event["url"] == "https://t.me/example"
+    )
+    assert event["status"] == outcome
+    if outcome == "joined":
+        assert event["chat"] == "-10042" and event["title"] == "Example"
+    with pytest.raises(UserError):
+        await service.join(99, "https://t.me/example", "shared")
+    assert len(store.activity.list()) == 1

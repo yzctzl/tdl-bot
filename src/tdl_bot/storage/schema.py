@@ -21,7 +21,7 @@ class SchemaMigrations:
     def run(self, path: Path, *, migrate: bool):
         try:
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 8:
+            if version > 9:
                 raise UserError(
                     tr(
                         "The database is newer than this program. Use a "
@@ -109,6 +109,22 @@ class SchemaMigrations:
                         "payload TEXT NOT NULL)"
                     )
                     self._db.execute("PRAGMA user_version = 8")
+            if version < 9:
+                if version == 8:
+                    self._backup(path, suffix=".pre-activity")
+                with self._db:
+                    self._db.execute("BEGIN IMMEDIATE")
+                    self._db.execute(
+                        "CREATE TABLE IF NOT EXISTS activity_events "
+                        "(id TEXT PRIMARY KEY, kind TEXT NOT NULL, "
+                        "user_id INTEGER NOT NULL, created REAL NOT NULL, "
+                        "payload TEXT NOT NULL)"
+                    )
+                    self._db.execute(
+                        "CREATE INDEX IF NOT EXISTS activity_user_time "
+                        "ON activity_events(user_id, created DESC)"
+                    )
+                    self._db.execute("PRAGMA user_version = 9")
         except BaseException:
             self._db.close()
             raise

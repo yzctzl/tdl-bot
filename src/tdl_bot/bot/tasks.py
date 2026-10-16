@@ -168,12 +168,8 @@ class TaskCommands(CommandGroup):
         item = self.service.pending_record(
             operator, self._pending_id(args[1] if len(args) == 2 else None)
         )
-        executor = self.service.accounts.get(item.executor_key)
-        link = JoinLink.parse(args[0])
         try:
-            # Joining cannot race binary replacement on another account.
-            async with executor.tdl.gate.job():
-                await executor.media.join(link)
+            await self.service.join(operator, args[0], item.executor_key)
         except JoinPending as exc:
             await message.answer(str(exc))
             return

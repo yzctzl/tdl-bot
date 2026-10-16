@@ -690,3 +690,21 @@ upload window and native `cryptg` acceleration remain available.
 Native clone logs include verified media count and duration without source
 URLs or captions. Use manual reload to adopt new code after old engine tasks
 finish. Actual throughput depends on Telegram, the proxy and the network.
+
+
+### Link and join activity
+
+Only two kinds of user activity are mirrored to internal storage: submitted media
+links and explicit `/join` actions. A new media task posts the operator and source
+link before transferring media. Repeated content adds a link to the existing
+stored media instead of another media copy. Join records retain the initiating
+user, execution account, supplied link, resolved chat identity when available,
+and result (joined, approval pending, or failed). Other commands and background
+backup units do not create activity posts.
+
+Administrators can use `/user activity` or `/user activity <UID|@username>` to
+view records with pagination buttons. The database retains UIDs for accurate
+filtering; displays prefer `@username` and only fall back to a UID when needed.
+Activity records are durable across reloads. Database schema v9 adds the activity
+table and backs up an existing v8 database before migrating. No past actions are
+reconstructed automatically.

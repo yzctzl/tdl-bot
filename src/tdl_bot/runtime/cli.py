@@ -45,6 +45,7 @@ from tdl_bot.runtime.engine import (
 from tdl_bot.runtime.login import native_login
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy, AccountPool, Executor
+from tdl_bot.transfers.activity import ActivityRecorder
 from tdl_bot.transfers.backups.service import BackupService
 from tdl_bot.transfers.service import TransferService
 
@@ -250,6 +251,7 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
             queue_size=settings.queue_size,
             delivery=Delivery(bot, policy=policy),
             durable=True,
+            activity=ActivityRecorder(bot, store),
         )
         service.start()
         service.backups = BackupService(

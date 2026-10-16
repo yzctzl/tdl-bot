@@ -11,3 +11,7 @@ class AccessDenied(UserError):
 
 class JoinPending(UserError):
     """A Telegram administrator must approve the join request."""
+
+    def __init__(self, message, *, details=None):
+        super().__init__(message)
+        self.details = details or {}

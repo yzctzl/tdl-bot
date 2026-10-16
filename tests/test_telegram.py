@@ -131,7 +131,8 @@ async def test_join_reports_admin_approval():
     with pytest.raises(JoinPending):
         await TelegramMedia(client).join(JoinLink(invite_hash="abc"))
     assert isinstance(
-        client.call_args.args[0], functions.messages.ImportChatInviteRequest
+        client.call_args_list[0].args[0],
+        functions.messages.ImportChatInviteRequest,
     )
 
 
@@ -316,3 +317,15 @@ async def test_upload_never_preserves_text_or_photo_spoilers():
     assert len(entities) == 1 and isinstance(
         entities[0], types.MessageEntityBold
     )
+
+
+async def test_pending_join_keeps_resolved_invite_title():
+    client = AsyncMock(
+        side_effect=[
+            errors.InviteRequestSentError(None),
+            SimpleNamespace(title="Example group"),
+        ]
+    )
+    with pytest.raises(JoinPending) as pending:
+        await TelegramMedia(client).join(JoinLink(invite_hash="example"))
+    assert pending.value.details == {"title": "Example group"}

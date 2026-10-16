@@ -252,7 +252,7 @@ def test_early_v6_missing_available_column_migrates_without_losing_history(
                 for row in db.execute("PRAGMA table_info(stored_results)")
             }
         with sqlite3.connect(path) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 8
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 9
             assert db.execute(
                 "SELECT ids,status FROM delivery_history"
             ).fetchall() == [("[200]", "sent")]

@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 
 from telethon import errors
 
-from tdl_bot.core.errors import AccessDenied, UserError
+from tdl_bot.core.errors import AccessDenied, JoinPending, UserError
 from tdl_bot.core.i18n import job_language, render, tr, use_language
-from tdl_bot.core.links import MessageLink
+from tdl_bot.core.links import JoinLink, MessageLink
 from tdl_bot.integrations.telegram.delivery import MissingResult
 from tdl_bot.storage.models import Destination, PendingTransfer, Target
 from tdl_bot.storage.store import Store
@@ -46,10 +46,12 @@ class TransferService:
         queue_size: int = 20,
         delivery=None,
         durable: bool = False,
+        activity=None,
     ) -> None:
         """Initialize a bounded workspace queue and execution account pool."""
         self.backups: BackupService | None = None
         self.delivery = delivery
+        self.activity = activity
         self.durable = durable
         self.store = store
         self.jobs_dir = jobs_dir
@@ -188,6 +190,49 @@ class TransferService:
         return self.policy.is_allowed(user_id) and self.accounts.can_use(
             user_id, key, admin=self.policy.is_admin(user_id)
         )
+
+    async def join(self, user_id, url, executor_key):
+        """Audit explicit joins on the selected execution account."""
+        from uuid import uuid4
+
+        if not self.can_use_executor(user_id, executor_key):
+            raise UserError(tr("You cannot use this execution account."))
+        link = JoinLink.parse(url)
+        executor = self.accounts.get(executor_key)
+        key = "join:" + uuid4().hex
+        if self.activity is not None:
+            target = self.store.internal_target()
+            if target is None:
+                raise UserError(
+                    tr("Ask an administrator to configure the service first.")
+                )
+            await self.activity.begin(
+                key, "join", user_id, url, target, executor_key
+            )
+        try:
+            async with executor.tdl.gate.job():
+                result = await executor.media.join(link)
+        except JoinPending as exc:
+            if self.activity is not None:
+                await self.activity.finish(
+                    key,
+                    status="pending",
+                    **(
+                        exc.details
+                        or {"title": link.username or tr("Private chat")}
+                    ),
+                )
+            raise
+        except BaseException:
+            if self.activity is not None:
+                await self.activity.finish(key, status="failed")
+            raise
+        if self.activity is not None:
+            await self.activity.finish(
+                key,
+                status="joined",
+                **(result if isinstance(result, dict) else {}),
+            )
 
     async def retry(
         self,
@@ -569,9 +614,25 @@ class TransferService:
                         finished=True,
                     )
                 finally:
-                    self._release(job)
-                    job.done.set()
-                    self._queue.task_done()
+                    try:
+                        if self.activity is not None and not job.quiet:
+                            event = self.store.activity.get("media:" + job.id)
+                            if event and event.get("status") == "recorded":
+                                await self.activity.finish(
+                                    event["id"],
+                                    status="cancelled"
+                                    if job.cancel_requested
+                                    else "failed",
+                                )
+                    except Exception as exc:
+                        _LOGGER.warning(
+                            "Cannot finish activity record: %s",
+                            type(exc).__name__,
+                        )
+                    finally:
+                        self._release(job)
+                        job.done.set()
+                        self._queue.task_done()
 
     @asynccontextmanager
     async def _work_lock(self, key):
@@ -599,6 +660,15 @@ class TransferService:
             _LOGGER.info("Task user=%s phase=resolve", job.user_id)
             job.stage = "Locating media group"
             await self._notify(job, tr("2/5 Locating media group."))
+            if self.activity is not None and not job.quiet:
+                await self.activity.begin(
+                    "media:" + job.id,
+                    "media",
+                    job.user_id,
+                    job.url,
+                    job.storage_target or job.target,
+                    job.executor_key,
+                )
             if await self._reuse(job, [job.url]):
                 return
             if self.delivery is not None:
@@ -881,6 +951,13 @@ class TransferService:
                 raise
             self.store.finish_delivery(attempt, sent, "sent")
             job.delivery_started = False
+        if self.activity is not None and not job.quiet:
+            await self.activity.finish(
+                "media:" + job.id,
+                status="completed",
+                result_chat=chat,
+                result_ids=ids,
+            )
         self.store.clear_pending(
             job.url,
             job.destination,

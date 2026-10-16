@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
+from tdl_bot.storage.activity import ActivityStore
 from tdl_bot.storage.backups import BackupStore
 from tdl_bot.storage.models import Destination, Member, PendingTransfer, Target
 from tdl_bot.storage.schema import SchemaMigrations
@@ -52,6 +53,7 @@ class Store:
         self._db = sqlite3.connect(path)
         SchemaMigrations(self).run(path, migrate=migrate)
         self.backups = BackupStore(self._db)
+        self.activity = ActivityStore(self._db)
 
     def execution_catalog(self) -> list[dict]:
         row = self._db.execute(

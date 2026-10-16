@@ -268,10 +268,7 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
         "5/5",
     ]
     assert updates[0].text == "2/5 Locating media group."
-    assert (
-        updates[-1].text
-        == "5/5 Complete: sent 1 media files with captions."
-    )
+    assert updates[-1].text == "5/5 Complete: sent 1 media files with captions."
     assert updates[-1].reply_markup is None
     assert j.store.saved_results([next_job.url], "shared")
     assert not list(j.service.jobs_dir.iterdir())
@@ -320,7 +317,8 @@ async def test_remote_engine_bootstrap_retry_and_shutdown_lifecycle(
             settings.data_dir / "engine.log"
         ).stat().st_mode & 0o777 == 0o600
         await media.validate_target(Target("2"))
-        await media.join(JoinLink(username="example"))
+        await remote.join(2, "https://t.me/example", "shared")
+        j.media.join.assert_awaited_once_with(JoinLink(username="example"))
         assert await remote.tdl.update() == "Version: 1.2.3"
         j.store.set_pending(
             2, "https://t.me/example/10", destination=j.store.recipient(2)

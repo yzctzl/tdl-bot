@@ -677,7 +677,7 @@ def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         with sqlite3.connect(path) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 8
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 9
     finally:
         migrated.close()
 
@@ -805,3 +805,53 @@ async def test_target_channel_query_and_save_feedback_show_destination_link(
     assert "Videos &amp; Photos" in queried
     assert "执行账号" not in queried
     assert store.recipient(2).target == Target("-1001234567890", topic)
+
+
+async def test_activity_view_is_admin_only_filtered_and_paginated(
+    managed, monkeypatch
+):
+    from aiogram.types import Chat
+
+    app, _, store, _ = managed
+    store.remember_user(2, "example", "Test")
+    for i in range(7):
+        store.activity.create(
+            str(i),
+            "join",
+            2,
+            url="https://t.me/example",
+            title="A < B",
+            status="joined",
+            target="-10042",
+            message_id=i + 1,
+        )
+    store.activity.create(
+        "other", "media", 3, url="https://t.me/other/1", status="completed"
+    )
+    event = message(1)
+    await app.members.user_activity(event, command("user activity", "2"))
+    assert "@example" in event.answer.call_args.args[0]
+    assert "A &lt; B" in event.answer.call_args.args[0]
+    assert "t.me/other" not in event.answer.call_args.args[0]
+    markup = event.answer.call_args.kwargs["reply_markup"]
+    assert markup.inline_keyboard[0][0].callback_data == "activity:1:2:2"
+    with pytest.raises(UserError):
+        await app.members.user_activity(
+            message(2), command("user activity", None)
+        )
+    # Callback ownership and current administrator role are both mandatory.
+    edit = AsyncMock()
+    monkeypatch.setattr(Message, "edit_text", edit)
+    query = SimpleNamespace(
+        data="activity:1:2:2",
+        from_user=SimpleNamespace(id=1),
+        answer=AsyncMock(),
+        message=Message(message_id=1, date=0, chat=Chat(id=1, type="private")),
+    )
+    await app.members.activity_page(query)
+    assert "https://t.me/example" in edit.call_args.args[0]
+    query.from_user.id = 2
+    edit.reset_mock()
+    await app.members.activity_page(query)
+    edit.assert_not_awaited()
+    assert query.answer.call_args.kwargs["show_alert"]

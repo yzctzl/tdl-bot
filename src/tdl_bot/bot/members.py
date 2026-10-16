@@ -41,6 +41,7 @@ class MemberCommands(CommandGroup):
             "unban": self.user_unban,
             "role": self.user_role,
             "history": self.user_history,
+            "activity": self.user_activity,
             "follow": self.user_follow,
         }
         handler = handlers.get(action)
@@ -367,6 +368,121 @@ class MemberCommands(CommandGroup):
             f"{self.store.user_label(user_id)}\n"
             + (text or tr("No account management history."))
         )
+
+    @localized
+    async def user_activity(self, message: Message, command: CommandObject):
+        if message.from_user is None or not self.policy.is_admin(
+            message.from_user.id
+        ):
+            raise UserError(
+                tr("Only administrators can view activity records.")
+            )
+        parts = (command.args or "").split()
+        if len(parts) > 1:
+            raise UserError(tr("Usage: /user activity [UID|@username]"))
+        owner = await self.resolve_user(parts[0]) if parts else None
+        text, markup = self._activity_page(message.from_user.id, owner, 1)
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+
+    def _activity_page(self, actor, owner, page):
+        if not self.policy.is_admin(actor):
+            raise UserError(
+                tr("Only administrators can view activity records.")
+            )
+        page = max(1, page)
+        events = self.store.activity.list(owner, offset=(page - 1) * 5, limit=6)
+        lines = [tr("Activity records (page {page}):", page=page)]
+        for event in events[:5]:
+            kind = (
+                tr("Media link")
+                if event["kind"] == "media"
+                else tr("Join chat")
+            )
+            labels = {
+                "completed": tr("Completed"),
+                "joined": tr("Joined"),
+                "pending": tr("Awaiting approval"),
+                "failed": tr("Failed"),
+                "cancelled": tr("Cancelled"),
+                "recording": tr("In progress"),
+                "recorded": tr("In progress"),
+            }
+            lines.append(
+                escape(
+                    f"{self._deadline(event['created'])} · "
+                    f"{self.store.user_label(event['user_id'])} · {kind}"
+                    f"\n{event['url']}\n"
+                    f"{labels.get(event.get('status'), tr('In progress'))}"
+                    + (f" · {event['title']}" if event.get("title") else "")
+                    + (f" ({event['chat']})" if event.get("chat") else "")
+                )
+            )
+            from tdl_bot.transfers.activity import media_link
+
+            link = (
+                media_link(event.get("target", ""), [event["message_id"]])
+                if event.get("message_id")
+                else None
+            )
+            if link:
+                lines.append(
+                    f'<a href="{escape(link, quote=True)}">'
+                    f"{escape(tr('View record'))}</a>"
+                )
+        if not events:
+            lines.append(tr("No activity records."))
+        buttons = []
+        if page > 1:
+            buttons.append(
+                InlineKeyboardButton(
+                    text="‹",
+                    callback_data=f"activity:{actor}:{owner or 0}:{page - 1}",
+                )
+            )
+        if len(events) > 5:
+            buttons.append(
+                InlineKeyboardButton(
+                    text="›",
+                    callback_data=f"activity:{actor}:{owner or 0}:{page + 1}",
+                )
+            )
+        return "\n\n".join(lines), InlineKeyboardMarkup(
+            inline_keyboard=[buttons]
+        ) if buttons else None
+
+    @localized
+    async def activity_page(self, query: CallbackQuery):
+        parts = (query.data or "").split(":")
+        if (
+            len(parts) != 4
+            or not all(p.isdigit() for p in parts[1:])
+            or int(parts[1]) != query.from_user.id
+            or not self.policy.is_admin(query.from_user.id)
+            or not isinstance(query.message, Message)
+            or query.message.chat.type != "private"
+            or query.message.chat.id != query.from_user.id
+        ):
+            await query.answer(tr("Access denied."), show_alert=True)
+            return
+        await query.answer()
+        text, markup = self._activity_page(
+            query.from_user.id, int(parts[2]) or None, int(parts[3])
+        )
+        try:
+            await query.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=markup,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in exc.message.lower():
+                raise
 
     def user_link(self, operator: int) -> str:
         return (

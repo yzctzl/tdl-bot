@@ -183,3 +183,17 @@ frontend first, drains the engine through an idempotent shutdown RPC, then waits
 for the engine's instance lease to be released. Engine shutdown rejects new URL
 jobs before quiescing backups. Replacing a container or Python dependency
 environment requires this graceful stop; it is not cross-version hot upgrade.
+
+
+## Link and join audit
+
+Schema v9 adds `activity_events` independently of administrator management
+history. Only accepted media-link jobs and explicit chat joins create events;
+quiet backup units and other commands are excluded. The resident engine owns
+recording and checks execution-account access for joins. A private event key
+identifies each job, and the shared-storage message is acknowledged before media
+processing or joining begins. An unacknowledged record is not blindly reposted.
+The stored-results ledger remains the source of media reuse; activity posts link
+to its existing messages rather than creating duplicate media. Administrators
+query by immutable UID through `/user activity`, with ownership-checked callback
+pagination. Display names prefer usernames without appending a redundant UID.

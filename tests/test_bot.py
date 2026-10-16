@@ -36,6 +36,14 @@ async def test_join_retries_only_after_membership(tmp_path, approval_required):
             Executor("shared", SimpleNamespace(gate=UpdateGate()), media)
         ),
     )
+
+    async def join(user_id, url, executor_key):
+        from tdl_bot.core.links import JoinLink
+
+        assert user_id == 1 and executor_key == "shared"
+        await media.join(JoinLink.parse(url))
+
+    service.join = AsyncMock(side_effect=join)
     application = BotApplication(
         SimpleNamespace(),
         SimpleNamespace(allowed_users=frozenset({1})),

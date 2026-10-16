@@ -134,11 +134,11 @@ class TelegramMedia:
                 tr("The download account cannot access this group.")
             ) from exc
 
-    async def join(self, link: JoinLink) -> None:
+    async def join(self, link: JoinLink):
         """Join an explicitly supplied chat; report approval requirements."""
         try:
             if link.invite_hash:
-                await self.client(
+                result = await self.client(
                     functions.messages.ImportChatInviteRequest(link.invite_hash)
                 )
             else:
@@ -147,14 +147,19 @@ class TelegramMedia:
                         tr("Provide a group homepage or invite URL.")
                     )
                 # Telethon resolves usernames before serializing the request.
-                await self.client(
+                result = await self.client(
                     functions.channels.JoinChannelRequest(link.username)  # ty: ignore[invalid-argument-type]
                 )
         except errors.UserAlreadyParticipantError:
-            return
+            return await self._join_target(link)
         except errors.InviteRequestSentError as exc:
+            try:
+                details = await self._join_target(link)
+            except (errors.RPCError, ValueError):
+                details = {}
             raise JoinPending(
-                tr("Join request submitted. Use /retry after approval.")
+                tr("Join request submitted. Use /retry after approval."),
+                details=details,
             ) from exc
         except (
             errors.InviteHashExpiredError,
@@ -166,6 +171,28 @@ class TelegramMedia:
                     "new invite."
                 )
             ) from exc
+        chats = getattr(result, "chats", [])
+        return self._joined_chat(chats[0] if chats else None)
+
+    async def _join_target(self, link):
+        if link.invite_hash:
+            invite = await self.client(
+                functions.messages.CheckChatInviteRequest(link.invite_hash)
+            )
+            chat = getattr(invite, "chat", None)
+            details = self._joined_chat(chat)
+            title = getattr(invite, "title", None)
+            return details or (
+                {"title": title} if isinstance(title, str) else {}
+            )
+        assert link.username is not None
+        return self._joined_chat(await self.client.get_entity(link.username))
+
+    @staticmethod
+    def _joined_chat(chat):
+        if isinstance(chat, (types.Chat, types.Channel)):
+            return {"chat": str(utils.get_peer_id(chat)), "title": chat.title}
+        return {}
 
     async def validate_target(self, target: Target):
         """Validate and return the resolved peer for subsequent operations."""

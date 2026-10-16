@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from tdl_bot.core.config import runtime_directory
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import current_language, tr, use_language
-from tdl_bot.core.links import JoinLink
 from tdl_bot.storage.models import Target
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy
@@ -149,6 +148,8 @@ class EngineServer:
             return {"version": self.version, "pid": os.getpid()}
         if method in {"submit", "retry"}:
             return (await getattr(service, method)(**args)).payload()
+        if method == "join_chat":
+            return await service.join(**args)
         if method == "execution_accounts":
             return await service.execution_accounts(**args)
         if method == "discard_pending":
@@ -161,9 +162,6 @@ class EngineServer:
         async with executor.tdl.gate.job():
             if method == "validate_target":
                 await executor.media.validate_target(Target(**args["target"]))
-                return None
-            if method == "join":
-                await executor.media.join(JoinLink(**args["link"]))
                 return None
             if method == "resolve_user":
                 user = await executor.media.resolve_user(args["value"])
@@ -289,16 +287,6 @@ class RemoteMedia:
             executor_key=self.key,
         )
 
-    async def join(self, link):
-        await self.runtime.call(
-            "join",
-            link={
-                "username": link.username,
-                "invite_hash": link.invite_hash,
-            },
-            executor_key=self.key,
-        )
-
 
 class RemoteAccounts:
     def __init__(self, runtime):
@@ -361,6 +349,11 @@ class RemoteService:
             raise UserError(
                 tr("The connection restarted. Check /jobs before retrying.")
             ) from None
+
+    async def join(self, user_id, url, executor_key):
+        return await self.call(
+            "join_chat", user_id=user_id, url=url, executor_key=executor_key
+        )
 
     async def backup(self, user_id, kind, **options):
         return await self.call("backup", user_id=user_id, kind=kind, **options)
