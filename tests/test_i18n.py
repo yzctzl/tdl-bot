@@ -184,7 +184,7 @@ async def test_progress_rechecks_language_after_preference_change(bilingual):
     text = tr("3/5 Downloading {p0} media files.", p0=2)
     store.set_language(2, "zh")
     await service._notify(job, text)
-    assert service.notify.call_args.args[1] == "3/5 正在下载 2 个媒体文件。"
+    assert service.notify.call_args.args[1] == "3/5 正在下载 2 个媒体。"
     with use_language("zh"):
         assert saved_label("Queued") == "排队中"
     assert saved_label("排队中") == "Queued"

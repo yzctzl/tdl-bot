@@ -264,7 +264,6 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
         "2/5",
         "3/5",
         "4/5",
-        "4/5",
         "5/5",
     ]
     assert updates[0].text == "2/5 Locating media group."

@@ -638,16 +638,17 @@ class TransferService:
         executor = self.accounts.get(job.executor_key)
         if await self._reuse(job, aliases):
             return
+        job.stage = "Downloading"
         await self._notify(
-            job, tr("3/5 Preparing {p0} media files.", p0=len(group.messages))
+            job, tr("3/5 Downloading {p0} media files.", p0=len(group.messages))
         )
         copier = getattr(executor.media, "copy_group", None)
         if copier is not None:
-            job.stage = "Forwarded"
+            job.stage = "Uploading"
             await self._notify(
                 job,
                 tr(
-                    "4/5 Copying {p0} media files without downloading.",
+                    "4/5 Uploading {p0} media files.",
                     p0=len(group.messages),
                 ),
             )
@@ -655,19 +656,19 @@ class TransferService:
             self._checkpoint(job)
             ids = await copier(group, job.storage_target or job.target)
             if ids:
-                await self._complete(job, aliases, ids, tr("Forwarded"))
+                await self._complete(job, aliases, ids)
                 return
             job.upload_started = False
         if all(
             hasattr(m, "message") and not m.photo and not m.document
             for m in group.messages
         ):
-            await self._notify(job, tr("4/5 Copying text."))
+            await self._notify(job, tr("4/5 Sending text."))
             job.upload_started = True
             ids = await executor.media.copy_text(
                 group, job.storage_target or job.target
             )
-            await self._complete(job, aliases, ids, tr("processed"))
+            await self._complete(job, aliases, ids)
             return
         with tempfile.TemporaryDirectory(
             prefix="job-", dir=self.jobs_dir
@@ -685,12 +686,11 @@ class TransferService:
                 and cloner is not None
                 and getattr(executor.media, "tdl", None) is not None
             ):
-                job.stage = "Transferring"
+                job.stage = "Uploading"
                 await self._notify(
                     job,
                     tr(
-                        "4/5 Transferring {p0} media files with tdl "
-                        "(download and upload).",
+                        "4/5 Uploading {p0} media files.",
                         p0=len(group.messages),
                     ),
                 )
@@ -699,7 +699,7 @@ class TransferService:
                 ids = await cloner(
                     group, job.storage_target or job.target, directory
                 )
-                await self._complete(job, aliases, ids, tr("processed"))
+                await self._complete(job, aliases, ids)
                 return
             _LOGGER.info(
                 "Task user=%s phase=download media=%s",
@@ -707,10 +707,6 @@ class TransferService:
                 len(group.messages),
             )
             job.stage = "Downloading"
-            await self._notify(
-                job,
-                tr("4/5 Downloading {p0} media files.", p0=len(group.messages)),
-            )
             if basic:
                 await executor.media.download_group(group, directory)
             else:
@@ -737,7 +733,7 @@ class TransferService:
                 group, files, job.storage_target or job.target
             )
         if self.delivery is not None:
-            await self._complete(job, aliases, ids, tr("processed"))
+            await self._complete(job, aliases, ids)
             return
         if isinstance(ids, list) and len(ids) == len(group.messages):
             self.store.save_result(
@@ -778,13 +774,12 @@ class TransferService:
             if self.delivery is not None:
                 if owner is not None:
                     continue
+                job.stage = "Downloading"
                 await self._notify(
-                    job, tr("3/5 Found a previous result. No download needed.")
+                    job, tr("3/5 Downloading {p0} media files.", p0=len(ids))
                 )
                 try:
-                    await self._complete(
-                        job, urls, ids, tr("processed"), source_chat=chat
-                    )
+                    await self._complete(job, urls, ids, source_chat=chat)
                 except MissingResult:
                     self.store.mark_unavailable(chat, ids)
                     job.delivery_started = False
@@ -793,11 +788,14 @@ class TransferService:
                 return True
             if copier is None:
                 return False
-            job.stage = "Reused"
+            job.stage = "Downloading"
             await self._notify(
-                job, tr("3/5 Found a previous result. No download needed.")
+                job, tr("3/5 Downloading {p0} media files.", p0=len(ids))
             )
-            await self._notify(job, tr("4/5 Sending to your destination…"))
+            job.stage = "Uploading"
+            await self._notify(
+                job, tr("4/5 Uploading {p0} media files.", p0=len(ids))
+            )
             job.upload_started = True
             try:
                 copied = await copier(chat, ids, job.target)
@@ -808,12 +806,12 @@ class TransferService:
             ):
                 copied = None
             if copied:
-                await self._complete(job, urls, copied, tr("Reused"))
+                await self._complete(job, urls, copied)
                 return True
             job.upload_started = False
         return False
 
-    async def _complete(self, job, urls, ids, mode, *, source_chat=None):
+    async def _complete(self, job, urls, ids, *, source_chat=None):
         chat = source_chat or (job.storage_target or job.target).chat
         info = self.store.result_info(chat, ids) if source_chat else None
         if info:
@@ -851,8 +849,11 @@ class TransferService:
                 job.upload_started = False
                 return
             job.upload_started = False
-            job.stage = "Delivering"
-            await self._notify(job, tr("4/5 Sending to your destination…"))
+            if job.stage != "Uploading":
+                await self._notify(
+                    job, tr("4/5 Uploading {p0} media files.", p0=len(ids))
+                )
+            job.stage = "Uploading"
             job.delivery_started = True
             self._checkpoint(job)
             attempt = self.store.record_delivery(result_id, job, [], "sending")
@@ -872,7 +873,6 @@ class TransferService:
                 raise
             self.store.finish_delivery(attempt, sent, "sent")
             job.delivery_started = False
-            mode = tr("sent")
         self.store.clear_pending(
             job.url,
             job.destination,
@@ -882,9 +882,8 @@ class TransferService:
         await self._notify(
             job,
             tr(
-                "5/5 Complete: {p0} {p1} media files with captions.",
-                p0=mode,
-                p1=len(ids),
+                "5/5 Complete: uploaded {p0} media files with captions.",
+                p0=len(ids),
             ),
             finished=True,
         )

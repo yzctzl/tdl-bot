@@ -235,10 +235,9 @@
     "1/5 Download task queued.": "1/5 下载任务已加入队列。",
     "2/5 Locating media group.": "2/5 正在定位媒体组。",
     "Processing media group…": "正在处理媒体组……",
-    "3/5 Downloading {p0} media files.": "3/5 正在下载 {p0} 个媒体文件。",
-    "4/5 Uploading {p0} media files.": "4/5 正在上传 {p0} 个媒体文件。",
+    "3/5 Downloading {p0} media files.": "3/5 正在下载 {p0} 个媒体。",
+    "4/5 Uploading {p0} media files.": "4/5 正在上传 {p0} 个媒体。",
     "processed": "处理",
-    "Forwarding a previous result. No download needed.": "正在转发以前处理的结果，无需重新下载。",
     "Sending to your destination…": "正在发送到你的接收位置……",
     "The task engine was interrupted. Check the destination before sending the link again.": "任务执行进程曾中断，请先检查接收位置，再重新发送链接。",
     "The download account cannot access the source group. Find the ID in /pending, then send /join <group_homepage_or_invite_url> [id]. It will retry after joining. If approval is needed, use /retry after approval. Check the source link, account access, and history visibility.": "下载账号无权访问来源群。请用 /pending 查看编号，发送 /join 群主页或邀请 url [编号]；加入后会自动重试。若需审核，批准后发送 /retry。请确认来源群链接正确、账号未被封禁且历史可见。",
@@ -355,15 +354,7 @@
     "You already have 3 active follow tasks. Pause or cancel one first.": "你已有 3 条启用中的跟踪任务，请先暂停或取消其中一条。",
     "The backup is still stopping. Try again shortly.": "备份仍在停止和清理中，请稍后重试。",
     "This group was upgraded. Create a backup for its new supergroup.": "此群组已升级，请为升级后的超级群组创建备份。",
-    "3/5 Preparing {p0} media files.": "3/5 正在准备 {p0} 个媒体文件。",
-    "4/5 Copying {p0} media files without downloading.": "4/5 正在直接转存 {p0} 个媒体文件，无需下载。",
-    "4/5 Transferring {p0} media files with tdl (download and upload).": "4/5 正在通过 tdl 传输 {p0} 个媒体文件（下载及上传）。",
     "3/5 Preparing text.": "3/5 正在准备文字。",
-    "4/5 Copying text.": "4/5 正在转存文字。",
-    "3/5 Found a previous result. No download needed.": "3/5 已找到以前的结果，无需下载。",
-    "4/5 Sending to your destination…": "4/5 正在发送到你的接收位置……",
-    "5/5 Complete: {p0} {p1} media files with captions.": "5/5 完成：{p0} {p1} 个媒体及文字。",
-    "4/5 Downloading {p0} media files.": "4/5 正在下载 {p0} 个媒体文件。",
     "Follow limits must be between 0 and 1000.": "follow 数量上限必须介于 0 到 1000 之间。",
     "Follow limit reached ({limit}; active and paused tasks both count). Cancel a task or ask an administrator.": "已达到 follow 数量上限（{limit} 条，运行和暂停的任务均计入）。请取消任务或联系管理员。",
     "Follow slots: {used}/{limit} (active and paused).": "follow 配额：{used}/{limit}（包括运行和暂停的任务）。",
@@ -410,6 +401,7 @@
     "4/4 Storage: enter the channel/group UID or @username. Add the Bot as an administrator with posting permission first.": "4/4 存储：输入频道／群组 UID 或 @用户名。请先将 Bot 加为管理员并授予发消息权限。",
     "Storage UID or @username ('list' for owned chats; Enter to keep): ": "存储 UID 或 @用户名（输入 list 查看自己拥有的频道／群组，回车保留）：",
     "Cannot list owned chats. Check your network and retry.": "无法列出自己拥有的频道／群组，请检查网络后重试。",
-    "No channels or groups owned by this account were found.": "未找到此账号拥有的频道或群组。"
+    "No channels or groups owned by this account were found.": "未找到此账号拥有的频道或群组。",
+    "4/5 Sending text.": "4/5 正在发送文字。"
   }
 }
