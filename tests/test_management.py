@@ -534,6 +534,7 @@ def test_config_uses_persisted_members_instead_of_stale_env(
     store.set_member_role(1, 3, "admin")
     store.remove_member(3, 1)
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DATA_DIR=data\nBIN_DIR=bin\nTDL_DIR=.tdl\n")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("SESSION_SOURCE", "tdl")

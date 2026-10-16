@@ -188,6 +188,7 @@ def test_api_credentials_required_only_for_independent_login(
     tmp_path, monkeypatch, source
 ):
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DATA_DIR=data\nBIN_DIR=bin\nTDL_DIR=.tdl\n")
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("ALLOWED_USER_IDS", "1")
     monkeypatch.setenv("ADMIN_USER_IDS", "1")

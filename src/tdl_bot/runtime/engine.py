@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+from tdl_bot.core.config import runtime_directory
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import current_language, tr, use_language
 from tdl_bot.core.links import JoinLink
@@ -64,8 +65,9 @@ async def exchange(path: Path, request):
 
 
 async def ensure_engine(settings):
-    path = settings.data_dir / "runtime.sock"
+    path = runtime_directory(settings) / "runtime.sock"
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     process = None
     for _ in range(300):
         try:
@@ -214,7 +216,7 @@ class EngineServer:
             self.calls -= 1
 
     async def serve(self):
-        path = self.settings.data_dir / "runtime.sock"
+        path = runtime_directory(self.settings) / "runtime.sock"
         # The engine instance lock is acquired before removing a stale socket.
         path.unlink(missing_ok=True)
         server = await asyncio.start_unix_server(

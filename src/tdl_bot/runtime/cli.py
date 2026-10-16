@@ -18,7 +18,7 @@ from telethon.tl import types
 
 from tdl_bot.bot.application import BotApplication
 from tdl_bot.bot.progress import ProgressMessages
-from tdl_bot.core.config import Settings
+from tdl_bot.core.config import Settings, runtime_directory
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
 from tdl_bot.integrations.tdl.runner import Tdl
@@ -330,8 +330,22 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["run", "login", "engine", "frontend", "reload", "stop"],
+        choices=[
+            "run",
+            "login",
+            "engine",
+            "frontend",
+            "reload",
+            "stop",
+            "init",
+        ],
         default="run",
+    )
+    parser.add_argument(
+        "--env-file", type=Path, help="Path to the workspace .env"
+    )
+    parser.add_argument(
+        "--directory", type=Path, help="Workspace to initialize"
     )
     parser.add_argument(
         "--no-reload",
@@ -348,6 +362,8 @@ def main() -> None:
         help=tr("Native tdl login method (default: qr)"),
     )
     args = parser.parse_args()
+    if args.directory is not None and args.command != "init":
+        parser.error("--directory is only valid with init")
     if args.namespace and args.command != "login":
         parser.error("--namespace is only valid with login")
     logging.basicConfig(
@@ -358,27 +374,40 @@ def main() -> None:
     # Newly created tokens, sessions and downloads are owner-only.
     os.umask(0o077)
     try:
-        settings = Settings.from_env(login_only=args.command == "login")
+        if args.command == "init":
+            from tdl_bot.runtime.setup import initialize
+
+            if args.directory is None:
+                parser.error("init requires --directory <workspace>")
+            initialize(args.directory)
+            return
+        settings = Settings.from_env(
+            login_only=args.command == "login", env_file=args.env_file
+        )
+        if settings.env_file is not None:
+            os.environ["TDL_BOT_ENV_FILE"] = str(settings.env_file)
+        runtime_dir = runtime_directory(settings)
+        runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         if args.namespace:
             settings = replace(settings, tdl_namespace=args.namespace)
         settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         if args.command == "stop":
-            pid_file = settings.data_dir / "frontend.pid"
-            if signal_supervisor(settings.data_dir, signal.SIGTERM):
+            pid_file = runtime_dir / "frontend.pid"
+            if signal_supervisor(runtime_dir, signal.SIGTERM):
                 for _ in range(100):
                     if not pid_file.exists():
                         break
                     import time
 
                     time.sleep(0.1)
-            path = settings.data_dir / "runtime.sock"
+            path = runtime_directory(settings) / "runtime.sock"
             if path.exists():
                 asyncio.run(exchange(path, {"method": "shutdown", "args": {}}))
             return
         if args.command == "reload":
-            if not signal_supervisor(settings.data_dir, signal.SIGHUP):
+            if not signal_supervisor(runtime_dir, signal.SIGHUP):
                 raise UserError(tr("No Bot supervisor is running."))
-            path = settings.data_dir / "runtime.sock"
+            path = runtime_directory(settings) / "runtime.sock"
             if path.exists():
                 # Reload also discovers sessions added without a code change.
                 asyncio.run(
@@ -388,11 +417,11 @@ def main() -> None:
         if args.command == "run":
             from tdl_bot.runtime.supervisor import supervise
 
-            with instance_lock(settings.data_dir / ".supervisor.lock"):
-                asyncio.run(supervise(settings.data_dir))
+            with instance_lock(runtime_dir / ".supervisor.lock"):
+                asyncio.run(supervise(runtime_dir))
             return
         if args.command == "frontend":
-            with instance_lock(settings.data_dir / ".polling.lock"):
+            with instance_lock(runtime_dir / ".polling.lock"):
                 asyncio.run(frontend(settings))
             return
         with ExitStack() as stack:

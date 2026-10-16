@@ -6,7 +6,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from tdl_bot.core.i18n import tr
 
@@ -31,6 +31,8 @@ class Settings:
     download_timeout: int = 7200
     upload_concurrency: int = 8
     upload_timeout: int = 7200
+    env_file: Path | None = None
+    runtime_dir: Path | None = None
 
     @property
     def session_path(self) -> Path:
@@ -38,7 +40,9 @@ class Settings:
         return self.data_dir / "telegram"
 
     @classmethod
-    def from_env(cls, *, login_only: bool = False) -> "Settings":
+    def from_env(
+        cls, *, login_only: bool = False, env_file: Path | None = None
+    ) -> "Settings":
         """Read and validate settings from the environment and .env.
 
         Args:
@@ -50,12 +54,39 @@ class Settings:
         Raises:
             ValueError: A required setting is missing or malformed.
         """
-        load_dotenv(Path.cwd() / ".env")
+        config = (
+            Path(env_file or os.getenv("TDL_BOT_ENV_FILE", ".env"))
+            .expanduser()
+            .resolve()
+        )
+        if not config.is_file():
+            raise ValueError(
+                tr(
+                    "Configuration file not found: {path}. Run tdl-bot init "
+                    "--directory <workspace>, then edit .env.",
+                    path=config,
+                )
+            )
+        # Do not export file values: children must re-read edits on reload.
+        values = {**dotenv_values(config, interpolate=False), **os.environ}
+
+        def get(name, default=""):
+            value = values.get(name, default)
+            return value.strip() if value is not None else ""
+
+        def path(value):
+            expanded = Path(value).expanduser()
+            return (config.parent / expanded).resolve()
+
+        if not get("DATA_DIR"):
+            raise ValueError(tr("Set DATA_DIR explicitly in .env."))
+        if not get("BIN_DIR") and not get("TDL_BINARY"):
+            raise ValueError(tr("Set BIN_DIR explicitly in .env."))
 
         def ids(name: str) -> frozenset[int]:
             result = frozenset(
                 int(value.strip())
-                for value in os.getenv(name, "").split(",")
+                for value in get(name, "").split(",")
                 if value.strip()
             )
             if any(value <= 0 for value in result):
@@ -64,10 +95,10 @@ class Settings:
                 )
             return result
 
-        token = os.getenv("BOT_TOKEN", "").strip()
-        api_id = int(os.getenv("TELEGRAM_API_ID", "0") or "0")
-        api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
-        data_dir = Path(os.getenv("DATA_DIR", "data")).resolve()
+        token = get("BOT_TOKEN", "").strip()
+        api_id = int(get("TELEGRAM_API_ID", "0") or "0")
+        api_hash = get("TELEGRAM_API_HASH", "").strip()
+        data_dir = path(get("DATA_DIR"))
         persisted = persisted_members(data_dir / "state.sqlite3")
         if persisted is not None:
             allowed, admins = persisted
@@ -78,7 +109,7 @@ class Settings:
                 raise ValueError(
                     tr("Set ADMIN_USER_IDS before the first start.")
                 )
-        source = os.getenv("SESSION_SOURCE", "tdl").strip()
+        source = get("SESSION_SOURCE", "tdl").strip()
         if source not in {"tdl", "telethon"}:
             raise ValueError(tr("SESSION_SOURCE must be tdl or telethon."))
         if source == "telethon" and (api_id <= 0 or not api_hash):
@@ -92,16 +123,24 @@ class Settings:
             allowed_users=allowed,
             admin_users=admins,
             data_dir=data_dir,
-            tdl_binary=Path(os.getenv("TDL_BINARY", "bin/tdl")).resolve(),
-            tdl_namespace=os.getenv("TDL_NAMESPACE", "default"),
-            tdl_dir=Path(os.getenv("TDL_DIR", ".tdl")).expanduser().resolve(),
+            tdl_binary=path(get("TDL_BINARY"))
+            if get("TDL_BINARY")
+            else path(get("BIN_DIR")) / "tdl",
+            tdl_namespace=get("TDL_NAMESPACE", "default"),
+            tdl_dir=path(get("TDL_DIR"))
+            if get("TDL_DIR")
+            else data_dir / "tdl",
+            env_file=config,
+            runtime_dir=path(get("RUNTIME_DIR"))
+            if get("RUNTIME_DIR")
+            else None,
             session_source=source,
-            tdl_proxy=os.getenv("TDL_PROXY", "").strip(),
-            workers=int(os.getenv("WORKERS", "2")),
-            queue_size=int(os.getenv("QUEUE_SIZE", "20")),
-            download_timeout=int(os.getenv("DOWNLOAD_TIMEOUT", "7200")),
-            upload_concurrency=int(os.getenv("UPLOAD_CONCURRENCY", "8")),
-            upload_timeout=int(os.getenv("UPLOAD_TIMEOUT", "7200")),
+            tdl_proxy=get("TDL_PROXY", "").strip(),
+            workers=int(get("WORKERS", "2")),
+            queue_size=int(get("QUEUE_SIZE", "20")),
+            download_timeout=int(get("DOWNLOAD_TIMEOUT", "7200")),
+            upload_concurrency=int(get("UPLOAD_CONCURRENCY", "8")),
+            upload_timeout=int(get("UPLOAD_TIMEOUT", "7200")),
         )
         if (
             min(
@@ -149,3 +188,8 @@ def persisted_members(path: Path):
         raise ValueError(
             tr("Cannot read the initialized membership database.")
         ) from exc
+
+
+def runtime_directory(settings):
+    """Keep sockets local even when persistent data uses a bind mount."""
+    return getattr(settings, "runtime_dir", None) or settings.data_dir

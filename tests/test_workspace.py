@@ -385,6 +385,7 @@ def test_first_start_requires_explicit_admins_and_ignores_legacy_allowlist(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DATA_DIR=data\nBIN_DIR=bin\nTDL_DIR=.tdl\n")
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("ALLOWED_USER_IDS", "3, 1, 2")
     monkeypatch.setenv("ADMIN_USER_IDS", "")
@@ -399,6 +400,7 @@ def test_first_start_requires_explicit_admins_and_ignores_legacy_allowlist(
 
 def test_legacy_binding_file_is_no_longer_configuration(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DATA_DIR=data\nBIN_DIR=bin\nTDL_DIR=.tdl\n")
     monkeypatch.setenv("BOT_TOKEN", "configured")
     monkeypatch.setenv("ALLOWED_USER_IDS", "1")
     monkeypatch.setenv("ADMIN_USER_IDS", "1")
