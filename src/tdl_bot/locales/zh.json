@@ -358,6 +358,15 @@
     "The backup is still stopping. Try again shortly.": "备份仍在停止和清理中，请稍后重试。",
     "Send a Telegram message URL to process its entire media group and captions.\n/target <chat> [topic_id] Set a destination group or channel\n/target bot Receive in this dialogue (default)\n/status View destination and task status\n/jobs List active tasks; /cancel <id> Cancel a task\n/pending List retries; /retry [id] Retry a task\n/retry_cancel <id> Remove a retry\n/join <group_url> [id] Join and retry\nRegular accounts can keep up to 3 pending retries.\n/status View status; /whoami View your account ID\n/language [en|zh] Choose your language\n/follow <source> [to <chat>] [every 5m] Track new messages\n/follow List tasks; /follow pause|resume|cancel <id> Manage a task": "发送 Telegram 消息 url，Bot 会处理整个媒体组和视频文字\n/target <chat> [topic_id] 设置接收群／频道\n/target bot 接收到此对话（默认）\n/status 查看接收位置与任务状态\n/jobs 查看活动任务，/cancel <编号> 取消\n/pending 查看待重试记录，/retry [编号] 重试\n/retry_cancel <编号> 删除待重试记录\n/join <群 url> [编号] 入群后重试\n普通账号最多保存 3 条待重试记录。\n/status 查看状态，/whoami 查看自己的账号 ID\n/language [en|zh] 选择语言\n/follow <来源> [to <目标>] [every 5m] 跟踪新消息\n/follow 查看任务；/follow pause|resume|cancel <任务 ID> 管理任务",
     "\n\nAdministrators:\n/storage <chat> [topic_id] Configure internal storage\n/target for <UID|@username> [chat] [topic_id] Manage a personal destination\n/users List members\n/user_add <UID|@username> Add a regular account\n/user_remove <UID|@username> Remove an account\n/user_ban <UID|@username> <1d|1w|1m> Ban for a day, week, or 30 days\n/user_unban <UID|@username> Unban an account\n/user_role <UID|@username> <user|admin> Set a role\n/user_history <UID|@username> View account management history\n/status <UID|@username> View another account's destination\n/update_tdl [latest|v0.20.4] Check and update tdl\n/account <auto|shared|UID> Switch execution account\n/dump <source> [to <chat>] Back up channel history\n/dump List tasks; /dump pause|resume|cancel <id> Manage a task": "\n\n管理员：\n/storage <chat> [topic_id] 配置内部存储\n/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n/users 查看成员\n/user_add <UID或@用户名> 添加普通账号\n/user_remove <UID或@用户名> 删除账号\n/user_ban <UID或@用户名> <1d|1w|1m> 封禁一天／周／30天\n/user_unban <UID或@用户名> 解封\n/user_role <UID或@用户名> <user|admin> 设置角色\n/user_history <UID或@用户名> 查看管理记录\n/status <UID或@用户名> 查看其他账号的接收位置\n/update_tdl [latest|v0.20.4] 检查并更新 tdl\n/account <auto|shared|UID> 切换执行账号\n/dump <来源> [to <目标>] 搬运频道或群组历史\n/dump 查看任务；/dump pause|resume|cancel <任务 ID> 管理任务",
-    "This group was upgraded. Create a backup for its new supergroup.": "此群组已升级，请为升级后的超级群组创建备份。"
+    "This group was upgraded. Create a backup for its new supergroup.": "此群组已升级，请为升级后的超级群组创建备份。",
+    "3/5 Preparing {p0} media files.": "3/5 正在准备 {p0} 个媒体文件。",
+    "4/5 Copying {p0} media files without downloading.": "4/5 正在直接转存 {p0} 个媒体文件，无需下载。",
+    "4/5 Transferring {p0} media files with tdl (download and upload).": "4/5 正在通过 tdl 传输 {p0} 个媒体文件（下载及上传）。",
+    "3/5 Preparing text.": "3/5 正在准备文字。",
+    "4/5 Copying text.": "4/5 正在转存文字。",
+    "3/5 Found a previous result. No download needed.": "3/5 已找到以前的结果，无需下载。",
+    "4/5 Sending to your destination…": "4/5 正在发送到你的接收位置……",
+    "5/5 Complete: {p0} {p1} media files with captions.": "5/5 完成：{p0} {p1} 个媒体及文字。",
+    "4/5 Downloading {p0} media files.": "4/5 正在下载 {p0} 个媒体文件。"
   }
 }

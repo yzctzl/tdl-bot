@@ -243,7 +243,13 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
         if type(call).__name__ == "EditMessageText"
         and call.message_id == next_job.progress_message_id
     ]
-    assert len(updates) == 4
+    assert [call.text[:3] for call in updates] == [
+        "2/5",
+        "3/5",
+        "4/5",
+        "4/5",
+        "5/5",
+    ]
     assert updates[0].text == "2/5 Locating media group."
     assert (
         updates[-1].text

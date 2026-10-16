@@ -408,3 +408,27 @@ async def test_native_clone_owns_scratch_and_skips_folder_upload(
     tdl.download.assert_not_awaited()
     media.upload.assert_not_awaited()
     assert not any(service.jobs_dir.iterdir())
+
+
+@pytest.mark.parametrize("mode", ["copy", "clone"])
+async def test_transfer_and_cached_result_keep_numbered_progress(
+    setup_service, mode
+):
+    service, tdl, media, _, notify = setup_service
+    if mode == "copy":
+        media.copy_group = AsyncMock(return_value=[100, 101])
+    else:
+        media.tdl = tdl
+        media.clone_group = AsyncMock(return_value=[100, 101])
+    media.copy_messages = AsyncMock(return_value=[200, 201])
+    url = "https://t.me/channel/20"
+    for cached in (False, True):
+        notify.reset_mock()
+        await service._transfer(Job(1, url, Target("me")))
+        texts = [str(c.args[1]) for c in notify.call_args_list]
+        steps = [int(text[0]) for text in texts]
+        assert steps == sorted(steps) and set(steps) == {2, 3, 4, 5}
+        assert notify.call_args.kwargs["finished"] is True
+        assert ("以前的结果" in "".join(texts)) is cached
+    tdl.download.assert_not_awaited()
+    media.upload.assert_not_awaited()
