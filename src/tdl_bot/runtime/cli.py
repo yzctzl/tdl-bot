@@ -324,6 +324,19 @@ async def frontend(settings: Settings) -> None:
         store.close()
 
 
+async def _health(settings):
+    try:
+        await asyncio.wait_for(
+            exchange(
+                runtime_directory(settings) / "runtime.sock",
+                {"method": "ping", "args": {}},
+            ),
+            5,
+        )
+    except (OSError, ValueError, KeyError, TimeoutError) as exc:
+        raise UserError(tr("The task engine is unavailable.")) from exc
+
+
 def main() -> None:
     """Parse the CLI and hold cross-process locks for the runtime."""
     parser = argparse.ArgumentParser(description="tdl Telegram media-group Bot")
@@ -338,6 +351,8 @@ def main() -> None:
             "reload",
             "stop",
             "init",
+            "container",
+            "health",
         ],
         default="run",
     )
@@ -414,11 +429,25 @@ def main() -> None:
                     exchange(path, {"method": "ping", "args": {"reload": True}})
                 )
             return
-        if args.command == "run":
+        if args.command == "health":
+            if not signal_supervisor(runtime_dir, 0):
+                raise UserError(tr("No Bot supervisor is running."))
+            asyncio.run(_health(settings))
+            return
+        if args.command in {"run", "container"}:
             from tdl_bot.runtime.supervisor import supervise
 
             with instance_lock(runtime_dir / ".supervisor.lock"):
-                asyncio.run(supervise(runtime_dir))
+                if args.command == "container":
+                    from tdl_bot.runtime.container import drain_engine
+
+                    asyncio.run(
+                        supervise(
+                            runtime_dir, shutdown=lambda: drain_engine(settings)
+                        )
+                    )
+                else:
+                    asyncio.run(supervise(runtime_dir))
             return
         if args.command == "frontend":
             with instance_lock(runtime_dir / ".polling.lock"):

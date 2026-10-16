@@ -62,3 +62,65 @@ def test_workspace_paths_reload_without_exporting_configuration(
         with pytest.raises(ValueError, match=error):
             Settings.from_env(login_only=True)
     assert not list(tmp_path.glob("*.sqlite3"))
+
+
+async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
+    tmp_path,
+):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from tdl_bot.runtime.cli import instance_lock
+    from tdl_bot.runtime.container import drain_engine
+    from tdl_bot.runtime.engine import EngineServer
+
+    runtime = tmp_path / "run"
+    runtime.mkdir()
+    settings = SimpleNamespace(data_dir=tmp_path, runtime_dir=runtime)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def close():
+        entered.set()
+        await release.wait()
+
+    backups = SimpleNamespace(
+        quiesce=Mock(),
+        close=AsyncMock(),
+        reconcile_permissions=AsyncMock(),
+        busy=False,
+    )
+    service = SimpleNamespace(
+        _jobs={},
+        _closing=False,
+        backups=backups,
+        close=AsyncMock(side_effect=close),
+        reconcile_permissions=AsyncMock(),
+    )
+    server = EngineServer(service, settings)
+
+    async def serve():
+        with instance_lock(tmp_path / ".instance.lock"):
+            await server.serve()
+
+    running = asyncio.create_task(serve())
+    drains = []
+    try:
+        async with asyncio.timeout(3):
+            while not (runtime / "runtime.sock").exists():  # noqa: ASYNC110 - Wait for local RPC listener.
+                await asyncio.sleep(0.01)
+        drains = [asyncio.create_task(drain_engine(settings)) for _ in range(2)]
+        await asyncio.wait_for(entered.wait(), 3)
+        assert service._closing and not any(t.done() for t in drains)
+        backups.quiesce.assert_called_once()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*drains, running), 3)
+        service.close.assert_awaited_once()
+        backups.close.assert_awaited_once()
+        assert not (runtime / "runtime.sock").exists()
+        await drain_engine(settings)  # Already stopped is an idempotent no-op.
+    finally:
+        release.set()
+        for task in [running, *drains]:
+            task.cancel()
+        await asyncio.gather(running, *drains, return_exceptions=True)

@@ -248,9 +248,11 @@ def test_retries_migrate_to_private_recipients_and_controls_persist(tmp_path):
         reopened.close()
 
 
+@pytest.mark.parametrize("container", [False, True])
 async def test_supervisor_reloads_only_on_explicit_request(
     tmp_path,
     monkeypatch,
+    container,
 ):
     import signal
     import subprocess
@@ -281,7 +283,15 @@ async def test_supervisor_reloads_only_on_explicit_request(
     unrelated = await asyncio.to_thread(
         subprocess.Popen, [sys.executable, "-c", "import time; time.sleep(60)"]
     )
-    task = asyncio.create_task(supervise(tmp_path))
+
+    async def drain():
+        assert children[-1].poll() is not None
+        assert unrelated.poll() is None
+
+    shutdown = AsyncMock(side_effect=drain)
+    task = asyncio.create_task(
+        supervise(tmp_path, shutdown=shutdown if container else None)
+    )
     try:
         await until(lambda: len(children) == 1)
         first = children[0]
@@ -294,11 +304,13 @@ async def test_supervisor_reloads_only_on_explicit_request(
         assert first.poll() is not None
         assert children[1].poll() is None
         assert unrelated.poll() is None
+        shutdown.assert_not_awaited()
         handlers[signal.SIGTERM]()
         await asyncio.wait_for(task, 3)
         assert not (tmp_path / "frontend.pid").exists()
         assert children[1].poll() is not None
         assert unrelated.poll() is None
+        assert shutdown.await_count == int(container)
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

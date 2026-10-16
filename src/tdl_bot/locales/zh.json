@@ -383,6 +383,7 @@
     "Set DATA_DIR explicitly in .env.": "请在 .env 中显式设置 DATA_DIR。",
     "Set BIN_DIR explicitly in .env.": "请在 .env 中显式设置 BIN_DIR。",
     "Configuration already exists: {path}": "配置文件已存在：{path}",
-    "Workspace created: {path}. Edit .env, then run login.": "工作目录已创建：{path}。请编辑 .env，然后运行 login。"
+    "Workspace created: {path}. Edit .env, then run login.": "工作目录已创建：{path}。请编辑 .env，然后运行 login。",
+    "The task engine is unavailable.": "任务引擎不可用。"
   }
 }

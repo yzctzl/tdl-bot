@@ -19,7 +19,7 @@ async def _stop_child(child, waiter):
         await waiter
 
 
-async def supervise(data_dir: Path):
+async def supervise(data_dir: Path, *, shutdown=None):
     loop = asyncio.get_running_loop()
     restart = asyncio.Event()
     stopping = asyncio.Event()
@@ -54,8 +54,12 @@ async def supervise(data_dir: Path):
                 )
                 await asyncio.sleep(0.5 if restart.is_set() else 3)
     finally:
-        if child is not None and waiter is not None:
-            await _stop_child(child, waiter)
-        pid_file.unlink(missing_ok=True)
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            loop.remove_signal_handler(sig)
+        try:
+            if child is not None and waiter is not None:
+                await _stop_child(child, waiter)
+            if shutdown is not None:
+                await shutdown()
+        finally:
+            pid_file.unlink(missing_ok=True)
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                loop.remove_signal_handler(sig)

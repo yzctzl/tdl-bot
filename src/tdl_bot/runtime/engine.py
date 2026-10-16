@@ -127,17 +127,19 @@ class EngineServer:
         self.version = code_version()
         self.reload_requested = False
         self.calls = 0
+        self.shutdown_task = None
 
     async def dispatch(self, method, args):
         service = self.service
         if method == "backup":
             return await service.backups.execute(**args)
         if method == "shutdown":
-            if getattr(service, "backups", None) is not None:
-                await service.backups.close()
-            service._closing = True
-            await service.close()
-            self.reload_requested = True
+            if self.shutdown_task is None:
+                service._closing = True
+                if getattr(service, "backups", None) is not None:
+                    service.backups.quiesce()
+                self.shutdown_task = asyncio.create_task(self._shutdown())
+            await asyncio.shield(self.shutdown_task)
             return None
         if method == "ping":
             if args.get("reload") or (
@@ -175,6 +177,12 @@ class EngineServer:
                     )
                 }
         raise UserError(tr("Unsupported local operation."))
+
+    async def _shutdown(self):
+        if getattr(self.service, "backups", None) is not None:
+            await self.service.backups.close()
+        await self.service.close()
+        self.reload_requested = True
 
     async def client(self, reader, writer):
         self.calls += 1

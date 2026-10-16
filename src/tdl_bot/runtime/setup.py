@@ -21,6 +21,7 @@ def initialize(directory):
     config.chmod(0o600)
     for name in ("data", "bin"):
         (root / name).mkdir(exist_ok=True, mode=0o700)
+    (root / "data" / "tdl").mkdir(exist_ok=True, mode=0o700)
     print(
         tr("Workspace created: {path}. Edit .env, then run login.", path=root)
     )
