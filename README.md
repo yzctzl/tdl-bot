@@ -713,3 +713,15 @@ filtering; displays prefer `@username` and only fall back to a UID when needed.
 Activity records are durable across reloads. Database schema v9 adds the activity
 table and backs up an existing v8 database before migrating. No past actions are
 reconstructed automatically.
+
+
+Bot subcommands accept unique prefixes: `/user h 123` and `/user hist 123`
+mean `/user history 123`; `/follow p <id>` pauses a follow, and
+`/follow res <id>` resumes it. `/target b` selects the Bot conversation;
+`/account a` selects automatic routing. Full words remain supported.
+Ambiguous prefixes only show candidates and never execute an operation:
+`/user a` matches `add` and `activity`, `/user r` matches `remove` and `role`,
+and `/follow r` matches `remove` and `resume`. Use a longer prefix to choose.
+`/user help` remains explicit so `/user h` selects history. Usernames, links,
+IDs and other values are preserved; only command words and option keywords
+are matched.

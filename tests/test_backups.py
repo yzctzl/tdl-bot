@@ -784,3 +784,24 @@ async def test_rate_waits_preserve_checkpoints_on_cancel_and_reload(workspace):
     assert record.state == "active" and record.phase == "idle"
     assert record.cursor == 0
     w.shared.media.copy_group.assert_not_awaited()
+
+
+def test_backup_subcommand_prefixes_preserve_sources_and_reject_ambiguity():
+    for short, full in (
+        ("l 2", "list 2"),
+        ("s id", "status id"),
+        ("p id", "pause id"),
+        ("c id", "cancel id"),
+        ("res id r", "resume id retry"),
+        ("res id s", "resume id skip"),
+        ("i id 5m", "interval id 5m"),
+        (
+            "ad @source0 t @destination e 5m",
+            "add @source0 to @destination every 5m",
+        ),
+    ):
+        assert arguments("follow", short) == arguments("follow", full)
+    with pytest.raises(UserError, match="remove, resume"):
+        arguments("follow", "r id")
+    for source_ref in ("@resume", "https://t.me/example", "-10042"):
+        assert arguments("follow", source_ref)["source_ref"] == source_ref

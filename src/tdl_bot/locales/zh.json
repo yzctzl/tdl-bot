@@ -432,6 +432,7 @@
     "View record": "查看记录",
     "User management:\n/user list List members\n/user add <UID|@username> Add a regular account\n/user remove <UID|@username> Remove an account\n/user ban <UID|@username> <1d|1w|1m> Ban for a day, week, or 30 days\n/user unban <UID|@username> Unban an account\n/user role <UID|@username> <user|admin> Set a role\n/user history <UID|@username> View account management history\n/user activity [UID|@username] View link and join activity\n/user follow <UID|@username> <0-1000> Set follow quota\n/target for <UID|@username> [chat] [topic_id] Manage a personal destination\n/status <UID|@username> View another account's destination": "用户管理：\n/user list 查看成员\n/user add <UID或@用户名> 添加普通账号\n/user remove <UID或@用户名> 删除账号\n/user ban <UID或@用户名> <1d|1w|1m> 封禁一天／周／30天\n/user unban <UID或@用户名> 解封\n/user role <UID或@用户名> <user|admin> 设置角色\n/user history <UID或@用户名> 查看管理记录\n/user activity [UID|@用户名] 查看链接与入群记录\n/user follow <UID或@用户名> <0-1000> 设置 follow 上限\n/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n/status <UID或@用户名> 查看其他账号的接收位置",
     "Link": "Link",
-    "Join": "Join"
+    "Join": "Join",
+    "Ambiguous command '{prefix}'. Use: {choices}.": "命令缩写“{prefix}”有歧义，请使用：{choices}。"
   }
 }

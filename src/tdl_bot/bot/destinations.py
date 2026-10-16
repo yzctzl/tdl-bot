@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 
 from tdl_bot.bot.context import CommandGroup
+from tdl_bot.bot.formatting import command_prefix
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 from tdl_bot.integrations.telegram.delivery import Delivery
@@ -83,6 +84,7 @@ class DestinationCommands(CommandGroup):
         if not args:
             await self._show_target(message, owner)
             return
+        args[0] = command_prefix(args[0], {"for", "private", "bot"})
         if args[0] == "get":
             raise UserError(
                 tr(
@@ -123,8 +125,11 @@ class DestinationCommands(CommandGroup):
             if not args:
                 await self._show_target(message, owner)
                 return
+        args[0] = command_prefix(args[0], {"private", "bot"})
         if args[0] == "private":
             args = args[1:]
+            if args:
+                args[0] = command_prefix(args[0], {"bot"})
         if not args or args == ["bot"]:
             target = Target(str(owner))
         else:

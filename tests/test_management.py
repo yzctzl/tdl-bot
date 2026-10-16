@@ -860,3 +860,26 @@ async def test_activity_view_is_admin_only_filtered_and_paginated(
     await app.members.activity_page(query)
     edit.assert_not_awaited()
     assert query.answer.call_args.kwargs["show_alert"]
+
+
+async def test_user_subcommands_accept_unique_prefixes_without_ambiguous_writes(
+    managed, monkeypatch
+):
+    app, _, store, _ = managed
+    history, add = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(app.members, "user_history", history)
+    monkeypatch.setattr(app.members, "user_add", add)
+    for prefix in ("h", "hist", "history"):
+        await app.members.user(message(1), command("user", prefix + " 2"))
+        forwarded = history.call_args.args[1]
+        assert forwarded.command == "user history" and forwarded.args == "2"
+    await app.members.user(message(1), command("user", "ad 4"))
+    assert add.call_args.args[1].command == "user add"
+    for prefix in ("a", "r"):
+        with pytest.raises(UserError, match="歧义"):
+            await app.members.user(message(1), command("user", prefix + " 4"))
+    assert add.await_count == 1 and history.await_count == 3
+    assert store.member(4) is None
+    with pytest.raises(UserError):
+        await app.members.user(message(2), command("user", "ad 4"))
+    assert add.await_count == 1

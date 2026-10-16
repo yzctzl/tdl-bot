@@ -18,6 +18,7 @@ from telethon import errors
 
 from tdl_bot.bot.commands import USER_HELP
 from tdl_bot.bot.context import CommandGroup
+from tdl_bot.bot.formatting import command_prefix
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 from tdl_bot.transfers.activity import activity_line
@@ -33,7 +34,6 @@ class MemberCommands(CommandGroup):
         if not parts or parts[0] == "help":
             await message.answer(tr(USER_HELP))
             return
-        action = parts[0]
         handlers = {
             "list": self.users,
             "add": self.user_add,
@@ -45,6 +45,7 @@ class MemberCommands(CommandGroup):
             "activity": self.user_activity,
             "follow": self.user_follow,
         }
+        action = command_prefix(parts[0], handlers)
         handler = handlers.get(action)
         if handler is None:
             raise UserError(tr("Unknown user operation. Use /user for help."))

@@ -7,7 +7,7 @@ from aiogram.filters import CommandObject
 from aiogram.types import LinkPreviewOptions, Message
 
 from tdl_bot.bot.context import CommandGroup
-from tdl_bot.bot.formatting import page_number
+from tdl_bot.bot.formatting import command_prefix, page_number
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, saved_label, tr
 from tdl_bot.storage.models import Target
@@ -32,7 +32,19 @@ def arguments(kind, value):
     args = value.split()
     if not args:
         return {"action": "list"}
-    action = args.pop(0)
+    action = command_prefix(
+        args.pop(0),
+        {
+            "list",
+            "status",
+            "pause",
+            "cancel",
+            "remove",
+            "resume",
+            "interval",
+            "add",
+        },
+    )
     if action == "list":
         return {"action": "list", "page": page_number(" ".join(args))}
     if action in {"status", "pause", "cancel", "remove", "resume", "interval"}:
@@ -45,7 +57,9 @@ def arguments(kind, value):
             "task_id": args.pop(0),
         }
         if action == "resume" and args:
-            result["resolution"] = args.pop(0)
+            result["resolution"] = command_prefix(
+                args.pop(0), {"retry", "skip"}
+            )
             if result["resolution"] not in {"retry", "skip"}:
                 raise UserError(tr("Resume resolution must be retry or skip."))
         if action == "interval" and kind == "follow" and args:
@@ -61,7 +75,9 @@ def arguments(kind, value):
         action = args.pop(0)
     result = {"action": "create", "source_ref": action}
     while args:
-        option = args.pop(0)
+        option = command_prefix(
+            args.pop(0), {"to", "every"} if kind == "follow" else {"to"}
+        )
         if option == "to" and args and "target" not in result:
             chat = args.pop(0)
             topic = int(args.pop(0)) if args and args[0].isdigit() else None

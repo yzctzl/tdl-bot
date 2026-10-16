@@ -6,6 +6,7 @@ from aiogram.filters import CommandObject
 from aiogram.types import Message
 
 from tdl_bot.bot.context import CommandGroup
+from tdl_bot.bot.formatting import command_prefix
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
 
@@ -20,7 +21,10 @@ class ExecutionCommands(CommandGroup):
                 tr("Only administrators can manage execution accounts.")
             )
         result = await self.service.execution_accounts(
-            operator, (command.args or "").strip() or None
+            operator,
+            command_prefix((command.args or "").strip(), {"auto", "shared"})
+            if (command.args or "").strip()
+            else None,
         )
         mode = tr("Automatic") if result["automatic"] else tr("Manual")
         lines = [tr("Execution account selection: {mode}", mode=mode)]
