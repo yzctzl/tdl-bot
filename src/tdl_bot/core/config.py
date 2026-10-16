@@ -1,6 +1,7 @@
 """Environment-based configuration."""
 
 import os
+import platform
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -125,7 +126,7 @@ class Settings:
             data_dir=data_dir,
             tdl_binary=path(get("TDL_BINARY"))
             if get("TDL_BINARY")
-            else path(get("BIN_DIR")) / "tdl",
+            else path(get("BIN_DIR")) / binary_platform() / "tdl",
             tdl_namespace=get("TDL_NAMESPACE", "default"),
             tdl_dir=path(get("TDL_DIR"))
             if get("TDL_DIR")
@@ -193,3 +194,12 @@ def persisted_members(path: Path):
 def runtime_directory(settings):
     """Keep sockets local even when persistent data uses a bind mount."""
     return getattr(settings, "runtime_dir", None) or settings.data_dir
+
+
+def binary_platform():
+    system = {"Darwin": "macos"}.get(
+        platform.system(), platform.system().lower()
+    )
+    machine = platform.machine().lower()
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}.get(machine, machine)
+    return f"{system}-{architecture}"

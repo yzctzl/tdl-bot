@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from tdl_bot.core.config import Settings
+from tdl_bot.core.config import Settings, binary_platform
 from tdl_bot.core.errors import UserError
 from tdl_bot.runtime.setup import initialize
 
@@ -35,7 +35,7 @@ def test_workspace_paths_reload_without_exporting_configuration(
         Settings.from_env()
     settings = Settings.from_env(login_only=True)
     assert settings.data_dir == root / "data"
-    assert settings.tdl_binary == root / "bin/tdl"
+    assert settings.tdl_binary == root / "bin" / binary_platform() / "tdl"
     assert settings.tdl_dir == root / "data/tdl"
     assert "DATA_DIR" not in os.environ
     original = config.read_text()
@@ -71,7 +71,7 @@ async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
 
-    from tdl_bot.runtime.cli import instance_lock
+    from tdl_bot.runtime.cli import _health, instance_lock
     from tdl_bot.runtime.container import drain_engine
     from tdl_bot.runtime.engine import EngineServer
 
@@ -109,6 +109,7 @@ async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
         async with asyncio.timeout(3):
             while not (runtime / "runtime.sock").exists():  # noqa: ASYNC110 - Wait for local RPC listener.
                 await asyncio.sleep(0.01)
+        await _health(settings)
         drains = [asyncio.create_task(drain_engine(settings)) for _ in range(2)]
         await asyncio.wait_for(entered.wait(), 3)
         assert service._closing and not any(t.done() for t in drains)
@@ -119,6 +120,8 @@ async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
         backups.close.assert_awaited_once()
         assert not (runtime / "runtime.sock").exists()
         await drain_engine(settings)  # Already stopped is an idempotent no-op.
+        with pytest.raises(UserError, match="engine is unavailable"):
+            await _health(settings)
     finally:
         release.set()
         for task in [running, *drains]:

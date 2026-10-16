@@ -415,9 +415,9 @@ def main() -> None:
                     import time
 
                     time.sleep(0.1)
-            path = runtime_directory(settings) / "runtime.sock"
-            if path.exists():
-                asyncio.run(exchange(path, {"method": "shutdown", "args": {}}))
+            from tdl_bot.runtime.container import drain_engine
+
+            asyncio.run(drain_engine(settings))
             return
         if args.command == "reload":
             if not signal_supervisor(runtime_dir, signal.SIGHUP):

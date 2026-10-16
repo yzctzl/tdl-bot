@@ -53,6 +53,8 @@ def test_reload_and_stop_require_live_supervisor_and_release_locks(
     monkeypatch.setattr(cli.os, "kill", kill)
     exchange = AsyncMock()
     monkeypatch.setattr(cli, "exchange", exchange)
+    drain = AsyncMock()
+    monkeypatch.setattr("tdl_bot.runtime.container.drain_engine", drain)
     lock = settings.data_dir / ".supervisor.lock"
     with cli.instance_lock(lock):
         with pytest.raises(UserError, match="Another process"):
@@ -69,13 +71,10 @@ def test_reload_and_stop_require_live_supervisor_and_release_locks(
                 settings.data_dir / "runtime.sock",
                 {"method": "ping", "args": {"reload": True}},
             ),
-            call(
-                settings.data_dir / "runtime.sock",
-                {"method": "shutdown", "args": {}},
-            ),
         ]
     )
-    assert exchange.await_count == 2
+    assert exchange.await_count == 1
+    drain.assert_awaited_once_with(settings)
     # Never signal a stale PID after the supervisor releases its lock.
     monkeypatch.setattr("sys.argv", ["tdl-bot", "reload"])
     with pytest.raises(SystemExit) as error:
