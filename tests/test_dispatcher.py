@@ -263,13 +263,14 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
     assert [call.text[:3] for call in updates] == [
         "2/5",
         "3/5",
+        "3/5",
         "4/5",
         "5/5",
     ]
     assert updates[0].text == "2/5 Locating media group."
     assert (
         updates[-1].text
-        == "5/5 Complete: uploaded 1 media files with captions."
+        == "5/5 Complete: sent 1 media files with captions."
     )
     assert updates[-1].reply_markup is None
     assert j.store.saved_results([next_job.url], "shared")

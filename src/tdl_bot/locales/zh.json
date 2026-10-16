@@ -223,7 +223,6 @@
     "Service setup is incomplete. Contact an administrator.": "服务尚未配置完成，请联系管理员。",
     "Media already sent may remain at the destination.": "已发送的媒体可能仍保留在接收位置。",
     "Media already uploaded may remain at the destination.": "已上传的媒体可能仍保留在目标中。",
-    "5/5 Complete: uploaded {p0} media files with captions.": "5/5 完成：已上传 {p0} 个媒体及视频文字。",
     "Complete: {p0} {p1} media files with captions.": "完成：已{p0} {p1} 个媒体及视频文字。",
     "tdl did not download the entire media group. Upload stopped and files cleaned up.": "tdl 未完整下载 media group，已停止上传并清理文件。",
     "File sizes are incomplete. Upload stopped and files cleaned up.": "文件大小不完整，已停止上传并清理文件。",
@@ -406,6 +405,13 @@
     "Multiple instances are running. Use reload -a for all, or reload -e <config> for one:\n{paths}": "有多个实例正在运行。使用 reload -a 全部重载，或 reload -e <配置文件> 指定一个：\n{paths}",
     "Reload requested: {path}": "已请求重载：{path}",
     "Reload failed: {path}": "重载失败：{path}",
-    "Could not reload {count} instance(s).": "有 {count} 个实例重载失败。"
+    "Could not reload {count} instance(s).": "有 {count} 个实例重载失败。",
+    "3/5 Preparing {p0} media files.": "3/5 正在准备 {p0} 个媒体。",
+    "3/5 Downloading and uploading {p0} media files.": "3/5 正在下载并上传 {p0} 个媒体。",
+    "3/5 Uploading {p0} media files.": "3/5 正在上传 {p0} 个媒体。",
+    "4/5 Sending {p0} media files.": "4/5 正在发送 {p0} 个媒体。",
+    "5/5 Complete: sent {p0} media files with captions.": "5/5 完成：已发送 {p0} 个媒体及文字。",
+    "Preparing": "准备中",
+    "Sending": "发送中"
   }
 }

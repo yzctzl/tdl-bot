@@ -63,7 +63,7 @@ async def test_success_preserves_order_and_deletes_files(setup_service):
     assert [path.name for path in paths] == ["10_photo.jpg", "20_video.mp4"]
     assert not any(service.jobs_dir.iterdir())
     assert store.pending_items() == []
-    assert "完成：已上传 2 个媒体及视频文字" in notify.call_args.args[1]
+    assert "完成：已发送 2 个媒体及文字" in notify.call_args.args[1]
     assert notify.call_args.kwargs["finished"] is True
 
 
@@ -226,7 +226,7 @@ async def test_cancel_cleans_at_every_stage_and_worker_accepts_next_job(
     next_job = await service.submit(1, "https://t.me/channel/20")
     await service.close()
     assert next_job.finished
-    assert "完成：已上传" in notify.call_args.args[1]
+    assert "完成：已发送" in notify.call_args.args[1]
 
 
 async def test_initial_progress_failure_never_starts_transfer(setup_service):
@@ -378,10 +378,15 @@ async def test_database_schema_failure_does_not_blame_network_or_kill_worker(
 async def test_native_clone_owns_scratch_and_skips_folder_upload(
     setup_service, cancel
 ):
-    service, tdl, media, store, _ = setup_service
+    service, tdl, media, store, notify = setup_service
     entered = asyncio.Event()
 
     async def clone(group, target, directory):
+        assert notify.call_args.args[1] == "3/5 正在下载并上传 2 个媒体。"
+        assert not any(
+            str(call.args[1]).startswith("4/5")
+            for call in notify.call_args_list
+        )
         assert group.urls == ["one", "two"] and target == Target("me")
         (directory / "tdl_native").write_bytes(b"native scratch")
         entered.set()
@@ -415,11 +420,32 @@ async def test_transfer_and_cached_result_keep_numbered_progress(
     setup_service, mode
 ):
     service, tdl, media, _, notify = setup_service
+
+    async def transfer(*args):
+        expected = (
+            "3/5 正在准备 2 个媒体。"
+            if mode == "copy"
+            else "3/5 正在下载并上传 2 个媒体。"
+        )
+        assert notify.call_args.args[1] == expected
+        assert not any(
+            str(call.args[1]).startswith("4/5")
+            for call in notify.call_args_list
+        )
+        return [100, 101]
+
+    async def deliver(job, ids):
+        assert notify.call_args.args[1] == "4/5 正在发送 2 个媒体。"
+        assert job.delivery_started and ids == [100, 101]
+        assert not notify.call_args.kwargs["finished"]
+        return [300, 301]
+
     if mode == "copy":
-        media.copy_group = AsyncMock(return_value=[100, 101])
+        media.copy_group = AsyncMock(side_effect=transfer)
     else:
         media.tdl = tdl
-        media.clone_group = AsyncMock(return_value=[100, 101])
+        media.clone_group = AsyncMock(side_effect=transfer)
+    service.delivery = AsyncMock(side_effect=deliver)
     media.copy_messages = AsyncMock(return_value=[200, 201])
     url = "https://t.me/channel/20"
     for _ in range(2):
@@ -429,11 +455,9 @@ async def test_transfer_and_cached_result_keep_numbered_progress(
         steps = [int(text[0]) for text in texts]
         assert steps == sorted(steps) and set(steps) == {2, 3, 4, 5}
         assert notify.call_args.kwargs["finished"] is True
-        assert texts[1:3] == [
-            "3/5 正在下载 2 个媒体。",
-            "4/5 正在上传 2 个媒体。",
-        ]
-        assert texts[-1] == "5/5 完成：已上传 2 个媒体及视频文字。"
+        assert texts[1] == "3/5 正在准备 2 个媒体。"
+        assert texts[-2] == "4/5 正在发送 2 个媒体。"
+        assert texts[-1] == "5/5 完成：已发送 2 个媒体及文字。"
         assert not any(
             word in "".join(texts) for word in ("复用", "无需", "tdl", "转存")
         )
