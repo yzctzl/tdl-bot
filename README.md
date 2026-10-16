@@ -60,7 +60,7 @@ wheel／源码包的 GitHub Release。tag 由用户手动创建，工作流不�
 
 ```bash
 uv sync
-cp .env.example .env
+uv run tdl-bot setup
 uv run tdl-bot login
 ```
 

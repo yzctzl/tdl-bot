@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate Compose configuration
-        run: docker compose --env-file .env.example config --quiet
+        run: docker compose --env-file src/tdl_bot/resources/env.example config --quiet
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Build a local image for smoke checks

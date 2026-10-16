@@ -114,8 +114,11 @@ Install Docker Engine with Compose on Linux, or Docker Desktop with Linux
 containers on Windows/macOS. No host Python, uv or tdl installation is required.
 Images target `linux/amd64` and `linux/arm64`.
 
-Create a workspace. Place `compose.yaml` and `.env.example` from the same revision
-of this repository in it. Published images become available after the container
+Create a workspace. Download `compose.yaml` and the configuration template
+[`src/tdl_bot/resources/env.example`](../src/tdl_bot/resources/env.example)
+from the same revision of this repository. Save the template as `.env` in the
+workspace. This packaged resource is the only maintained template; native
+`tdl-bot setup` generates `.env` from it. Published images become available after the container
 workflow succeeds for a manually pushed version tag (for example `v0.1.0`). Before then, build locally
 with `docker build -t tdl-bot:local <repository>` and set
 `TDL_BOT_IMAGE=tdl-bot:local` in `.env`.
@@ -123,14 +126,12 @@ with `docker build -t tdl-bot:local <repository>` and set
 Linux/macOS/WSL2:
 
 ```sh
-cp .env.example .env
 mkdir -p data/tdl bin
 ```
 
 Windows PowerShell:
 
 ```powershell
-Copy-Item .env.example .env
 New-Item -ItemType Directory -Force data/tdl, bin
 ```
 
