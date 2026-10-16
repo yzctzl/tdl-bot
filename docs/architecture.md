@@ -149,3 +149,15 @@ backup work as well as regular jobs and RPC calls. The frontend's health task
 ensures a replacement engine starts after handoff without requiring a new user
 request. This health check never hashes code or watches directories. Shutdown
 stops the frontend health task before draining the resident engine.
+
+Backup writes share a pacer and a single write lease; scans remain bounded to two
+workers. Per-message account and destination gaps are charged after each unit,
+and albums count every member. FloodWait defers all backups on that execution
+account; Bot API rate limits defer backup Bot deliveries globally. Waiting stays
+cancellable and checks reload before recording a writing checkpoint.
+
+Follow quotas live in workspace metadata and default to nine ordinary-member
+active/paused tasks. Admin-only quota changes use the existing membership audit
+log and are read again on creation/resume. Lower limits preserve existing tasks.
+Cancelled snapshots retain a timestamp; list pagination excludes cancellations
+older than seven days without deleting request identities or checkpoints.

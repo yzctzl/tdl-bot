@@ -234,9 +234,13 @@ results are reused before any new byte transfer; an explicit destination still
 receives every new source post. Starting a new dump after a completed one can
 intentionally send that history again.
 
-Ordinary members may have up to three active follows; paused follows do not
-occupy an active slot, and resuming checks the limit again. Administrators have
-no count limit and can manage other members' tasks. A task retains its original
+Ordinary members may have up to nine follows by default. Active and paused
+follows both count; cancellation releases a slot. Administrators can set a
+per-member limit with `/user_follow_limit <UID|@username> <0-1000>` (0 prevents
+new follows and resumes). Lowering a limit preserves existing tasks, while new
+follows and resumes must fit the new limit. `/users` shows usage and limits;
+`/follow` shows the caller's quota. Changes persist and appear in `/user_history`.
+Administrators have no count limit and can manage other members' tasks. A task retains its original
 execution account and targets; later `/account`, `/target` or `/storage` changes
 apply to new tasks. Removing access or banning the owner pauses affected work.
 Restore the original owner's permissions/session before resuming it.
@@ -260,7 +264,11 @@ Use the same controls for both command families:
 
 Lists show five tasks per page. Ordinary members see only their own follows;
 administrators can also see dumps and other members' follows. `remove` is an
-alias for `cancel`. Cancelled tasks retain their history and cannot be resumed.
+alias for `cancel`. Cancelled dump/follow tasks appear in lists for seven days,
+then disappear from those lists. Their stored checkpoints and request identities
+remain available for audit, duplicate-request protection and direct `status <id>`;
+they cannot be resumed. Older cancellations without timestamps receive a
+seven-day display window starting at upgrade.
 Intervals accept seconds, minutes, hours and days (`60s`, `5m`, `1h`, `1d`), with
 a minimum of 60 seconds.
 

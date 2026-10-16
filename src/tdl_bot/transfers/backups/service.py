@@ -26,6 +26,11 @@ class BackupService:
         self.notify = notify
         self.workers = max(1, min(workers, 2))
         self.records = {task.id: task for task in self.store.backups.all()}
+        for record in self.records.values():
+            if record.state == "cancelled" and not record.cancelled_at:
+                # Retain legacy cancellations for seven more days.
+                record.cancelled_at = self.store.now()
+                self.store.backups.save(record)
         self.running = {}
         self.draining = False
         self.closing = False
@@ -88,20 +93,26 @@ class BackupService:
 
     def _quota(self, owner, kind, excluding=None):
         if kind == "follow" and not self.policy.is_admin(owner):
-            count = sum(
-                r.owner == owner
-                and r.kind == "follow"
-                and r.state == "active"
-                and r.id != excluding
-                for r in self.records.values()
-            )
-            if count >= 3:
+            count = self._follow_count(owner, excluding)
+            limit = self.store.follow_limit(owner)
+            if count >= limit:
                 raise UserError(
                     tr(
-                        "You already have 3 active follow tasks. Pause or "
-                        "cancel one first."
+                        "Follow limit reached ({limit}; active and paused "
+                        "tasks both count). Cancel a task or ask "
+                        "an administrator.",
+                        limit=limit,
                     )
                 )
+
+    def _follow_count(self, owner, excluding=None):
+        return sum(
+            r.owner == owner
+            and r.kind == "follow"
+            and r.state in {"active", "paused"}
+            and r.id != excluding
+            for r in self.records.values()
+        )
 
     def _cycle_check(self, source_id, destination):
         edges = {}
@@ -172,10 +183,20 @@ class BackupService:
         if action == "list":
             if type(page) is not int or page < 1:
                 raise UserError(tr("Page must be a positive integer."))
+            records = [
+                r
+                for r in records
+                if r.state != "cancelled"
+                or r.cancelled_at >= self.store.now() - 7 * 86400
+            ]
             selected = list(reversed(records))[(page - 1) * 5 : page * 5]
             return {
                 "items": [self._view(r, user_id) for r in selected],
                 "total": len(records),
+                "used": self._follow_count(user_id),
+                "limit": None
+                if self.policy.is_admin(user_id)
+                else self.store.follow_limit(user_id),
             }
         record = next((r for r in records if r.id == task_id), None)
         if record is None:
@@ -186,6 +207,8 @@ class BackupService:
             raise UserError(tr("This backup is already finished or cancelled."))
         if action in {"pause", "cancel"}:
             record.state = "paused" if action == "pause" else "cancelled"
+            if action == "cancel":
+                record.cancelled_at = self.store.now()
             self.store.backups.save(record)
             task = self.running.get(record.id)
             if task and not task.done():

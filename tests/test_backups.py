@@ -69,7 +69,7 @@ async def workspace(tmp_path, monkeypatch):
             date=STAMP,
             megagroup=True,
         )
-        for i in range(5)
+        for i in range(12)
     }
     data = {utils.get_peer_id(ch): [] for ch in channels.values()}
     first = utils.get_peer_id(channels["@source0"])
@@ -247,6 +247,8 @@ async def test_backup_permissions_quota_cycles_and_account_snapshot(workspace):
     w = workspace
     with pytest.raises(UserError):
         await w.manager.execute(2, "dump", "create", source_ref="@source0")
+    assert w.store.follow_limit(2) == 9
+    w.store.set_follow_limit(1, 2, 3)
     ids = []
     for index in range(3):
         ids.append(
@@ -256,17 +258,21 @@ async def test_backup_permissions_quota_cycles_and_account_snapshot(workspace):
                 )
             )["id"]
         )
-    with pytest.raises(UserError, match="3 active"):
+    with pytest.raises(UserError, match=r"limit reached \(3"):
         await w.manager.execute(2, "follow", "create", source_ref="@source3")
     assert (await w.manager.execute(3, "follow"))["items"] == []
     assert len((await w.manager.execute(1, "follow"))["items"]) == 3
     with pytest.raises(UserError):
         await w.manager.execute(3, "follow", "pause", task_id=ids[0])
     await w.manager.execute(2, "follow", "pause", task_id=ids[0])
-    await w.manager.execute(2, "follow", "create", source_ref="@source3")
-    with pytest.raises(UserError, match="3 active"):
+    with pytest.raises(UserError, match=r"limit reached \(3"):
+        await w.manager.execute(2, "follow", "create", source_ref="@source3")
+    w.store.set_follow_limit(1, 2, 2)
+    with pytest.raises(UserError, match=r"limit reached \(2"):
         await w.manager.execute(2, "follow", "resume", task_id=ids[0])
     await w.manager.execute(1, "follow", "cancel", task_id=ids[1])
+    w.store.set_follow_limit(1, 2, 3)
+    await w.manager.execute(2, "follow", "create", source_ref="@source3")
     await w.manager.execute(2, "follow", "resume", task_id=ids[0])
     await w.manager.execute(
         2, "follow", "interval", task_id=ids[0], interval=60
@@ -455,6 +461,35 @@ async def test_commands_and_rpc_hide_storage_and_register_role_menus(
         await app.backups.dump(event, CommandObject(command="dump"))
     ordinary = {item.command for item in app.command_menu()}
     assert "follow" in ordinary and "dump" not in ordinary
+    assert "user_follow_limit" not in ordinary
+    assert "user_follow_limit" in {
+        item.command for item in app.command_menu(admin=True)
+    }
+    resolve_user = AsyncMock(return_value=2)
+    monkeypatch.setattr(app.members, "resolve_user", resolve_user)
+    monkeypatch.setattr(app.members, "refresh_profile", AsyncMock())
+    admin = SimpleNamespace(from_user=SimpleNamespace(id=1), answer=AsyncMock())
+    command = CommandObject(command="user_follow_limit", args="@operator 5")
+    with pytest.raises(UserError):
+        await app.members.user_follow_limit(event, command)
+    await app.members.user_follow_limit(admin, command)
+    resolve_user.assert_awaited_with("@operator")
+    assert w.store.follow_limit(2) == 5
+    with pytest.raises(UserError):
+        await app.members.user_follow_limit(
+            admin,
+            CommandObject(
+                command="user_follow_limit", args="@operator invalid"
+            ),
+        )
+    await app.members.users(admin, CommandObject(command="users"))
+    assert "Follow slots: 1/5" in admin.answer.call_args.args[0]
+    await app.members.user_history(
+        admin, CommandObject(command="user_history", args="@operator")
+    )
+    assert "Set follow limit: 5" in admin.answer.call_args.args[0]
+    await app.backups.follow(event, CommandObject(command="follow"))
+    assert "Follow slots: 1/5" in event.answer.call_args.args[0]
     assert "dump" in {item.command for item in app.command_menu(admin=True)}
     assert arguments("follow", "@source0 to @destination 77 every 1h") == {
         "action": "create",
@@ -652,3 +687,102 @@ async def test_backup_pacing_shares_chats_cooldowns_and_stops_before_writes():
     stop = True
     assert not await pacer.wait(first, lambda: stop)
     assert all(delay <= 1 for delay in waits)
+
+
+async def test_follow_default_capacity_cancelled_retention_and_durable_limits(
+    workspace, monkeypatch
+):
+    w = workspace
+    for index in range(9):
+        await w.manager.execute(
+            3, "follow", "create", source_ref=f"@source{index}"
+        )
+    with pytest.raises(UserError, match="limit reached"):
+        await w.manager.execute(3, "follow", "create", source_ref="@source9")
+    result = await w.manager.execute(3, "follow")
+    assert result["used"] == result["limit"] == result["total"] == 9
+    for actor, user, limit in [(2, 3, 1), (1, 99, 1), (1, 3, -1), (1, 3, 1001)]:
+        with pytest.raises(UserError):
+            w.store.set_follow_limit(actor, user, limit)
+    w.store.set_follow_limit(1, 3, 0)
+    first = next(r for r in w.manager.records.values() if r.owner == 3)
+    await w.manager.execute(3, "follow", "pause", task_id=first.id)
+    with pytest.raises(UserError, match="limit reached"):
+        await w.manager.execute(3, "follow", "resume", task_id=first.id)
+    path = w.transfers.jobs_dir.parent / "state.sqlite3"
+    reopened = Store(path, migrate=False)
+    assert reopened.follow_limit(3) == 0
+    assert reopened.member_history(1, 3)[0][1] == "follow_limit:0"
+    reopened.close()
+    dump = await w.manager.execute(1, "dump", "create", source_ref="@source0")
+    now = w.store.now()
+    monkeypatch.setattr(w.store, "now", lambda: now)
+    for actor, kind, task_id in [
+        (3, "follow", first.id),
+        (1, "dump", dump["id"]),
+    ]:
+        await w.manager.execute(actor, kind, "cancel", task_id=task_id)
+        assert w.manager.records[task_id].cancelled_at == now
+        monkeypatch.setattr(w.store, "now", lambda: now + 7 * 86400)
+        page = await w.manager.execute(
+            actor, kind, page=2 if kind == "follow" else 1
+        )
+        assert task_id in {r["id"] for r in page["items"]}
+        monkeypatch.setattr(w.store, "now", lambda: now + 7 * 86400 + 1)
+        pages = [await w.manager.execute(actor, kind, page=i) for i in (1, 2)]
+        assert task_id not in {r["id"] for page in pages for r in page["items"]}
+        assert (
+            await w.manager.execute(actor, kind, "status", task_id=task_id)
+        )["state"] == "cancelled"
+        monkeypatch.setattr(w.store, "now", lambda: now)
+    # Legacy cancellations start their seven-day display window at upgrade.
+    payload = first.payload()
+    payload.pop("cancelled_at")
+    from tdl_bot.storage.backups import Backup
+
+    w.store.backups.save(Backup.restore(payload))
+    restored = BackupService(w.transfers)
+    assert restored.records[first.id].cancelled_at == now
+    assert (await restored.execute(3, "follow"))["total"] == 9
+
+
+async def test_rate_waits_preserve_checkpoints_on_cancel_and_reload(workspace):
+    from tdl_bot.transfers.backups.pacing import BackupPacer
+
+    w = workspace
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def sleep(delay):
+        entered.set()
+        await release.wait()
+
+    w.manager.pacer = BackupPacer(sleep=sleep)
+    created = await w.manager.execute(
+        1, "dump", "create", source_ref="@source0"
+    )
+    record = w.manager.records[created["id"]]
+    w.manager.pacer.cooldown("shared", 60)
+    await w.manager._cycle(record)
+    assert record.next_run > w.store.now() + 50 and record.cursor == 0
+    w.shared.media.copy_group.assert_not_awaited()
+    w.manager.pacer.deadlines.clear()
+    w.manager.pacer.cooldown("shared", 60, bot=True)
+    task = asyncio.create_task(w.manager._cycle(record))
+    w.manager.running[record.id] = task
+    await asyncio.wait_for(entered.wait(), 1)
+    await w.manager.execute(1, "dump", "cancel", task_id=record.id)
+    assert record.cursor == 0 and record.phase == "idle"
+    created = await w.manager.execute(
+        1, "dump", "create", source_ref="@source0"
+    )
+    record = w.manager.records[created["id"]]
+    entered.clear()
+    task = asyncio.create_task(w.manager._cycle(record))
+    w.manager.running[record.id] = task
+    await asyncio.wait_for(entered.wait(), 1)
+    w.manager.quiesce()
+    release.set()
+    await asyncio.wait_for(task, 1)
+    assert record.state == "active" and record.phase == "idle"
+    assert record.cursor == 0
+    w.shared.media.copy_group.assert_not_awaited()

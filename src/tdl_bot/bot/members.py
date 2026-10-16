@@ -91,6 +91,10 @@ class MemberCommands(CommandGroup):
         lines = [
             tr("Members (page {p0}, {p1} total):", p0=page, p1=len(members))
         ]
+        counts = {}
+        for task in self.store.backups.all():
+            if task.kind == "follow" and task.state in {"active", "paused"}:
+                counts[task.owner] = counts.get(task.owner, 0) + 1
         for member in selected:
             role = (
                 tr("Administrator")
@@ -114,6 +118,18 @@ class MemberCommands(CommandGroup):
                 self.store.recipient(member.user_id).target, member.user_id
             )
             lines.append(tr("Current destination: {p0}", p0=target_link))
+            limit = (
+                tr("Unlimited")
+                if member.role == "admin"
+                else self.store.follow_limit(member.user_id)
+            )
+            lines.append(
+                tr(
+                    "Follow slots: {used}/{limit} (active and paused).",
+                    used=counts.get(member.user_id, 0),
+                    limit=limit,
+                )
+            )
         if not self.policy.is_admin(message.from_user.id):
             raise UserError(tr("Only administrators can view the member list."))
         await message.answer(
@@ -203,6 +219,23 @@ class MemberCommands(CommandGroup):
         )
 
     @localized
+    async def user_follow_limit(self, message: Message, command: CommandObject):
+        actor, args = self._admin_args(message, command, 2)
+        if not args[1].isascii() or not args[1].isdigit() or len(args[1]) > 4:
+            raise UserError(tr("Follow limits must be between 0 and 1000."))
+        user_id = await self.resolve_user(args[0])
+        self.store.set_follow_limit(actor, user_id, int(args[1]))
+        await message.answer(
+            tr(
+                "{user}: Follow limit set to {limit}. Existing tasks are "
+                "retained; new tasks and resumes must fit the limit. "
+                "Administrators are unlimited.",
+                user=self.store.user_label(user_id),
+                limit=int(args[1]),
+            )
+        )
+
+    @localized
     async def user_history(
         self, message: Message, command: CommandObject
     ) -> None:
@@ -219,6 +252,11 @@ class MemberCommands(CommandGroup):
             "ban:604800": tr("Ban for one week"),
             "ban:2592000": tr("Ban for 30 days"),
         }
+        for _, action, _ in rows:
+            if action.startswith("follow_limit:"):
+                names[action] = tr(
+                    "Set follow limit: {limit}", limit=action.split(":", 1)[1]
+                )
         text = "\n".join(
             f"{self._deadline(created)} · {self.store.user_label(admin)} · "
             f"{names.get(action, action)}"

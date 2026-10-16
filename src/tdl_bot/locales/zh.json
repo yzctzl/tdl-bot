@@ -367,6 +367,13 @@
     "3/5 Found a previous result. No download needed.": "3/5 已找到以前的结果，无需下载。",
     "4/5 Sending to your destination…": "4/5 正在发送到你的接收位置……",
     "5/5 Complete: {p0} {p1} media files with captions.": "5/5 完成：{p0} {p1} 个媒体及文字。",
-    "4/5 Downloading {p0} media files.": "4/5 正在下载 {p0} 个媒体文件。"
+    "4/5 Downloading {p0} media files.": "4/5 正在下载 {p0} 个媒体文件。",
+    "Follow limits must be between 0 and 1000.": "follow 数量上限必须介于 0 到 1000 之间。",
+    "Follow limit reached ({limit}; active and paused tasks both count). Cancel a task or ask an administrator.": "已达到 follow 数量上限（{limit} 条，运行和暂停的任务均计入）。请取消任务或联系管理员。",
+    "Follow slots: {used}/{limit} (active and paused).": "follow 配额：{used}/{limit}（包括运行和暂停的任务）。",
+    "{user}: Follow limit set to {limit}. Existing tasks are retained; new tasks and resumes must fit the limit. Administrators are unlimited.": "{user}：follow 上限已设为 {limit}。已有任务保留，新增和恢复任务须符合配额。管理员不限数量。",
+    "Set follow limit: {limit}": "设置 follow 上限：{limit}",
+    "Set follow limit: UID/@username 0-1000": "设置 follow 上限：UID/@用户名 0-1000",
+    "\n\nAdministrators:\n/storage <chat> [topic_id] Configure internal storage\n/target for <UID|@username> [chat] [topic_id] Manage a personal destination\n/users List members\n/user_add <UID|@username> Add a regular account\n/user_remove <UID|@username> Remove an account\n/user_ban <UID|@username> <1d|1w|1m> Ban for a day, week, or 30 days\n/user_unban <UID|@username> Unban an account\n/user_role <UID|@username> <user|admin> Set a role\n/user_history <UID|@username> View account management history\n/status <UID|@username> View another account's destination\n/update_tdl [latest|v0.20.4] Check and update tdl\n/user_follow_limit <UID|@username> <0-1000> Set follow quota\n/account <auto|shared|UID> Switch execution account\n/dump <source> [to <chat>] Back up channel history\n/dump List tasks; /dump pause|resume|cancel <id> Manage a task": "\n\n管理员：\n/storage <chat> [topic_id] 配置内部存储\n/target for <UID或@用户名> [chat] [topic_id] 管理个人目标\n/users 查看成员\n/user_add <UID或@用户名> 添加普通账号\n/user_remove <UID或@用户名> 删除账号\n/user_ban <UID或@用户名> <1d|1w|1m> 封禁一天／周／30天\n/user_unban <UID或@用户名> 解封\n/user_role <UID或@用户名> <user|admin> 设置角色\n/user_history <UID或@用户名> 查看管理记录\n/status <UID或@用户名> 查看其他账号的接收位置\n/update_tdl [latest|v0.20.4] 检查并更新 tdl\n/user_follow_limit <UID|@用户名> <0-1000> 设置 follow 上限\n/account <auto|shared|UID> 切换执行账号\n/dump <来源> [to <目标>] 搬运频道或群组历史\n/dump 查看任务；/dump pause|resume|cancel <任务 ID> 管理任务"
   }
 }

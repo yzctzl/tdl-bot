@@ -30,6 +30,7 @@ class Backup:
     attempts: int = 0
     error: str = ""
     request_id: int | None = None
+    cancelled_at: float = 0
 
     def payload(self):
         return {

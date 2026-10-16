@@ -274,6 +274,26 @@ class Store:
                 self._archive_excess(user_id)
             self._member_event(actor_id, user_id, f"role:{role}")
 
+    def follow_limit(self, user_id: int) -> int:
+        row = self._db.execute(
+            "SELECT value FROM workspace_metadata WHERE key=?",
+            (f"follow_limit:{user_id}",),
+        ).fetchone()
+        return int(row[0]) if row else 9
+
+    def set_follow_limit(self, actor_id: int, user_id: int, limit: int) -> None:
+        self._require_admin(actor_id)
+        if self.member(user_id) is None:
+            raise UserError(tr("This account is not a member."))
+        if type(limit) is not int or not 0 <= limit <= 1000:
+            raise UserError(tr("Follow limits must be between 0 and 1000."))
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO workspace_metadata VALUES (?, ?)",
+                (f"follow_limit:{user_id}", str(limit)),
+            )
+            self._member_event(actor_id, user_id, f"follow_limit:{limit}")
+
     def member_history(self, actor_id: int, user_id: int):
         self._require_admin(actor_id)
         return self._db.execute(

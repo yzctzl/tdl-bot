@@ -40,6 +40,12 @@ COMMANDS = (
     ("update_tdl", "update", "Check and update tdl", True),
     ("users", "members.users", "List members and ban status", True),
     (
+        "user_follow_limit",
+        "members.user_follow_limit",
+        "Set follow limit: UID/@username 0-1000",
+        True,
+    ),
+    (
         "user_add",
         "members.user_add",
         "Add a regular account: UID/@username",
@@ -103,6 +109,7 @@ ADMIN_HELP = (
     "<UID|@username> View account management history\n/status "
     "<UID|@username> View another account's destination\n/update_tdl "
     "[latest|v0.20.4] Check and update tdl"
+    "\n/user_follow_limit <UID|@username> <0-1000> Set follow quota"
     "\n/account <auto|shared|UID> Switch execution account"
     "\n/dump <source> [to <chat>] Back up channel history"
     "\n/dump List tasks; /dump pause|resume|cancel <id> Manage a task"

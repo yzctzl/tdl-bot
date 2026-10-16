@@ -104,15 +104,24 @@ class BackupCommands(CommandGroup):
             options["source_message_id"] = getattr(message, "message_id", None)
         result = await self.service.backup(actor, kind, **options)
         if options["action"] == "list":
-            if not result["items"]:
-                await message.answer(tr("No backup tasks on this page."))
-                return
             text = tr(
                 "Backups: {total} tasks. Page {page}.",
                 total=result["total"],
                 page=options.get("page", 1),
             )
             rows = [escape(text)]
+            if kind == "follow" and result.get("limit") is not None:
+                rows.append(
+                    escape(
+                        tr(
+                            "Follow slots: {used}/{limit} (active and paused).",
+                            used=result["used"],
+                            limit=result["limit"],
+                        )
+                    )
+                )
+            if not result["items"]:
+                rows.append(escape(tr("No backup tasks on this page.")))
             for record in result["items"]:
                 rows.append(await self._render(record, actor))
             rows.append(
