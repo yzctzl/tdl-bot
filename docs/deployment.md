@@ -108,6 +108,12 @@ with its original configuration. Move data explicitly, edit the paths, then
 start again. An in-container reload can apply Bot settings and refresh accounts;
 it does not relocate bind mounts or change the container's environment.
 
+Record timestamps and member deadlines use the running machine's local timezone,
+including daylight saving time for the recorded instant. Stored timestamps remain
+UTC. Docker uses the container timezone, which may differ from the host; configure
+the container timezone if local display is required. Previously posted Telegram
+records retain their text until updated.
+
 ## Native Windows
 
 Use Python 3.12+ and uv from PowerShell. The source and `uv tool` installation

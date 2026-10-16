@@ -1,9 +1,7 @@
 """Members commands and their related validation."""
 
 from dataclasses import replace
-from datetime import datetime
 from html import escape
-from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandObject
@@ -21,6 +19,7 @@ from tdl_bot.bot.context import CommandGroup
 from tdl_bot.bot.formatting import command_prefix
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import localized, tr
+from tdl_bot.core.time import local_timestamp
 from tdl_bot.transfers.activity import activity_line
 
 
@@ -113,9 +112,7 @@ class MemberCommands(CommandGroup):
 
     @staticmethod
     def _deadline(timestamp: float) -> str:
-        return datetime.fromtimestamp(
-            timestamp, ZoneInfo("Asia/Tokyo")
-        ).strftime("%Y-%m-%d %H:%M JST")
+        return local_timestamp(timestamp)
 
     @localized
     async def users(self, message: Message, command: CommandObject) -> None:

@@ -1,15 +1,14 @@
 """Mirror the two supported activity kinds into internal storage."""
 
 import logging
-from datetime import datetime
 from html import escape
-from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import LinkPreviewOptions
 
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import tr
+from tdl_bot.core.time import local_timestamp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,9 +23,7 @@ def media_link(chat, ids):
 
 def activity_line(event, label):
     """Share one compact HTML row between storage posts and admin pages."""
-    timestamp = datetime.fromtimestamp(
-        event["created"], ZoneInfo("Asia/Tokyo")
-    ).strftime("%Y-%m-%d %H:%M JST")
+    timestamp = local_timestamp(event["created"])
     result = media_link(
         event.get("result_chat", ""), event.get("result_ids", [])
     )

@@ -132,18 +132,38 @@ async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
         await asyncio.gather(running, *drains, return_exceptions=True)
 
 
-def test_activity_and_member_times_without_system_timezone_data():
+def test_activity_and_member_times_follow_system_timezone():
     import subprocess
     import sys
 
     script = """
+import os
+import time
 from tdl_bot.bot.members import MemberCommands
 from tdl_bot.transfers.activity import activity_line
-expected = '1970-01-01 09:00 JST'
-assert MemberCommands._deadline(0) == expected
-assert expected in activity_line(
-    {'created': 0, 'kind': 'media', 'url': 'https://t.me/example/1'}, '@example'
-)
+
+instants = (1704067200, 1719792000)
+
+def check(expected):
+    for timestamp, text in zip(instants, expected, strict=True):
+        assert MemberCommands._deadline(timestamp) == text
+        assert text in activity_line(
+            {'created': timestamp, 'kind': 'media',
+             'url': 'https://t.me/example/1'}, '@example'
+        )
+
+# Also covers the actual Windows timezone without POSIX-only configuration.
+check([time.strftime('%Y-%m-%d %H:%M %Z', time.localtime(t)) for t in instants])
+if hasattr(time, 'tzset'):
+    for zone, expected in (
+        ('UTC0', ('2024-01-01 00:00 UTC', '2024-07-01 00:00 UTC')),
+        ('CST-8', ('2024-01-01 08:00 CST', '2024-07-01 08:00 CST')),
+        ('EST5EDT,M3.2.0,M11.1.0',
+         ('2023-12-31 19:00 EST', '2024-06-30 20:00 EDT')),
+    ):
+        os.environ['TZ'] = zone
+        time.tzset()
+        check(expected)
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
