@@ -179,7 +179,7 @@ class BackupCommands(CommandGroup):
 
     async def _render(self, record, actor):
         states = {
-            "active": tr("Active"),
+            "active": tr("Running"),
             "paused": tr("Paused"),
             "done": tr("Completed"),
             "cancelled": tr("Cancelled"),

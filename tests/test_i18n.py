@@ -2,6 +2,8 @@
 
 import ast
 import asyncio
+import re
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -168,8 +170,11 @@ async def test_background_jobs_and_cancellation_use_submitters_language(
             ]
             for user in (1, 2)
         }
-        assert messages[1][0] == "1/5 Download task queued."
-        assert messages[2][0] == "1/5 下载任务已加入队列。"
+        assert messages[1][0] == "1/5 Task queued."
+        assert (
+            messages[2][0]
+            == CATALOGS["zh"]["messages"]["1/5 Download task queued."]
+        )
         assert any("5/5 Complete" in text for text in messages[1])
         assert any("5/5 完成" in text for text in messages[2])
         await service._cancelled(Job(2, "https://t.me/example/30", Target("2")))
@@ -196,7 +201,15 @@ async def test_buttons_and_error_replies_use_saved_language(bilingual):
     service.notify = ProgressMessages(app.bot)
     for user_id, cancel, expired, failure in (
         (1, "Cancel", "Task ended or button expired.", "Command failed."),
-        (2, "取消", "任务已结束或按钮已失效。", "命令失败"),
+        (
+            2,
+            "取消",
+            "任务已结束或按钮已失效。",
+            CATALOGS["zh"]["messages"][
+                "Command failed. Check the network, group URL, and "
+                "destination permissions before retrying."
+            ],
+        ),
     ):
         job = Job(user_id, "https://t.me/example/10", Target(str(user_id)))
         await service._notify(job, tr("1/5 Download task queued."))
@@ -279,11 +292,25 @@ async def test_rpc_errors_preserve_request_language(
         assert chinese == "无权管理此任务。"
 
 
-def test_all_user_templates_have_chinese_translations():
-    messages = CATALOGS["zh"]["messages"]
+def test_catalogs_cover_sources_and_keep_languages_in_sync():
+    english = CATALOGS["en"]["messages"]
+    assert english.keys() == CATALOGS["zh"]["messages"].keys()
     sources = {HELP, ADMIN_HELP, USER_HELP, *(row[2] for row in COMMANDS)}
+    stages = {"Queued"}
     for path in Path("src/tdl_bot").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        source = path.read_text()
+        assert not re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", source), path
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+                and any(
+                    isinstance(target, ast.Attribute) and target.attr == "stage"
+                    for target in node.targets
+                )
+            ):
+                stages.add(node.value.value)
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
@@ -292,4 +319,18 @@ def test_all_user_templates_have_chinese_translations():
                 and isinstance(node.args[0], ast.Constant)
             ):
                 sources.add(node.args[0].value)
-    assert sources <= messages.keys()
+    commands = re.compile(r"(?<![\w/])/[a-z][a-z_]*\b")
+    verbs = re.compile(r"/(?:user|follow|dump|target|account) +[a-z_]+\b")
+    for catalog in CATALOGS.values():
+        messages = catalog["messages"]
+        assert sources | stages <= messages.keys()
+        assert all(
+            isinstance(value, str) and value for value in messages.values()
+        )
+        for template in (HELP, ADMIN_HELP, USER_HELP):
+            assert Counter(commands.findall(template)) == Counter(
+                commands.findall(messages[template])
+            )
+            assert Counter(verbs.findall(template)) == Counter(
+                verbs.findall(messages[template])
+            )

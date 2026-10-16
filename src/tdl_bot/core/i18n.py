@@ -16,13 +16,28 @@ _language = ContextVar("language", default=DEFAULT_LANGUAGE)
 
 
 def _fields(text):
-    return {field for _, field, _, _ in Formatter().parse(text) if field}
+    return {
+        (field, specification, conversion)
+        for _, field, specification, conversion in Formatter().parse(text)
+        if field
+    }
+
+
+def _unique_entries(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate locale entry: {key}")
+        result[key] = value
+    return result
 
 
 def _load_catalogs():
     catalogs = {}
     for path in sorted((Path(__file__).parents[1] / "locales").glob("*.json")):
-        catalog = json.loads(path.read_text(encoding="utf-8"))
+        catalog = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_unique_entries
+        )
         for source, translated in catalog["messages"].items():
             if _fields(source) != _fields(translated):
                 raise ValueError(
@@ -76,7 +91,8 @@ def render(value):
 def tr(message: str, **values) -> str:
     """Translate a template before interpolating user-controlled values."""
     catalog = CATALOGS.get(current_language(), {}).get("messages", {})
-    template = catalog.get(message, message)
+    default = CATALOGS[DEFAULT_LANGUAGE]["messages"].get(message, message)
+    template = catalog.get(message, default)
     text = template.format(**values) if values else template
     return Translation(text, message, values)
 

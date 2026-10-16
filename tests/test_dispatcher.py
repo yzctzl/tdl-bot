@@ -209,7 +209,10 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     await j.send("/user unknown", user=1)
     assert "Unknown user operation" in j.transport.last().text
     await j.send("/user add", user=1)
-    assert "/user add requires 1 arguments" in j.transport.last().text
+    assert (
+        "Incorrect arguments for /user add (expected: 1)"
+        in j.transport.last().text
+    )
     await j.send("/user@test_bot add 3", user=1)
     assert j.service.policy.is_allowed(3)
     await j.send("/user ban 3 1d")
@@ -243,7 +246,7 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
     await j.send("/target bot")
     await j.send("https://t.me/example/10")
     queued = j.transport.last()
-    assert queued.text == "1/5 Download task queued."
+    assert queued.text == "1/5 Task queued."
     assert queued.reply_parameters.message_id is not None
     job = j.service.jobs(2)[0]
     await j.send("/jobs")
@@ -270,7 +273,7 @@ async def test_url_progress_and_queued_cancellation_through_dispatcher(journey):
         "5/5",
     ]
     assert updates[0].text == "2/5 Locating media group."
-    assert updates[-1].text == "5/5 Complete: sent 1 media files with captions."
+    assert updates[-1].text == "5/5 Complete: media and captions sent (1)."
     assert updates[-1].reply_markup is None
     assert j.store.saved_results([next_job.url], "shared")
     assert not list(j.service.jobs_dir.iterdir())
