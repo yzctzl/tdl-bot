@@ -53,15 +53,18 @@ workspace/
 From anywhere, select a configuration explicitly:
 
 ```sh
-tdl-bot login --env-file /path/to/workspace/.env
-tdl-bot run --env-file /path/to/workspace/.env
-tdl-bot reload --env-file /path/to/workspace/.env
-tdl-bot stop --env-file /path/to/workspace/.env
+tdl-bot login -e /path/to/workspace/.env
+tdl-bot run -e /path/to/workspace/.env
+tdl-bot reload -e /path/to/workspace/.env
+tdl-bot stop -e /path/to/workspace/.env
 ```
 
 Use `tdl-bot help` to list commands and `tdl-bot help login` (or
 `tdl-bot login --help`) for command options. Login options `--namespace` and
 `--login-method` belong after `login`; `--directory` belongs after `setup`.
+Short options are `-e` (env file), `-d` (workspace), `-n` (namespace), and
+`-m` (login method). `setup` defaults to the current directory; `login`
+defaults to QR sign-in. Long options remain supported.
 `--env-file` works before or after runtime commands. Running without a command
 still starts the Bot.
 
@@ -122,7 +125,7 @@ docker compose logs -f bot
 Login automatically installs a missing tdl into the mapped binary directory
 using the existing checksum/version verification. Interactive QR/code login
 uses the same mounted session directory as the service. For another namespace,
-stop the service and run `docker compose run --rm bot login --namespace personal`.
+stop the service and run `docker compose run --rm bot login -n personal`.
 
 The Compose file maps:
 
@@ -185,7 +188,7 @@ Until a PyPI release is published, install directly from GitHub:
 
 ```sh
 uv tool install --python 3.12 git+https://github.com/yzctzl/tdl-bot.git
-tdl-bot setup --directory /path/to/workspace
+tdl-bot setup -d /path/to/workspace
 ```
 
 Edit the generated `.env`, then use the explicit `--env-file` commands above, or
@@ -196,9 +199,9 @@ inside uv's tool environment or cache.
 Package upgrades and dependency replacement use a graceful stop/start:
 
 ```sh
-tdl-bot stop --env-file /path/to/workspace/.env
+tdl-bot stop -e /path/to/workspace/.env
 uv tool upgrade tdl-bot
-tdl-bot run --env-file /path/to/workspace/.env
+tdl-bot run -e /path/to/workspace/.env
 ```
 
 A package upgrade does not automatically switch a running Python process.
@@ -217,7 +220,7 @@ built-wheel tool install outside the checkout.
 git clone https://github.com/yzctzl/tdl-bot.git
 cd tdl-bot
 uv sync --locked --python 3.12
-uv run tdl-bot setup --directory .
+uv run tdl-bot setup
 # Edit .env with paths, BOT_TOKEN, and ADMIN_USER_IDS.
 uv run tdl-bot login
 uv run tdl-bot run

@@ -341,6 +341,7 @@ def parse_arguments(argv=None):
     """Scope options to commands while retaining the default run shortcut."""
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
+        "-e",
         "--env-file",
         type=Path,
         default=argparse.SUPPRESS,
@@ -379,10 +380,17 @@ def parse_arguments(argv=None):
             parents=[] if name in {"setup", "help"} else [common],
         )
     pages["setup"].add_argument(
-        "--directory", type=Path, required=True, help="Workspace to initialize"
+        "-d",
+        "--directory",
+        type=Path,
+        default=Path("."),
+        help="Workspace to initialize (default: current directory)",
     )
-    pages["login"].add_argument("--namespace", help="Namespace to sign in to")
     pages["login"].add_argument(
+        "-n", "--namespace", help="Namespace to sign in to"
+    )
+    pages["login"].add_argument(
+        "-m",
         "--login-method",
         choices=["qr", "code", "desktop"],
         default="qr",

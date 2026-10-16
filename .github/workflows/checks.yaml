@@ -37,7 +37,7 @@ jobs:
           export UV_TOOL_BIN_DIR="$RUNNER_TEMP/tool-bin"
           uv tool install --python 3.12 dist/*.whl
           cd "$RUNNER_TEMP"
-          "$UV_TOOL_BIN_DIR/tdl-bot" setup --directory workspace
+          "$UV_TOOL_BIN_DIR/tdl-bot" setup -d workspace
           test -f workspace/.env
           test -d workspace/data/tdl
           test -d workspace/bin

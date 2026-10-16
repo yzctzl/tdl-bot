@@ -176,8 +176,12 @@ def test_login_uses_project_storage_without_requiring_an_existing_namespace(
 
 def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
     config = tmp_path / ".env"
-    args = cli.parse_arguments(["setup", "--directory", str(tmp_path)])[1]
-    assert args.command == "setup" and args.directory == tmp_path
+    assert cli.parse_arguments(["setup"])[1].directory == cli.Path(".")
+    for option in ("-d", "--directory"):
+        args = cli.parse_arguments(["setup", option, str(tmp_path)])[1]
+        assert args.command == "setup" and args.directory == tmp_path
+    args = cli.parse_arguments(["login", "-n", "personal", "-m", "code"])[1]
+    assert args.namespace == "personal" and args.login_method == "code"
     for argv in (
         [],
         ["run"],
@@ -189,6 +193,9 @@ def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
         ["--env-file", str(config)],
         ["--env-file", str(config), "login"],
         ["login", "--env-file", str(config)],
+        ["-e", str(config)],
+        ["-e", str(config), "login"],
+        ["login", "-e", str(config)],
     ):
         assert cli.parse_arguments(argv)[1].env_file == config
     for argv in (
@@ -196,7 +203,6 @@ def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
         ["run", "--login-method", "code"],
         ["--namespace", "personal", "login"],
         ["login", "--directory", str(tmp_path)],
-        ["setup"],
         ["init"],
         ["help", "unknown"],
     ):

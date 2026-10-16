@@ -44,7 +44,8 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 - Docker 支持容器内 `docker compose exec bot tdl-bot reload`，当前任务继续。
 - **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
 - `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
-- 新工作目录可用 `tdl-bot setup --directory <目录>` 初始化；源码运行加 `uv run` 前缀。
+- 在当前目录运行 `tdl-bot setup` 即可初始化；其他目录用 `setup -d <目录>`。源码运行加 `uv run` 前缀。
+- 常用短选项：`-e` 配置文件、`-d` 工作目录、`-n` 登录 namespace、`-m` 登录方式；长选项仍支持。
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
 仓库包含 Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
@@ -70,8 +71,8 @@ uv run tdl-bot login
 验证码登录或导入 Telegram Desktop 会话可分别使用：
 
 ```bash
-uv run tdl-bot login --login-method code
-uv run tdl-bot login --login-method desktop
+uv run tdl-bot login -m code
+uv run tdl-bot login -m desktop
 ```
 
 登录成功会显示账号 UID。编辑 `.env`，填写 `BOT_TOKEN` 和
@@ -193,7 +194,7 @@ Add another account in a distinct namespace while the service is stopped:
 
 ```sh
 uv run tdl-bot stop
-uv run tdl-bot login --namespace personal
+uv run tdl-bot login -n personal
 uv run tdl-bot
 ```
 
