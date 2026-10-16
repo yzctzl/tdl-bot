@@ -285,6 +285,7 @@ async def test_supervisor_reloads_only_on_explicit_request(
     )
 
     async def drain():
+        assert not (tmp_path / "frontend.pid").exists()
         assert children[-1].poll() is not None
         assert unrelated.poll() is None
 

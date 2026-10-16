@@ -623,6 +623,15 @@ def main() -> None:
                         settings.tdl_dir / f".bot-{settings.tdl_namespace}.lock"
                     )
                 )
+            # A delayed engine must belong to the supervisor that launched it.
+            supervisor_pid = os.environ.get("TDL_BOT_SUPERVISOR_PID")
+            if args.command == "engine" and supervisor_pid is not None:
+                try:
+                    current = (runtime_dir / "frontend.pid").read_text()
+                except FileNotFoundError:
+                    return
+                if current != supervisor_pid:
+                    return
             if args.command == "login":
                 asyncio.run(
                     run(settings, args.command, login_method=args.login_method)

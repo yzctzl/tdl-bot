@@ -71,6 +71,7 @@ def test_workspace_paths_reload_without_exporting_configuration(
     assert not list(tmp_path.glob("*.sqlite3"))
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix engine RPC transport")
 async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
     tmp_path,
 ):
@@ -176,3 +177,58 @@ if hasattr(time, 'tzset'):
         timeout=20,
     )
     assert result.returncode == 0, result.stderr.decode()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix supervisor lifecycle")
+@pytest.mark.parametrize("replacement", [False, True])
+async def test_late_engine_does_not_start_after_container_drain(
+    tmp_path, replacement
+):
+    import asyncio
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+
+    from tdl_bot.runtime.container import drain_engine
+
+    (tmp_path / "frontend.pid").write_text("123")
+    script = """
+import sys, time
+from pathlib import Path
+from tdl_bot.core.config import Settings
+from tdl_bot.runtime import cli
+root = Path(sys.argv[1])
+settings = Settings('99:TEST', 0, '', frozenset(), frozenset(), root,
+                    root / 'tdl', session_source='telethon')
+cli.Settings.from_env = lambda **kwargs: settings
+async def run(*args):
+    (root / 'started').touch()
+cli.run = run
+sys.argv = ['tdl-bot', 'engine']
+(root / 'ready').touch()
+while not (root / 'release').exists():
+    time.sleep(0.01)
+cli.main()
+"""
+    process = await asyncio.to_thread(
+        subprocess.Popen,
+        [sys.executable, "-c", script, str(tmp_path)],
+        env={**os.environ, "TDL_BOT_SUPERVISOR_PID": "123"},
+    )
+    try:
+        async with asyncio.timeout(10):
+            while not (tmp_path / "ready").exists():
+                assert process.poll() is None
+                await asyncio.sleep(0.01)
+        # Shutdown can see an idle lease before a spawned child reaches main().
+        (tmp_path / "frontend.pid").unlink()
+        await drain_engine(SimpleNamespace(data_dir=tmp_path))
+        if replacement:
+            (tmp_path / "frontend.pid").write_text("456")
+        (tmp_path / "release").touch()
+        assert await asyncio.to_thread(process.wait, timeout=10) == 0
+        assert not (tmp_path / "started").exists()
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        await asyncio.to_thread(process.wait, timeout=10)

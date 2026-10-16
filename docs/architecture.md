@@ -249,3 +249,9 @@ Linux/macOS and containers keep the resident engine and hot reload unchanged.
 Shutdown ordering keeps startup and cleanup separate: Windows monitors stop
 requests while command menus register, cancels unfinished registration, and
 finishes any permission-revocation cleanup before draining accepted commands.
+
+On Unix, frontends pass their supervisor PID to spawned engines. Shutdown
+removes the supervisor PID file before draining; a delayed engine checks that
+its launching supervisor still matches after acquiring the instance lease.
+This prevents an engine from starting after the shutdown idle check, including
+when a replacement supervisor has already started.

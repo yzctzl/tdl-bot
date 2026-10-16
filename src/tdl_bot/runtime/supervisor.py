@@ -32,7 +32,11 @@ async def supervise(data_dir: Path, *, shutdown=None):
     try:
         while not stopping.is_set():
             restart.clear()
-            child = spawn_process("frontend", start_new_session=True)
+            child = spawn_process(
+                "frontend",
+                start_new_session=True,
+                env={**os.environ, "TDL_BOT_SUPERVISOR_PID": str(os.getpid())},
+            )
             waiter = asyncio.create_task(asyncio.to_thread(child.wait))
             controls = [
                 asyncio.create_task(event.wait())
@@ -55,11 +59,12 @@ async def supervise(data_dir: Path, *, shutdown=None):
                 await asyncio.sleep(0.5 if restart.is_set() else 3)
     finally:
         try:
+            # Withdraw launch permission before checking engine activity.
+            pid_file.unlink(missing_ok=True)
             if child is not None and waiter is not None:
                 await _stop_child(child, waiter)
             if shutdown is not None:
                 await shutdown()
         finally:
-            pid_file.unlink(missing_ok=True)
             for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
                 loop.remove_signal_handler(sig)
