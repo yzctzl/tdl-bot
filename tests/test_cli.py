@@ -172,3 +172,50 @@ def test_login_uses_project_storage_without_requiring_an_existing_namespace(
         assert configured.tdl_dir == settings.tdl_dir
         assert settings.tdl_namespace == "default"
         assert run.call_args.kwargs == {"login_method": "code"}
+
+
+def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
+    config = tmp_path / ".env"
+    for argv in (
+        [],
+        ["run"],
+        ["--no-reload"],
+        ["run", "--no-reload"],
+    ):
+        assert cli.parse_arguments(argv)[1].command == "run"
+    for argv in (
+        ["--env-file", str(config)],
+        ["--env-file", str(config), "login"],
+        ["login", "--env-file", str(config)],
+    ):
+        assert cli.parse_arguments(argv)[1].env_file == config
+    for argv in (
+        ["run", "--namespace", "personal"],
+        ["run", "--login-method", "code"],
+        ["--namespace", "personal", "login"],
+        ["login", "--directory", str(tmp_path)],
+        ["init"],
+        ["help", "unknown"],
+    ):
+        with pytest.raises(SystemExit) as error:
+            cli.parse_arguments(argv)
+        assert error.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_help_exits_without_loading_configuration(monkeypatch, capsys):
+    configure = Mock(side_effect=AssertionError("Help must work before setup"))
+    monkeypatch.setattr(cli.Settings, "from_env", configure)
+    for argv, expected in (
+        (["help"], "commands:"),
+        (["--help"], "commands:"),
+        (["help", "login"], "--namespace"),
+        (["login", "--help"], "--login-method"),
+        (["help", "init"], "--directory"),
+    ):
+        monkeypatch.setattr("sys.argv", ["tdl-bot", *argv])
+        with pytest.raises(SystemExit) as error:
+            cli.main()
+        assert error.value.code == 0
+        assert expected in capsys.readouterr().out
+    configure.assert_not_called()

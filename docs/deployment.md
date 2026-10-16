@@ -53,11 +53,17 @@ workspace/
 From anywhere, select a configuration explicitly:
 
 ```sh
-tdl-bot --env-file /path/to/workspace/.env login
-tdl-bot --env-file /path/to/workspace/.env run
-tdl-bot --env-file /path/to/workspace/.env reload
-tdl-bot --env-file /path/to/workspace/.env stop
+tdl-bot login --env-file /path/to/workspace/.env
+tdl-bot run --env-file /path/to/workspace/.env
+tdl-bot reload --env-file /path/to/workspace/.env
+tdl-bot stop --env-file /path/to/workspace/.env
 ```
+
+Use `tdl-bot help` to list commands and `tdl-bot help login` (or
+`tdl-bot login --help`) for command options. Login options `--namespace` and
+`--login-method` belong after `login`; `--directory` belongs after `init`.
+`--env-file` works before or after runtime commands. Running without a command
+still starts the Bot.
 
 `TDL_BOT_ENV_FILE` is an alternative to `--env-file`. Otherwise the CLI uses
 `.env` in the current directory. All spawned processes inherit the resolved
@@ -190,9 +196,9 @@ inside uv's tool environment or cache.
 Package upgrades and dependency replacement use a graceful stop/start:
 
 ```sh
-tdl-bot --env-file /path/to/workspace/.env stop
+tdl-bot stop --env-file /path/to/workspace/.env
 uv tool upgrade tdl-bot
-tdl-bot --env-file /path/to/workspace/.env run
+tdl-bot run --env-file /path/to/workspace/.env
 ```
 
 A package upgrade does not automatically switch a running Python process.

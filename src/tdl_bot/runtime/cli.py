@@ -337,50 +337,75 @@ async def _health(settings):
         raise UserError(tr("The task engine is unavailable.")) from exc
 
 
-def main() -> None:
-    """Parse the CLI and hold cross-process locks for the runtime."""
-    parser = argparse.ArgumentParser(description="tdl Telegram media-group Bot")
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=[
-            "run",
-            "login",
-            "engine",
-            "frontend",
-            "reload",
-            "stop",
-            "init",
-            "container",
-            "health",
-        ],
-        default="run",
+def parse_arguments(argv=None):
+    """Scope options to commands while retaining the default run shortcut."""
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--env-file",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Path to the workspace .env",
     )
-    parser.add_argument(
-        "--env-file", type=Path, help="Path to the workspace .env"
+    parser = argparse.ArgumentParser(
+        description="tdl Telegram media-group Bot",
+        parents=[common],
+        epilog="Run without a command to start the Bot. Use 'help <command>' "
+        "for command options.",
     )
+    parser.set_defaults(namespace=None, login_method="qr")
+    # Keep the old no-op flag out of help; reloads are always manual.
     parser.add_argument(
-        "--directory", type=Path, help="Workspace to initialize"
+        "--no-reload", action="store_true", help=argparse.SUPPRESS
     )
-    parser.add_argument(
-        "--no-reload",
-        action="store_true",
-        help=tr("Legacy option; reloads are now manual by default"),
+    commands = parser.add_subparsers(title="commands", dest="command")
+    descriptions = {
+        "run": "Start the Bot (default); reload manually",
+        "login": "Sign in to a Telegram execution account",
+        "reload": "Restart the Bot without interrupting active transfers",
+        "stop": "Stop the Bot and drain active transfers",
+        "init": "Create a workspace and configuration template",
+        "health": "Check the Bot supervisor and task engine",
+        "container": "Run with graceful container shutdown",
+        "engine": "Run the task engine (internal)",
+        "frontend": "Run the polling frontend (internal)",
+        "help": "Show general or command-specific help",
+    }
+    pages = {}
+    for name, description in descriptions.items():
+        pages[name] = commands.add_parser(
+            name,
+            help=description,
+            description=description,
+            parents=[] if name in {"init", "help"} else [common],
+        )
+    pages["init"].add_argument(
+        "--directory", type=Path, required=True, help="Workspace to initialize"
     )
-    parser.add_argument(
-        "--namespace", help=tr("Namespace to sign in to (login only)")
-    )
-    parser.add_argument(
+    pages["login"].add_argument("--namespace", help="Namespace to sign in to")
+    pages["login"].add_argument(
         "--login-method",
         choices=["qr", "code", "desktop"],
         default="qr",
-        help=tr("Native tdl login method (default: qr)"),
+        help="Native tdl login method (default: qr)",
     )
-    args = parser.parse_args()
-    if args.directory is not None and args.command != "init":
-        parser.error("--directory is only valid with init")
-    if args.namespace and args.command != "login":
-        parser.error("--namespace is only valid with login")
+    pages["run"].add_argument(
+        "--no-reload", action="store_true", help=argparse.SUPPRESS
+    )
+    pages["help"].add_argument(
+        "topic", nargs="?", choices=descriptions, help="Command to describe"
+    )
+    args = parser.parse_args(argv)
+    args.command = args.command or "run"
+    args.env_file = getattr(args, "env_file", None)
+    if args.command == "help":
+        (pages[args.topic] if args.topic else parser).print_help()
+        parser.exit()
+    return parser, args
+
+
+def main() -> None:
+    """Parse the CLI and hold cross-process locks for the runtime."""
+    parser, args = parse_arguments()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -392,8 +417,6 @@ def main() -> None:
         if args.command == "init":
             from tdl_bot.runtime.setup import initialize
 
-            if args.directory is None:
-                parser.error("init requires --directory <workspace>")
             initialize(args.directory)
             return
         settings = Settings.from_env(
