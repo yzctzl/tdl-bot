@@ -1,6 +1,7 @@
 """Portable workspace configuration and installed CLI behavior, offline."""
 
 import os
+import platform
 
 import pytest
 
@@ -35,7 +36,9 @@ def test_workspace_paths_reload_without_exporting_configuration(
         Settings.from_env()
     settings = Settings.from_env(login_only=True)
     assert settings.data_dir == root / "data"
-    assert settings.tdl_binary == root / "bin" / binary_platform() / "tdl"
+    assert settings.tdl_binary == root / "bin" / binary_platform() / (
+        "tdl.exe" if platform.system() == "Windows" else "tdl"
+    )
     assert settings.tdl_dir == root / "data/tdl"
     assert "DATA_DIR" not in os.environ
     original = config.read_text()

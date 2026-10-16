@@ -221,3 +221,26 @@ language change during a pending operation. The RPC response retains its plain
 error field for older clients. Legacy plain-text errors stay readable; exact
 catalog messages can be translated, while already-formatted old strings with
 lost parameters cannot always be reconstructed.
+
+
+## Native Windows runtime
+
+Windows uses the same transfer services directly in the polling process, without
+Unix RPC or detached supervisors. Workspace leases use a nonblocking one-byte
+`msvcrt` lock on Windows and `flock` on Unix. Locks are released by the operating
+system on exit; control-file contents never grant ownership.
+
+A stop request file is checked by the event loop; `stop` waits for the supervisor
+lease to release after services drain and clients disconnect. Incoming commands run concurrently; an update middleware tracks accepted
+handlers so shutdown waits for them before closing shared services. A separate
+maintenance task reconciles transfer and backup permissions every 0.5 seconds,
+matching the Unix engine. The polling
+heartbeat provides a local liveness check and is removed before draining. Stale
+control files are cleared under the supervisor lease on startup. Console signals
+request cooperative shutdown; noninteractive tdl children use their own Windows
+process group so Ctrl+C does not bypass the parent's drain. Explicit job
+cancellation still terminates and reaps its child.
+
+Native Windows has no reload, engine handoff or automatic frontend restart.
+Persisted jobs and backup checkpoints retain their existing recovery behavior.
+Linux/macOS and containers keep the resident engine and hot reload unchanged.

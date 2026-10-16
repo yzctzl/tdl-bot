@@ -2,10 +2,10 @@
 
 import argparse
 import asyncio
-import fcntl
 import logging
 import os
 import signal
+import sys
 from collections.abc import Awaitable
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
@@ -34,6 +34,7 @@ from tdl_bot.integrations.telegram.client import (
 from tdl_bot.integrations.telegram.delivery import Delivery
 from tdl_bot.integrations.telegram.media import TelegramMedia
 from tdl_bot.integrations.telegram.uploads import UploadClient
+from tdl_bot.runtime import locks
 from tdl_bot.runtime.engine import (
     EngineServer,
     RemoteService,
@@ -49,16 +50,16 @@ from tdl_bot.transfers.activity import ActivityRecorder
 from tdl_bot.transfers.backups.service import BackupService
 from tdl_bot.transfers.service import TransferService
 
+WINDOWS = sys.platform == "win32"
+
 
 @contextmanager
 def instance_lock(path: Path):
     """Prevent two processes from sharing a session, binary or jobs folder."""
-    import fcntl
-
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as lock:
+    with path.open("a+b") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locks.acquire(lock)
         except BlockingIOError as exc:
             raise UserError(
                 tr(
@@ -69,7 +70,7 @@ def instance_lock(path: Path):
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            locks.release(lock)
 
 
 async def run(settings: Settings, command: str, *, login_method="qr") -> None:
@@ -258,7 +259,12 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
             service, notify=bot.send_message, workers=settings.workers
         )
         service.backups.start()
-        await EngineServer(service, settings).serve()
+        if WINDOWS:
+            from tdl_bot.runtime.windows import poll
+
+            await poll(BotApplication(bot, settings, store, tdl, service))
+        else:
+            await EngineServer(service, settings).serve()
     finally:
         try:
             if service:
@@ -282,9 +288,9 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
 
 def signal_supervisor(data_dir: Path, sig: int) -> bool:
     """Check the live supervisor lock before using its persisted PID."""
-    with (data_dir / ".supervisor.lock").open("a") as lock:
+    with (data_dir / ".supervisor.lock").open("a+b") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locks.acquire(lock)
         except BlockingIOError:
             try:
                 pid = int((data_dir / "frontend.pid").read_text())
@@ -293,7 +299,7 @@ def signal_supervisor(data_dir: Path, sig: int) -> bool:
             except (OSError, ValueError):
                 return False
         else:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            locks.release(lock)
             return False
 
 
@@ -513,6 +519,18 @@ def main() -> None:
             else:
                 initialize(args.directory)
             return
+        if WINDOWS and args.command in {
+            "reload",
+            "engine",
+            "frontend",
+            "container",
+        }:
+            raise UserError(
+                tr(
+                    "This command is unavailable on Windows. "
+                    "Use run, stop or health."
+                )
+            )
         if args.command == "reload":
             reload_instances(args.env_file, all_instances=args.all_instances)
             return
@@ -526,6 +544,11 @@ def main() -> None:
         if args.namespace:
             settings = replace(settings, tdl_namespace=args.namespace)
         settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if WINDOWS and args.command in {"stop", "health"}:
+            from tdl_bot.runtime.windows import control
+
+            control(settings, args.command)
+            return
         if args.command == "stop":
             pid_file = runtime_dir / "frontend.pid"
             if signal_supervisor(runtime_dir, signal.SIGTERM):
@@ -544,7 +567,7 @@ def main() -> None:
                 raise UserError(tr("No Bot is running."))
             asyncio.run(_health(settings))
             return
-        if args.command in {"run", "container"}:
+        if not WINDOWS and args.command in {"run", "container"}:
             from tdl_bot.runtime.instances import registered
             from tdl_bot.runtime.supervisor import supervise
 
@@ -568,6 +591,13 @@ def main() -> None:
                 asyncio.run(frontend(settings))
             return
         with ExitStack() as stack:
+            if WINDOWS and args.command == "run":
+                from tdl_bot.runtime.windows import lifetime
+
+                stack.enter_context(
+                    instance_lock(runtime_dir / ".supervisor.lock")
+                )
+                stack.enter_context(lifetime(runtime_dir))
             stack.enter_context(
                 instance_lock(settings.data_dir / ".instance.lock")
             )

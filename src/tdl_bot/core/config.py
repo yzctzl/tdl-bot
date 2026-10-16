@@ -126,7 +126,9 @@ class Settings:
             data_dir=data_dir,
             tdl_binary=path(get("TDL_BINARY"))
             if get("TDL_BINARY")
-            else path(get("BIN_DIR")) / binary_platform() / "tdl",
+            else path(get("BIN_DIR"))
+            / binary_platform()
+            / ("tdl.exe" if platform.system() == "Windows" else "tdl"),
             tdl_namespace=get("TDL_NAMESPACE", "default"),
             tdl_dir=path(get("TDL_DIR"))
             if get("TDL_DIR")

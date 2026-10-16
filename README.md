@@ -10,7 +10,7 @@
 
 ## 运行条件
 
-- Docker，或 Linux/macOS/WSL2 中的 Python 3.12+ 和 uv。
+- Docker，或 Windows/Linux/macOS 中的 Python 3.12+ 和 uv。
 - 由 @BotFather 创建的 Bot token。
 - 用户配置 `TDL_DIR` 中的 Telegram 会话，可通过下方登录命令创建。
 - tdl 可执行文件；登录命令会在缺少时下载官方发行包并校验后安装。
@@ -24,15 +24,17 @@ tdl 通过原生 clone 传输受限媒体，保留原 MIME、视频属性和预�
 
 ### Windows 兼容性
 
-当前版本不支持 Windows 原生运行。静态检查发现：启动入口和任务引擎直接
-导入 `fcntl` 并使用 `flock`；进程通信使用 asyncio Unix socket；手动热重启
-依赖 `SIGHUP` 和事件循环的 Unix 信号处理接口。这些依赖尚未提供 Windows
-替代实现；原生 Windows 入口会明确提示使用 Docker／WSL2。
+Windows 原生采用单进程运行，支持配置向导、登录、媒体搬运、dump/follow、
+取消和持久化恢复。安装与启动命令和 Linux/macOS 相同，缺少 tdl 时自动安装
+Windows 版 `tdl.exe`。
 
-tdl 更新器能选择 Windows 压缩包，并不代表整个 Bot 支持 Windows。
-Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 环境中部署，使用 Linux 版 Python、uv
-和 tdl，并将项目、会话及运行数据放在 WSL 的 Linux 文件系统内。
-本次仅做代码静态检查，未在 Windows 或 WSL 上实测。
+Windows 不支持热重载，也不会自动重启崩溃的 Bot。需要更新代码、依赖或刷新
+已登录账号时，先执行 `tdl-bot stop`，等待当前工作结束，再启动。按一次 Ctrl+C
+同样会等待正常清理；不要直接关闭终端或强制结束进程。也可继续使用 Docker／WSL2。
+
+Windows 检查已加入 CI；当前开发环境仅验证离线逻辑，尚未在 Windows 上实测
+真实 Telegram 登录和搬运。配置、会话和数据请放在当前用户可写的本地目录，
+并使用 Windows 文件权限保护；不要让不同系统同时操作同一份数据。
 
 ## 部署方式
 
@@ -40,7 +42,7 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 `.env` 必须存在，`DATA_DIR` 和 `BIN_DIR` 显式配置；原有 `TDL_BINARY` 仍兼容。
 所有相对路径均以 `.env` 所在目录为基准，程序安装与更新不改变用户数据位置。
 
-- Docker／WSL2 是 Windows 的首选入口；原生 Windows 暂不支持。
+- Windows 可原生运行；需要 Unix 热重载能力时可选择 Docker／WSL2。
 - Docker 支持容器内 `docker compose exec bot tdl-bot reload`，当前任务继续。
 - **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
 - `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
@@ -49,7 +51,7 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 - 常用短选项：`-e` 配置文件、`-d` 工作目录、`-n` 登录 namespace、`-m` 登录方式；长选项仍支持。
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
-仓库包含 Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
+仓库包含 Windows/Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
 普通提交和 PR 只运行检查；**仅推送 `vX.Y.Z` 版本 tag 才触发 Docker 构建与
 版本发布**，tag 需与 `pyproject.toml` 版本一致。成功后发布版本镜像和附带
 wheel／源码包的 GitHub Release。tag 由用户手动创建，工作流不自动打 tag。
@@ -503,6 +505,8 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
   `/update_tdl` 更新程序；外部进程直接替换或运行同一 tdl 会话不受此锁管理。
 
 ## 热重启与任务状态
+
+热重启适用于 Linux/macOS 和 Linux 容器。Windows 原生请使用 `stop` 后重新启动。
 
 ```bash
 uv run tdl-bot                 # 启动；代码修改不会触发自动重载

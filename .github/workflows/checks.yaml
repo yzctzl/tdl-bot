@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +28,20 @@ jobs:
       - run: uv run --locked ruff format --check src tests
       - run: uv run --locked ruff check src tests
       - run: uv run --locked ty check --error-on-warning
-      - run: uv run --locked pytest --basetemp=/tmp/tdl-bot-tests -q
+      - name: Test Unix runtime and application coverage
+        if: runner.os != 'Windows'
+        run: uv run --locked pytest --basetemp=/tmp/tdl-bot-tests -q
+      - name: Test native Windows lifecycle and application behavior
+        if: runner.os == 'Windows'
+        # These suites exercise Unix signals, sockets and executable shebangs.
+        # Shared behavior and native process controls run on Windows below.
+        run: >-
+          uv run --locked pytest --no-cov
+          --ignore=tests/test_cli.py --ignore=tests/test_runtime.py
+          --ignore=tests/test_tdl.py -q
       - run: uv build --no-sources
       - name: Install the built wheel as a tool and initialize an external workspace
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export UV_TOOL_DIR="$RUNNER_TEMP/tools"
@@ -42,3 +53,19 @@ jobs:
           test -d workspace/data/tdl
           test -d workspace/bin
           "$UV_TOOL_BIN_DIR/tdl-bot" --help
+      - name: Install and check the native Windows tool
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:UV_TOOL_DIR = Join-Path $env:RUNNER_TEMP "tools"
+          $env:UV_TOOL_BIN_DIR = Join-Path $env:RUNNER_TEMP "tool-bin"
+          uv tool install --python 3.12 (Get-ChildItem dist/*.whl).FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Set-Location $env:RUNNER_TEMP
+          $cli = Join-Path $env:UV_TOOL_BIN_DIR "tdl-bot.exe"
+          & $cli setup -d workspace
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($path in @("workspace/.env", "workspace/data/tdl", "workspace/bin")) {
+            if (!(Test-Path $path)) { throw "Missing workspace path: $path" }
+          }
+          & $cli help login

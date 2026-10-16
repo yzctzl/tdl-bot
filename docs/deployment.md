@@ -8,9 +8,9 @@ authorization have independent lifetimes.
 | --- | --- | --- |
 | Linux x86-64 / ARM64 | Supported deployment target | Supported |
 | macOS Intel / Apple Silicon | Linux containers through Docker Desktop | CI covers native macOS |
-| Windows | Docker Desktop in Linux-container mode, or WSL2 | Native Windows is not supported yet |
+| Windows | Docker Desktop in Linux-container mode, or WSL2 | Single-process runtime; no hot reload |
 
-The repository includes Linux/macOS checks and multi-architecture image builds.
+The repository includes Windows/Linux/macOS checks and multi-architecture image builds.
 A configured workflow is not evidence that it has already run successfully on
 GitHub; check the Actions results for the revision you deploy.
 
@@ -107,6 +107,45 @@ Before changing data, session, binary or runtime locations, stop the old instanc
 with its original configuration. Move data explicitly, edit the paths, then
 start again. An in-container reload can apply Bot settings and refresh accounts;
 it does not relocate bind mounts or change the container's environment.
+
+## Native Windows
+
+Use Python 3.12+ and uv from PowerShell. The source and `uv tool` installation
+steps below also apply on Windows. A source checkout can be configured with:
+
+```powershell
+uv sync
+uv run tdl-bot setup -i
+uv run tdl-bot
+```
+
+The managed binary is `bin/windows-<architecture>/tdl.exe`. Explicit
+`TDL_BINARY` overrides must point to a Windows executable. Login and native tdl
+transfers use the default Windows asyncio loop, which supports subprocesses.
+No Unix socket, detached engine or signal-based supervisor is used: polling and
+transfers share one process and the existing persistent database.
+
+`reload` is unavailable on native Windows. Stop before upgrading code,
+dependencies or refreshing execution accounts, then start again:
+
+```powershell
+uv run tdl-bot stop
+uv run tdl-bot
+```
+
+Use the same workspace, or pass `-e <workspace>/.env` to each command. `stop`
+requests cooperative shutdown and waits for active work and account cleanup;
+it does not forcefully terminate the process. Pressing Ctrl+C once requests the
+same drain. Keep the terminal open until shutdown finishes. Forceful termination
+or closing the terminal may interrupt writes; the existing recovery checks
+still apply. `health` checks the running instance's lock and polling heartbeat.
+It does not probe Telegram or guarantee network connectivity.
+
+There is no automatic frontend crash restart in this mode. Use a local directory
+owned by your Windows user for configuration, credentials and data. POSIX modes
+do not configure Windows ACLs; protect access using Windows file permissions.
+Do not share active workspaces across systems. Docker and WSL2 remain options
+for the Unix supervisor and manual hot reload.
 
 ## Docker Compose
 
@@ -213,7 +252,7 @@ Pulling alone does not change a running container. Use `TDL_BOT_IMAGE` to select
 an immutable `sha-<full-commit>` image instead of `latest`. Database schema changes
 may require restoring a pre-upgrade backup when rolling back to older code.
 
-## uv tool: Linux and macOS, or inside WSL2
+## uv tool: Windows, Linux and macOS
 
 Until a PyPI release is published, install directly from GitHub:
 
@@ -238,7 +277,7 @@ tdl-bot run -e /path/to/workspace/.env
 A package upgrade does not automatically switch a running Python process.
 `uv tool upgrade` may replace dependencies still needed by an old engine, so
 finish the stop before upgrading. The external workspace survives reinstalling
-or uninstalling the tool. Ordinary manual `reload` preserves active work; it is
+or uninstalling the tool. On Linux/macOS, ordinary manual `reload` preserves active work; it is
 not a guarantee that an in-place replacement of the Python environment is safe.
 
 The source project's `uv.lock` is used for source and image builds. Tool installs
@@ -262,7 +301,8 @@ or the existing `TDL_BINARY`. The existing Telegram session location is reused.
 The first upgrade to explicit configuration should use `stop` then `run`, so
 an old supervisor that exported dotenv values does not keep stale settings.
 
-Code/configuration development uses manual `uv run tdl-bot reload`. A version
+On Linux/macOS, code/configuration development uses manual `uv run tdl-bot reload`.
+Windows uses `stop` then `run`. A version
 upgrade that also changes dependencies should stop first, update the checkout,
 run `uv sync --locked`, then start. No deployment mode watches file changes.
 
@@ -270,7 +310,7 @@ run `uv sync --locked`, then start. No deployment mode watches file changes.
 
 `checks.yaml` runs on branch pushes and pull requests, and can also be called
 by the release workflow. It runs Ruff, Ty, offline tests and package checks on
-Linux/macOS, including a built-wheel uv tool install outside the checkout.
+Windows/Linux/macOS, including a built-wheel uv tool install outside the checkout.
 Ordinary commits and pull requests do not build Docker images or publish releases.
 
 `container.yaml` triggers **only when a `vX.Y.Z` Git tag is pushed**. It validates
@@ -300,5 +340,7 @@ repository contents writes for the release job. Public pull access may require
 making the GHCR package public once in GitHub's package settings. Forks should
 set `TDL_BOT_IMAGE` to their own GHCR image.
 
-Real Telegram transfers are not part of CI. Native Windows runtime support
-remains a separate future change.
+Real Telegram transfers are not part of CI. Windows runs offline application
+and native lifecycle tests; Unix-only signal/socket/shebang suites run on Linux
+and macOS with the coverage threshold. A successful Windows CI run is still
+required; local Linux checks do not establish real Windows Telegram behavior.

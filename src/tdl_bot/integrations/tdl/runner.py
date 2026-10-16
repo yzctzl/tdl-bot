@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -237,6 +238,12 @@ class Tdl:
                     stderr=asyncio.subprocess.STDOUT,
                     stdin=asyncio.subprocess.DEVNULL,
                     env=environment,
+                    # Keep console Ctrl+C in the Bot; accepted jobs drain there.
+                    **(
+                        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                        if os.name == "nt"
+                        else {}
+                    ),
                 )
             except OSError as exc:
                 raise UserError(

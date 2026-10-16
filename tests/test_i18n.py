@@ -2,6 +2,7 @@
 
 import ast
 import asyncio
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -260,6 +261,7 @@ def test_catalog_changes_are_detected_for_manual_reload(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("unexpected", [False, True])
+@pytest.mark.skipif(os.name == "nt", reason="Unix RPC transport")
 async def test_rpc_errors_preserve_request_language(
     tmp_path, monkeypatch, unexpected
 ):

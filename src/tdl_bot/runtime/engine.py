@@ -1,7 +1,6 @@
 """Private local RPC separates Bot polling from durable transfer lifetimes."""
 
 import asyncio
-import fcntl
 import hashlib
 import json
 import logging
@@ -22,6 +21,7 @@ from tdl_bot.core.i18n import (
     tr,
     use_language,
 )
+from tdl_bot.runtime import locks
 from tdl_bot.storage.models import Target
 from tdl_bot.storage.store import Store
 from tdl_bot.transfers.accounts import AccessPolicy
@@ -85,14 +85,7 @@ async def ensure_engine(settings):
             pass
         # Wait for an old generation to release its session locks before
         # launching the replacement. Never unlink its live socket here.
-        busy = False
-        with (settings.data_dir / ".instance.lock").open("a") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                busy = True
-            else:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+        busy = locks.busy(settings.data_dir / ".instance.lock")
         if process is not None and process.poll() is not None and not busy:
             raise UserError(
                 tr("Task engine failed to start. Check data/engine.log.")

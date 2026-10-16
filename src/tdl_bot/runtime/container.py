@@ -1,21 +1,15 @@
 """Drain the detached engine before the container's main process exits."""
 
 import asyncio
-import fcntl
 import logging
 
 from tdl_bot.core.config import runtime_directory
 from tdl_bot.runtime.engine import exchange
+from tdl_bot.runtime.locks import busy
 
 
 def engine_busy(settings):
-    with (settings.data_dir / ".instance.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        return False
+    return busy(settings.data_dir / ".instance.lock")
 
 
 async def drain_engine(settings):
