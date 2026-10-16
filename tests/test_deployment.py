@@ -130,3 +130,25 @@ async def test_container_drain_waits_for_engine_and_coalesces_shutdowns(
         for task in [running, *drains]:
             task.cancel()
         await asyncio.gather(running, *drains, return_exceptions=True)
+
+
+def test_activity_and_member_times_without_system_timezone_data():
+    import subprocess
+    import sys
+
+    script = """
+from tdl_bot.bot.members import MemberCommands
+from tdl_bot.transfers.activity import activity_line
+expected = '1970-01-01 09:00 JST'
+assert MemberCommands._deadline(0) == expected
+assert expected in activity_line(
+    {'created': 0, 'kind': 'media', 'url': 'https://t.me/example/1'}, '@example'
+)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONTZPATH": ""},
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr.decode()
