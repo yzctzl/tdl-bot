@@ -363,7 +363,7 @@ def parse_arguments(argv=None):
         "login": "Sign in to a Telegram execution account",
         "reload": "Restart the Bot without interrupting active transfers",
         "stop": "Stop the Bot and drain active transfers",
-        "init": "Create a workspace and configuration template",
+        "setup": "Create a workspace and configuration template",
         "health": "Check the Bot supervisor and task engine",
         "container": "Run with graceful container shutdown",
         "engine": "Run the task engine (internal)",
@@ -376,9 +376,9 @@ def parse_arguments(argv=None):
             name,
             help=description,
             description=description,
-            parents=[] if name in {"init", "help"} else [common],
+            parents=[] if name in {"setup", "help"} else [common],
         )
-    pages["init"].add_argument(
+    pages["setup"].add_argument(
         "--directory", type=Path, required=True, help="Workspace to initialize"
     )
     pages["login"].add_argument("--namespace", help="Namespace to sign in to")
@@ -414,7 +414,7 @@ def main() -> None:
     # Newly created tokens, sessions and downloads are owner-only.
     os.umask(0o077)
     try:
-        if args.command == "init":
+        if args.command == "setup":
             from tdl_bot.runtime.setup import initialize
 
             initialize(args.directory)

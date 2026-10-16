@@ -67,7 +67,7 @@ jobs:
       - name: Check the packaged CLI without Telegram credentials
         run: |
           docker run --rm tdl-bot:check --help
-          docker run --rm tdl-bot:check init --directory /tmp/workspace
+          docker run --rm tdl-bot:check setup --directory /tmp/workspace
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io

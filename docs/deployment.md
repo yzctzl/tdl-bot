@@ -61,14 +61,14 @@ tdl-bot stop --env-file /path/to/workspace/.env
 
 Use `tdl-bot help` to list commands and `tdl-bot help login` (or
 `tdl-bot login --help`) for command options. Login options `--namespace` and
-`--login-method` belong after `login`; `--directory` belongs after `init`.
+`--login-method` belong after `login`; `--directory` belongs after `setup`.
 `--env-file` works before or after runtime commands. Running without a command
 still starts the Bot.
 
 `TDL_BOT_ENV_FILE` is an alternative to `--env-file`. Otherwise the CLI uses
 `.env` in the current directory. All spawned processes inherit the resolved
 configuration filename. Use the same workspace for login, run, reload and stop.
-`init` never replaces an existing `.env`.
+`setup` never replaces an existing `.env`.
 
 Before changing data, session, binary or runtime locations, stop the old instance
 with its original configuration. Move data explicitly, edit the paths, then
@@ -185,7 +185,7 @@ Until a PyPI release is published, install directly from GitHub:
 
 ```sh
 uv tool install --python 3.12 git+https://github.com/yzctzl/tdl-bot.git
-tdl-bot init --directory /path/to/workspace
+tdl-bot setup --directory /path/to/workspace
 ```
 
 Edit the generated `.env`, then use the explicit `--env-file` commands above, or
@@ -217,13 +217,13 @@ built-wheel tool install outside the checkout.
 git clone https://github.com/yzctzl/tdl-bot.git
 cd tdl-bot
 uv sync --locked --python 3.12
-uv run tdl-bot init --directory .
+uv run tdl-bot setup --directory .
 # Edit .env with paths, BOT_TOKEN, and ADMIN_USER_IDS.
 uv run tdl-bot login
 uv run tdl-bot run
 ```
 
-For an existing `.env`, skip `init` and keep explicit `DATA_DIR` plus `BIN_DIR`
+For an existing `.env`, skip `setup` and keep explicit `DATA_DIR` plus `BIN_DIR`
 or the existing `TDL_BINARY`. The existing Telegram session location is reused.
 The first upgrade to explicit configuration should use `stop` then `run`, so
 an old supervisor that exported dotenv values does not keep stale settings.

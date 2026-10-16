@@ -176,6 +176,8 @@ def test_login_uses_project_storage_without_requiring_an_existing_namespace(
 
 def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
     config = tmp_path / ".env"
+    args = cli.parse_arguments(["setup", "--directory", str(tmp_path)])[1]
+    assert args.command == "setup" and args.directory == tmp_path
     for argv in (
         [],
         ["run"],
@@ -194,6 +196,7 @@ def test_subcommands_scope_options_and_preserve_default_run(tmp_path, capsys):
         ["run", "--login-method", "code"],
         ["--namespace", "personal", "login"],
         ["login", "--directory", str(tmp_path)],
+        ["setup"],
         ["init"],
         ["help", "unknown"],
     ):
@@ -211,7 +214,7 @@ def test_help_exits_without_loading_configuration(monkeypatch, capsys):
         (["--help"], "commands:"),
         (["help", "login"], "--namespace"),
         (["login", "--help"], "--login-method"),
-        (["help", "init"], "--directory"),
+        (["help", "setup"], "--directory"),
     ):
         monkeypatch.setattr("sys.argv", ["tdl-bot", *argv])
         with pytest.raises(SystemExit) as error:

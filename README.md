@@ -44,7 +44,7 @@ Windows 用户可使用 Docker Desktop 的 Linux 容器，或在 WSL2 的 Linux 
 - Docker 支持容器内 `docker compose exec bot tdl-bot reload`，当前任务继续。
 - **更换 Docker 镜像属于排空后的重启，不支持跨容器热升级。**
 - `uv tool` 升级依赖前同样先 `stop`，升级后 `run`；普通 `reload` 保留进行中的工作。
-- 新工作目录可用 `tdl-bot init --directory <目录>` 初始化；源码运行加 `uv run` 前缀。
+- 新工作目录可用 `tdl-bot setup --directory <目录>` 初始化；源码运行加 `uv run` 前缀。
 
 完整的三平台安装、目录映射、配置与升级流程见 [部署指南](docs/deployment.md)。
 仓库包含 Linux/macOS 检查与 `linux/amd64`、`linux/arm64` GHCR 构建流程；
