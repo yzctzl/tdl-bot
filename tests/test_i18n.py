@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tdl_bot.bot.application import BotApplication
-from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP
+from tdl_bot.bot.commands import ADMIN_HELP, COMMANDS, HELP, USER_HELP
 from tdl_bot.bot.progress import ProgressMessages
 from tdl_bot.core.errors import UserError
 from tdl_bot.core.i18n import (
@@ -281,7 +281,7 @@ async def test_rpc_errors_preserve_request_language(
 
 def test_all_user_templates_have_chinese_translations():
     messages = CATALOGS["zh"]["messages"]
-    sources = {HELP, ADMIN_HELP, *(row[2] for row in COMMANDS)}
+    sources = {HELP, ADMIN_HELP, USER_HELP, *(row[2] for row in COMMANDS)}
     for path in Path("src/tdl_bot").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if (

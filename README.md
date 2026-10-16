@@ -66,7 +66,7 @@ TDL_NAMESPACE=default
 ```
 
 `ADMIN_USER_IDS` 必须显式填写，使用 Telegram 用户 UID，以逗号分隔。
-首次启动仅初始化这些管理员；普通成员由管理员使用 `/user_add` 添加。
+首次启动仅初始化这些管理员；普通成员由管理员使用 `/user add` 添加。
 `ALLOWED_USER_IDS` 已移除，不再作为初始化或授权来源。完成配置后启动：
 
 ```bash
@@ -236,10 +236,10 @@ intentionally send that history again.
 
 Ordinary members may have up to nine follows by default. Active and paused
 follows both count; cancellation releases a slot. Administrators can set a
-per-member limit with `/user_follow_limit <UID|@username> <0-1000>` (0 prevents
+per-member limit with `/user follow_limit <UID|@username> <0-1000>` (0 prevents
 new follows and resumes). Lowering a limit preserves existing tasks, while new
-follows and resumes must fit the new limit. `/users` shows usage and limits;
-`/follow` shows the caller's quota. Changes persist and appear in `/user_history`.
+follows and resumes must fit the new limit. `/user list` shows usage and limits;
+`/follow` shows the caller's quota. Changes persist and appear in `/user history`.
 Administrators have no count limit and can manage other members' tasks. A task retains its original
 execution account and targets; later `/account`, `/target` or `/storage` changes
 apply to new tasks. Removing access or banning the owner pauses affected work.
@@ -386,13 +386,15 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 | `/join <群主页或邀请 url> [编号]` | 使用失败任务的原执行账号入群并重试 |
 | `/retry [编号]` | 使用失败任务的原目标、范围和执行账号重试 |
 | `/update_tdl [latest\|v0.20.4]` | 管理员检查版本，按需更新 tdl |
-| `/users [页码]` | 管理员查看成员角色和封禁状态 |
-| `/user_add <账号 ID>` | 添加普通账号 |
-| `/user_remove <账号 ID>` | 删除账号并取消它提交的活动任务 |
-| `/user_ban <账号 ID> <1d\|1w\|1m>` | 封禁一天、一周或 30 天并取消活动任务 |
-| `/user_unban <账号 ID>` | 提前解除封禁 |
-| `/user_role <账号 ID> <user\|admin>` | 设置普通账号／管理员角色 |
-| `/user_history <账号 ID>` | 查看最近十次账号管理操作 |
+| `/user` | 显示用户管理子命令用法（仅管理员） |
+| `/user list [页码]` | 管理员查看成员角色和封禁状态 |
+| `/user add <账号 ID>` | 添加普通账号 |
+| `/user remove <账号 ID>` | 删除账号并取消它提交的活动任务 |
+| `/user ban <账号 ID> <1d\|1w\|1m>` | 封禁一天、一周或 30 天并取消活动任务 |
+| `/user unban <账号 ID>` | 提前解除封禁 |
+| `/user role <账号 ID> <user\|admin>` | 设置普通账号／管理员角色 |
+| `/user history <账号 ID>` | 查看最近十次账号管理操作 |
+| `/user follow_limit <UID或@用户名> <0-1000>` | 设置普通用户的 follow 数量上限 |
 
 支持公开消息、`/c/` 私密消息、forum topic、`/s/` 预览 url、`?thread=` 和
 `?comment=` 讨论群评论 url；forum url 使用最后一段消息 ID。仅发送一个 url
@@ -427,13 +429,13 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 管理员可以直接添加、删除、封禁、解封和调整角色，无需修改 `.env` 或重启：
 
 ```text
-/user_add <账号 ID>
-/user_ban <账号 ID> 1d
-/user_ban <账号 ID> 1w
-/user_ban <账号 ID> 1m
-/user_unban <账号 ID>
-/user_role <账号 ID> admin
-/user_remove <账号 ID>
+/user add <账号 ID>
+/user ban <账号 ID> 1d
+/user ban <账号 ID> 1w
+/user ban <账号 ID> 1m
+/user unban <账号 ID>
+/user role <账号 ID> admin
+/user remove <账号 ID>
 ```
 
 `1m` 固定为 30 天。封禁期限以 UTC 时间戳持久化，到期无需定时任务或重启
@@ -442,7 +444,7 @@ Bot 会验证用户的成员身份与自己的权限，接收位置只允许本�
 已经完成的上传不会撤回。删除成员不删除服务器上的 tdl 登录会话、历史个人
 目标或待重试记录，管理员仍可查看／处理这些记录。
 
-添加、删除、封禁、解封和角色改变记录到数据库，可用 `/user_history` 查看。
+添加、删除、封禁、解封和角色改变记录到数据库，可用 `/user history` 查看。
 系统拒绝封禁、删除或降级最后一个有效管理员；也拒绝在 Bot 内封禁／删除
 管理员自己的账号。权限在每次操作时重新检查，旧按钮和旧菜单不会绕过封禁。
 入群不能绕过封禁、历史不可见或消息已删除的限制。
@@ -587,11 +589,11 @@ ty 固定在开发依赖中，编辑器可使用 `ty.importStrategy = "fromEnvir
 
 用户名、目标查询和媒体复用：
 
-- 用户管理命令接受 UID 或 `@用户名`，例如 `/user_add @example`、
-  `/user_ban @example 1d`、`/user_role @example user`。
+- 用户管理命令接受 UID 或 `@用户名`，例如 `/user add @example`、
+  `/user ban @example 1d`、`/user role @example user`。
   用户名通过共享执行账号实时解析；频道、群和 Bot 不能作为成员。
   权限始终绑定 UID，用户名变更不会转移权限。没有用户名的账号仍使用 UID。
-- `/users` 显示用户名（未知时显示姓名或提示）、UID 和当前目标；
+- `/user list` 显示用户名（未知时显示姓名或提示）、UID 和当前目标；
   管理操作反馈也包含账号身份。成员与 Bot 交互时会更新身份资料。
 - `/status` 将接收位置显示为可点击的 Bot、频道或群链接，不透露内部存储。
   未配置话题时不显示“默认话题”；配置论坛群分区时显示指定话题并链接到它。

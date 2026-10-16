@@ -1,5 +1,6 @@
 """Members commands and their related validation."""
 
+from dataclasses import replace
 from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from aiogram.types import (
 )
 from telethon import errors
 
+from tdl_bot.bot.commands import USER_HELP
 from tdl_bot.bot.context import CommandGroup
 from tdl_bot.bot.formatting import page_number
 from tdl_bot.core.errors import UserError
@@ -18,6 +20,38 @@ from tdl_bot.core.i18n import localized, tr
 
 
 class MemberCommands(CommandGroup):
+    @localized
+    async def user(self, message: Message, command: CommandObject) -> None:
+        assert message.from_user is not None
+        if not self.policy.is_admin(message.from_user.id):
+            raise UserError(tr("Only administrators can manage accounts."))
+        parts = (command.args or "").split(maxsplit=1)
+        if not parts or parts[0] == "help":
+            await message.answer(tr(USER_HELP))
+            return
+        action = parts[0]
+        handlers = {
+            "list": self.users,
+            "add": self.user_add,
+            "remove": self.user_remove,
+            "ban": self.user_ban,
+            "unban": self.user_unban,
+            "role": self.user_role,
+            "history": self.user_history,
+            "follow_limit": self.user_follow_limit,
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            raise UserError(tr("Unknown user operation. Use /user for help."))
+        await handler(
+            message,
+            replace(
+                command,
+                command=f"user {action}",
+                args=parts[1] if len(parts) > 1 else None,
+            ),
+        )
+
     async def resolve_user(self, value: str) -> int:
         if not value.startswith("@"):
             user_id = self._user_id(value)

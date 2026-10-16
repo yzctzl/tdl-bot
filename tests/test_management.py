@@ -269,8 +269,11 @@ async def test_registered_menus_cover_every_command_and_follow_roles(managed):
     await app.register_commands()
     names = {item.command for item in app.command_menu(admin=True)}
     assert names == {name for name, _, _, _ in COMMANDS}
+    assert "users" not in names and not any(
+        name.startswith("user_") for name in names
+    )
     assert "retry_cancel" in {item.command for item in app.command_menu()}
-    assert "user_add" not in {item.command for item in app.command_menu()}
+    assert "user" not in {item.command for item in app.command_menu()}
     assert "update_tdl" not in {item.command for item in app.command_menu()}
     handlers = app.dispatcher.sub_routers[0].message.handlers
     for _, name, _, _ in COMMANDS:
@@ -283,7 +286,7 @@ async def test_registered_menus_cover_every_command_and_follow_roles(managed):
         if isinstance(call.kwargs["scope"], BotCommandScopeChat)
         and call.kwargs["scope"].chat_id == 1
     )
-    assert "user_add" in {item.command for item in admin_call.args[0]}
+    assert "user" in {item.command for item in admin_call.args[0]}
     store.ban_member(1, 2, 86400)
     await app.refresh_menu(2)
     assert [

@@ -203,19 +203,36 @@ async def test_authorization_changes_take_effect_through_dispatcher(journey):
     count = len(j.transport.calls)
     await j.send("/start", chat_type="group")
     assert len(j.transport.calls) == count
-    await j.send("/user_add 3", user=1)
+    await j.send("/user", user=1)
+    assert "/user add" in j.transport.last().text
+    assert "/user follow_limit" in j.transport.last().text
+    await j.send("/user unknown", user=1)
+    assert "Unknown user operation" in j.transport.last().text
+    await j.send("/user add", user=1)
+    assert "/user add requires 1 arguments" in j.transport.last().text
+    await j.send("/user@test_bot add 3", user=1)
     assert j.service.policy.is_allowed(3)
-    await j.send("/user_ban 3 1d")
+    await j.send("/user ban 3 1d")
     assert "Only administrators" in j.transport.last().text
-    await j.send("/user_ban 3 1d", user=1)
+    await j.send("/user ban 3 1d", user=1)
     await j.send("/help", user=3)
     assert "unauthorized" in j.transport.last().text
-    await j.send("/user_unban 3", user=1)
+    await j.send("/user unban 3", user=1)
     await j.send("/help", user=3)
     assert "Send a Telegram message URL" in j.transport.last().text
     await j.send("/status 1", user=3)
     assert "Only administrators" in j.transport.last().text
-    await j.send("/user_remove 3", user=1)
+    await j.send("/user role 3 admin", user=1)
+    assert j.service.policy.is_admin(3)
+    await j.send("/user role 3 user", user=1)
+    assert not j.service.policy.is_admin(3)
+    await j.send("/user follow_limit 3 7", user=1)
+    assert j.service.store.follow_limit(3) == 7
+    await j.send("/user list 1", user=1)
+    assert "Follow slots: 0/7" in j.transport.last().text
+    await j.send("/user history 3", user=1)
+    assert "Set follow limit: 7" in j.transport.last().text
+    await j.send("/user remove 3", user=1)
     assert not j.service.policy.is_allowed(3)
 
 

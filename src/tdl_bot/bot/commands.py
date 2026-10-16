@@ -38,49 +38,7 @@ COMMANDS = (
         True,
     ),
     ("update_tdl", "update", "Check and update tdl", True),
-    ("users", "members.users", "List members and ban status", True),
-    (
-        "user_follow_limit",
-        "members.user_follow_limit",
-        "Set follow limit: UID/@username 0-1000",
-        True,
-    ),
-    (
-        "user_add",
-        "members.user_add",
-        "Add a regular account: UID/@username",
-        True,
-    ),
-    (
-        "user_remove",
-        "members.user_remove",
-        "Remove an account: UID/@username",
-        True,
-    ),
-    (
-        "user_ban",
-        "members.user_ban",
-        "Ban an account: UID/@username 1d/1w/1m",
-        True,
-    ),
-    (
-        "user_unban",
-        "members.user_unban",
-        "Unban an account: UID/@username",
-        True,
-    ),
-    (
-        "user_role",
-        "members.user_role",
-        "Set role: UID/@username user/admin",
-        True,
-    ),
-    (
-        "user_history",
-        "members.user_history",
-        "View account history: UID/@username",
-        True,
-    ),
+    ("user", "members.user", "Manage members: /user for help", True),
 )
 
 HELP = (
@@ -98,19 +56,32 @@ HELP = (
 )
 
 
+USER_HELP = (
+    "/user list [page] List members\n"
+    "/user add <UID|@username> Add a regular account\n"
+    "/user remove <UID|@username> Remove an account\n"
+    "/user ban <UID|@username> <1d|1w|1m> "
+    "Ban for a day, week, or 30 days\n"
+    "/user unban <UID|@username> Unban an account\n"
+    "/user role <UID|@username> <user|admin> Set a role\n"
+    "/user history <UID|@username> View account management history\n"
+    "/user follow_limit <UID|@username> <0-1000> Set follow quota"
+)
+
+
 ADMIN_HELP = (
-    "\n\nAdministrators:\n/storage <chat> [topic_id] Configure internal "
-    "storage\n/target for <UID|@username> [chat] [topic_id] Manage a "
-    "personal destination\n/users List members\n/user_add <UID|@username> "
-    "Add a regular account\n/user_remove <UID|@username> Remove an "
-    "account\n/user_ban <UID|@username> <1d|1w|1m> Ban for a day, week, or "
-    "30 days\n/user_unban <UID|@username> Unban an account\n/user_role "
-    "<UID|@username> <user|admin> Set a role\n/user_history "
-    "<UID|@username> View account management history\n/status "
-    "<UID|@username> View another account's destination\n/update_tdl "
-    "[latest|v0.20.4] Check and update tdl"
-    "\n/user_follow_limit <UID|@username> <0-1000> Set follow quota"
-    "\n/account <auto|shared|UID> Switch execution account"
-    "\n/dump <source> [to <chat>] Back up channel history"
-    "\n/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
+    (
+        "\n\nAdministrators:\n"
+        "/storage <chat> [topic_id] Configure internal storage\n"
+        "/target for <UID|@username> [chat] [topic_id] Manage a personal "
+        "destination\n"
+    )
+    + USER_HELP
+    + (
+        "\n/status <UID|@username> View another account's destination\n"
+        "/update_tdl [latest|v0.20.4] Check and update tdl\n"
+        "/account <auto|shared|UID> Switch execution account\n"
+        "/dump <source> [to <chat>] Back up channel history\n"
+        "/dump List tasks; /dump pause|resume|cancel <id> Manage a task"
+    )
 )

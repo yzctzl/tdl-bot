@@ -461,10 +461,8 @@ async def test_commands_and_rpc_hide_storage_and_register_role_menus(
         await app.backups.dump(event, CommandObject(command="dump"))
     ordinary = {item.command for item in app.command_menu()}
     assert "follow" in ordinary and "dump" not in ordinary
-    assert "user_follow_limit" not in ordinary
-    assert "user_follow_limit" in {
-        item.command for item in app.command_menu(admin=True)
-    }
+    assert "user" not in ordinary
+    assert "user" in {item.command for item in app.command_menu(admin=True)}
     resolve_user = AsyncMock(return_value=2)
     monkeypatch.setattr(app.members, "resolve_user", resolve_user)
     monkeypatch.setattr(app.members, "refresh_profile", AsyncMock())
