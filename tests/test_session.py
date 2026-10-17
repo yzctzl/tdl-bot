@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -111,7 +112,8 @@ async def test_private_temporary_backup_is_removed_on_every_exit(
     tmp_path, fail
 ):
     async def backup(destination):
-        assert destination.parent.stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert destination.parent.stat().st_mode & 0o077 == 0
         encoded = zstandard.ZstdCompressor().compress(
             json.dumps(metadata()).encode()
         )
@@ -293,7 +295,8 @@ async def test_discovery_reads_all_namespaces_and_skips_invalid_sessions(
     )
 
     async def backup(destination):
-        assert destination.parent.stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert destination.parent.stat().st_mode & 0o077 == 0
         destination.write_bytes(
             zstandard.ZstdCompressor().compress(json.dumps(data).encode())
         )

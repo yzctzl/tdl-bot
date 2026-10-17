@@ -1,5 +1,6 @@
 """Workspace migration, execution routing and scope-based management."""
 
+import os
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -52,7 +53,8 @@ def test_migration_shares_single_destination_and_preserves_all_retries(
         item.destination.owner_id is None for item in store.pending_items()
     )
     backup = path.with_name(path.name + ".pre-workspace")
-    assert backup.stat().st_mode & 0o077 == 0
+    if os.name != "nt":
+        assert backup.stat().st_mode & 0o077 == 0
     with sqlite3.connect(backup) as db:
         assert db.execute("SELECT COUNT(*) FROM targets").fetchone()[0] == 2
         assert db.execute("PRAGMA user_version").fetchone()[0] == 0

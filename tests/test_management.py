@@ -1,6 +1,7 @@
 """Dynamic membership, command menus, retry limits and account revocation."""
 
 import asyncio
+import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -441,7 +442,8 @@ def test_v1_migration_keeps_workspace_data_and_creates_private_backup(tmp_path):
         assert current.target_for(None) == Target("me")
         assert len(current.pending_items()) == 1
         backup = path.with_name(path.name + ".pre-members")
-        assert backup.stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert backup.stat().st_mode & 0o077 == 0
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 1
     finally:
@@ -534,7 +536,8 @@ def test_archive_upgrade_keeps_v2_members_and_creates_private_backup(tmp_path):
         assert migrated.pending_count(2) == 3
         assert len(migrated.pending_items(include_archived=True)) == 5
         backup = path.with_name(path.name + ".pre-retry-cap")
-        assert backup.stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert backup.stat().st_mode & 0o077 == 0
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 2
             assert (
@@ -695,7 +698,8 @@ def test_v3_result_migration_backs_up_and_preserves_members(managed, tmp_path):
         assert member is not None and member.role == "admin"
         assert migrated.target(1) == Target("me")
         backup = path.with_name(path.name + ".pre-results")
-        assert backup.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert backup.stat().st_mode & 0o777 == 0o600
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         with sqlite3.connect(path) as db:

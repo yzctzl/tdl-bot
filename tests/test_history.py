@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -85,7 +86,8 @@ def test_v5_cache_migration_is_private_and_frontend_never_migrates_live_engine(
                 == 2
             )
         backup = path.with_name(path.name + ".pre-history")
-        assert backup.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert backup.stat().st_mode & 0o777 == 0o600
     finally:
         engine.close()
 
@@ -244,7 +246,8 @@ def test_early_v6_missing_available_column_migrates_without_losing_history(
             (None, storage.chat, [100])
         ]
         backup = path.with_name(path.name + ".pre-availability")
-        assert backup.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert backup.stat().st_mode & 0o777 == 0o600
         with sqlite3.connect(backup) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 6
             assert "available" not in {
@@ -329,9 +332,11 @@ def test_v7_upgrade_preserves_workspace_and_persists_backup_checkpoint(
         assert saved.cursor == 10 and saved.inflight == 20
         assert saved.phase == "writing" and saved.storage == storage
         assert saved.target == Target("@target", 42)
-        assert (
-            path.with_name(path.name + ".pre-backups").stat().st_mode & 0o777
-            == 0o600
-        )
+        if os.name != "nt":
+            assert (
+                path.with_name(path.name + ".pre-backups").stat().st_mode
+                & 0o777
+                == 0o600
+            )
     finally:
         reopened.close()

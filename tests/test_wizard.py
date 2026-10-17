@@ -1,5 +1,6 @@
 """Offline onboarding flows; no real tokens, logins or Telegram writes."""
 
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -92,7 +93,8 @@ async def test_wizard_retries_and_saves_verified_configuration(
     saved = dotenv_values(config)
     assert saved["BOT_TOKEN"] == "9:FAKE" and saved["WORKERS"] == "4"
     assert saved["ADMIN_USER_IDS"] == ("" if existing_members else "7,8")
-    assert config.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert config.stat().st_mode & 0o777 == 0o600
     store = Store(settings.data_dir / "state.sqlite3")
     assert store.internal_target() == target
     store.close()
