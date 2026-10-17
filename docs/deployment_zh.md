@@ -1,84 +1,146 @@
-# 安装与维护
+# 安装与维护指南
 
-[English](deployment.md) · [首页](../README_zh.md) · [用户手册](manual_zh.md)
+[English](deployment.md) · [首页](../README_zh.md) · [使用手册](manual_zh.md)
 
-## 选择安装方式
+目标是让你拥有一个能长期使用的 Telegram Bot
+完成下面的流程后，你会有自己的 Bot、已经登录的 Telegram 执行账号，以及固定保存配置和数据的工作目录
+日常收藏、追踪和管理都在 Telegram 中完成
 
-| 方式 | 适合场景 | 需要准备 |
-| --- | --- | --- |
-| uv tool | 个人服务器或桌面，使用向导配置 | uv 与可交互终端 |
-| Docker Compose | 长期运行，并映射持久化目录 | Docker Engine + Compose，或使用 Linux 容器的 Docker Desktop |
-| Git 源码 | 从源码运行或修改项目 | Git 与 uv |
+## 选择你的路线
 
-原生安装需要 Python 3.12 或更新版本，示例会让 uv 使用 3.12
-Docker 已包含 Python，不需要另行安装 Go
+第一次部署，已经装好 uv 且不需要 Docker，建议从 **uv tool + 交互向导**开始
+只想长期运行服务、习惯管理容器，就选择 Docker Compose
+准备修改代码或直接跟随仓库运行，再选 Git 源码方式
+三种方式选一种即可，不需要全部安装
 
-| 平台 | 原生安装 | Docker |
-| --- | --- | --- |
-| Linux x64 / ARM64 | 支持，提供手动热重载 | 提供 amd64、arm64 Linux 镜像 |
-| macOS Intel / Apple Silicon | 支持，提供手动热重载 | 通过 Docker Desktop 运行 Linux 镜像 |
-| Windows | 原生单进程运行，不支持热重载及 Bot 崩溃自动重启 | 使用 Linux 容器的 Docker Desktop，或在 WSL2 中按 Linux 方式安装 |
+| 方式 | 宿主机需要准备 | 配置方式 | 安装步骤 |
+| --- | --- | --- | --- |
+| uv tool | uv，能访问 GitHub 的网络 | 终端向导逐项引导 | [使用 uv tool](#使用-uv-tool) |
+| Docker Compose | Docker Engine + Compose，或使用 Linux 容器的 Docker Desktop | 编辑配置文件后登录 | [使用 Docker Compose](#使用-docker-compose) |
+| Git 源码 | Git、uv，能访问 GitHub 的网络 | 同样使用终端向导 | [使用 Git 源码](#使用-git-源码) |
 
-Windows 原生同样提供收藏、接收位置、重试、历史搬运、定时追踪及成员管理功能
-更新代码或刷新已登录账号时，需要停止并重新启动
-CI 在三个系统上检查应用行为，不执行真实 Telegram 传输，也不代表验证了所有系统与架构组合
+平台差异、配置参考和维护操作可在需要时再看：
+[平台支持](#平台支持) · [工作目录](#工作目录与配置) · [停止与升级](#停止重载与升级) · [排错](#常见问题)
 
 ## 开始前准备
 
-1. 通过 **@BotFather** 创建 Bot，妥善保管 token
-2. 准备一个存储频道或群组，推荐私有频道，便于整理工作空间
-3. 将 Bot 加入存储并授予发帖权限，准备登录的 Telegram 账号也需要能在其中发帖
-4. 选择一个可写且打算长期保留的工作目录，放在 uv 安装和缓存目录之外，用来保存配置、登录会话及任务状态
+### 1. 创建你自己的 Bot
 
-登录的 Telegram 账号负责读取来源和准备内容，Bot 负责发送到最终接收位置，两者都需要访问存储
-默认 tdl 登录方式不需要填写 `TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH`
+在 Telegram 中打开 **@BotFather**，发送 `/newbot`，按提示设置 Bot 名称和用户名
+完成后保存它给你的 **Bot token**，后面会粘贴到配置向导或 `.env` 中
+同时记下 Bot 的 `@用户名`，方便把它加入存储频道，之后打开它的私聊
 
-## 使用 uv tool 安装
+token 相当于 Bot 的管理凭据，不要发到群里、截图公开或提交进仓库
+
+### 2. 准备内部存储频道
+
+推荐在 Telegram 新建一个私有频道，例如自己容易识别的“收藏存储”
+你登录的账号需要能在其中发帖
+进入频道的管理员设置，将刚创建的 Bot 添加为管理员，并开启发帖权限
+关闭频道的内容保护/限制保存选项，否则 Bot 无法从这里复制内容
+
+这个频道是工具用来保存内容和必要操作记录的地方，不是必须展示给协作者的收藏频道
+你最后想把内容发往其他频道或群组，可以在 Bot 启动后单独设置
+第一次验证时，最终接收位置保留为 Bot 对话即可
+
+如果没有存储频道的 ID，不用为了向导提前查询：
+
+- 公开频道可以直接输入 `@用户名`
+- 私有频道可以在向导第四步输入 `list`，从自己拥有的频道/群组列表中找到它并复制显示的 ID
+- Docker 手动流程没有这个向导列表，私有频道 ID 可按下面的方法取得，不需要公开频道
+
+需要私有频道 ID 时，在频道里自己发一条消息并复制链接
+例如 `https://t.me/c/1234567890/1` 中，`1234567890` 是频道编号，在前面加 `-100` 得到 `-1001234567890`，末尾的 `1` 是消息编号，不属于频道 ID
+这只是格式示例，请使用自己链接中的编号
+
+### 3. 选择 Telegram 登录账号
+
+准备一个能在存储频道发帖的 Telegram 用户账号
+默认流程用这个账号扫描二维码，登录状态会保存在你自己的机器上
+它负责读取来源和准备内容；Bot 负责与你交互并发送结果
+
+最简单的做法是：用你自己的账号登录，并在下一步将同一个账号确认为管理员
+这样无需另外查询自己的 UID，也不需要填写 `TELEGRAM_API_ID`、`TELEGRAM_API_HASH`
+
+### 4. 选定工作目录
+
+工作目录保存 `.env`、任务数据库、登录会话和托管程序
+选择你有写权限、打算长期保留的位置，不要放进 uv 的缓存或工具安装目录
+以后更新程序不会要求你重新建立工作目录或登录
+
+## 使用 uv tool
+
+以下操作在你打算运行 Bot 的机器终端中完成
+Linux/macOS 可使用 shell，Windows 可使用 PowerShell
+示例创建当前目录下的 `tdl-bot-workspace`，可自行改名
+
+### 1. 安装并进入工作目录
 
 ```sh
 uv tool install --python 3.12 git+https://github.com/yzctzl/tdl-bot.git
 mkdir tdl-bot-workspace
 cd tdl-bot-workspace
+```
+
+命令执行完成后，后续配置和运行都在这个目录进行
+如果提示找不到 `tdl-bot`，按 uv 安装提示配置 PATH，重新打开终端，再进入这个目录
+不需要自己安装 Go 或编译 tdl
+
+### 2. 启动交互向导
+
+```sh
 tdl-bot setup -i
+```
+
+向导会先确认供 Docker 使用的时区，原生运行仍跟随系统时区
+随后按四步配置：
+
+| 步骤 | 你需要输入或操作 | 成功后会看到什么 |
+| --- | --- | --- |
+| 1/4 Bot | 粘贴 @BotFather 给你的 token，输入不会显示在屏幕上 | Bot 的 `@用户名`，表示 token 已验证 |
+| 2/4 Telegram 登录 | 用准备好的 Telegram 账号扫描终端二维码 | 账号登录完成；已有有效会话会直接使用 |
+| 3/4 管理员 | 第一次且使用登录账号管理时，核对显示账号并回车确认；其他管理员需填写数字 UID | 管理员设置保存 |
+| 4/4 内部存储 | 输入存储频道的 `@用户名` 或 ID；需要查看自己拥有的位置时输入 `list` | 存储权限验证通过，提示配置完成及启动命令 |
+
+缺少 tdl 时自动下载、校验并安装，首次配置需要能访问 GitHub
+配置完成的步骤会保存，中途退出后可重新运行 `setup -i` 继续，已有值回车保留
+权限验证不会发送测试媒体
+如果第四步失败，先确认 Bot 已被添加为频道管理员，而不是只让你的账号加入
+
+### 3. 启动服务
+
+```sh
 tdl-bot run
 ```
 
-向导会确认供 Docker 使用的时区，验证 Bot token，引导 Telegram 登录，确认管理员并选择存储
-可以直接将登录账号确认为管理员，无需另外查询 UID
-存储直接输入 ID 或 `@用户名`；需要查看自己拥有的频道或群组时才输入 `list`，不会列出所有会话
+保持这个终端运行，Bot 才能持续响应
+打开 Telegram，进入自己的 Bot 私聊，发送 `/start`，确认管理员入口并完成[第一次保存](manual_zh.md#第一次使用)
+仅终端没有报错还不算完整验证，建议亲自保存一条小视频或图片
 
-登录或启动时缺少 tdl，会自动下载、校验并安装，首次安装请确保能访问 GitHub
-已有有效登录会直接使用
-向导检查权限时不会发送测试消息，再次运行向导可以回车保留原值，已完成步骤会保存
-修改配置前请先停止服务
-
-这些命令也适用于 PowerShell
-安装后找不到 `tdl-bot` 时，按 uv 提示配置 PATH 并重新打开终端
-
-从其他目录操作时，显式选择配置：
+想从别的位置配置或启动，可以显式选择路径：
 
 ```sh
 tdl-bot setup -i -d /path/to/workspace
 tdl-bot run -e /path/to/workspace/.env
 ```
 
-Windows 请使用自己的路径，例如 `C:\Users\you\tdl-bot-workspace`，含空格的路径加引号
-请保持运行终端打开，也可以用系统服务管理器，以相同工作目录和系统用户运行同一条命令
-CLI 不会替你安装系统服务
+Windows 将路径换成例如 `C:\Users\you\tdl-bot-workspace`，含空格时加引号
+需要关掉终端后仍长期运行，请使用系统的服务管理器托管相同命令，并保持相同系统用户和工作目录
+tdl-bot 不会自动安装系统服务
 
-## 使用 Docker Compose 安装
+## 使用 Docker Compose
 
-宿主机不需要安装 Python、uv 或 tdl
-准备一个空工作目录，从**同一发行版本或 Git 修订**下载：
+宿主机不需要 Python、uv 或 tdl
+这是手动配置路线，和上面的交互向导不同，按顺序完成每一步即可
 
-- [`compose.yaml`](../compose.yaml)
-- [`env.example`](../src/tdl_bot/resources/env.example)，保存为 `.env`
+### 1. 准备目录与两个配置文件
 
-打包资源中的模板是唯一维护的配置模板
-镜像在对应版本发布流程成功后可用，请查看仓库 Releases 和容器包页面
-若要构建尚未发布的代码，克隆仓库，执行 `docker build -t tdl-bot:local .`，并在工作目录 `.env` 中设置 `TDL_BOT_IMAGE=tdl-bot:local`
+创建并进入自己的工作目录，从仓库**同一发行版本或 Git 修订**下载：
 
-在工作目录中创建映射目录：
+- [`compose.yaml`](../compose.yaml)，保持文件名
+- [`env.example`](../src/tdl_bot/resources/env.example)，重命名为 `.env`，不要保留 `.example` 后缀
+
+在工作目录创建数据目录：
 
 ```sh
 mkdir -p data/tdl bin
@@ -90,53 +152,78 @@ PowerShell 使用：
 New-Item -ItemType Directory -Force data/tdl, bin
 ```
 
-编辑 `.env`，保留默认路径，并填写：
+此时目录应包含 `.env`、`compose.yaml`、`data/tdl/` 和 `bin/`
 
-| 设置 | 内容 |
+### 2. 填写最初的配置
+
+用文本编辑器打开 `.env`，保留模板路径，并填写：
+
+| 配置 | 怎么填写 |
 | --- | --- |
-| `BOT_TOKEN` | @BotFather 提供的 token |
-| `TZ` | 所在地区的时区名称，例如 `Asia/Taipei` 或 `Europe/London` |
-| `ADMIN_USER_IDS` | 初始管理员的 Telegram 用户 ID，多个用逗号分隔，下方登录命令会显示 UID |
-| `TDL_BOT_IMAGE` | 可选的版本镜像，例如 `ghcr.io/yzctzl/tdl-bot:v0.1.0`，否则使用 `latest` |
+| `BOT_TOKEN` | @BotFather 给你的 token |
+| `TZ` | 所在地区/城市，例如 `Asia/Taipei`、`Europe/London` |
+| `ADMIN_USER_IDS` | 先留空，下一步登录会显示你的 UID，再回来填写 |
+| `TDL_BOT_IMAGE` | 可选，填写已发布的版本镜像；不填时使用 `latest` |
 
-Linux/WSL2 上，映射目录所有者不是 1000/1000 时，还需设置 `PUID` 和 `PGID`
-使用 `id -u` 与 `id -g` 获取，Docker Desktop 由系统处理宿主机文件共享
-WSL2 推荐将工作目录放在 Linux 文件系统内，而不是 Windows 挂载目录
+Linux/WSL2 上，还需确认目录所有者：执行 `id -u` 和 `id -g`
+如果不是默认的 1000/1000，在 `.env` 增加对应的 `PUID`、`PGID`
+Docker Desktop 使用它自己的宿主机文件共享，WSL2 推荐将工作目录放在 Linux 文件系统内
 
-在工作目录执行：
+首次安装前，确认仓库 Releases 对应版本已发布镜像
+需要运行尚未发布的源码时，见下方[镜像与映射目录](#镜像与映射目录)
+
+### 3. 登录 Telegram，并填写管理员 UID
+
+在含 `compose.yaml` 的工作目录运行：
 
 ```sh
 docker compose run --rm bot login
-# Fill ADMIN_USER_IDS in .env using the UID printed by login, then:
+```
+
+用准备好的 Telegram 账号扫描二维码，完成后记下终端显示的账号 UID
+回到 `.env`，把这个数字填入 `ADMIN_USER_IDS`，保存文件
+多个初始管理员可以用逗号分隔，这里填写数字 ID，不是 `@用户名`
+
+### 4. 启动并配置存储
+
+```sh
 docker compose up -d
 docker compose logs -f bot
 ```
 
-打开 Bot，在 **Bot 管理 → 修改存储**中设置，或执行 `/storage @your_storage_channel`
-Bot 和执行账号都需要权限
-`setup -i` 交互向导用于原生安装，配套 Compose 的配置目录只读，使用上述文件配置与登录流程
+`up -d` 在后台启动服务，查看日志时退出跟踪不会停止容器
+打开 Telegram 的 Bot 私聊，发送 `/start` 并选择语言
+进入 **Bot 管理 → 修改存储**，输入你准备的频道 `@用户名` 或 ID
+没有配置内部存储前，Bot 不能正常处理内容
 
-### 映射的文件
+配套 Compose 将配置目录只读挂载，因此不使用容器内 `setup -i` 向导
+现在按[使用手册](manual_zh.md#第一次使用)验证第一条内容，成功后再配置自己的接收频道
 
-| 宿主机位置 | 容器位置 | 内容 |
+### 镜像与映射目录
+
+发布镜像为 Linux amd64/arm64，在 Docker Desktop 中同样使用 Linux 容器
+可在 `.env` 增加 `TDL_BOT_IMAGE=ghcr.io/yzctzl/tdl-bot:v0.1.0` 固定到对应的已发布版本，版本号按实际发行替换
+尚未发布的代码可以克隆仓库并在仓库根目录执行 `docker build -t tdl-bot:local .`，再设置 `TDL_BOT_IMAGE=tdl-bot:local`
+
+| 宿主机位置 | 容器位置 | 保存什么 |
 | --- | --- | --- |
-| 工作目录 | `/workspace`，只读 | `.env` 和 Compose 配置 |
-| `DATA_DIR`，默认 `./data` | `/data` | 数据库、任务状态、日志和临时文件 |
-| `BIN_DIR`，默认 `./bin` | `/tdl-bin` | 托管 tdl 程序 |
-| `TDL_DIR`，默认 `./data/tdl` | `/data/tdl` | Telegram 登录会话 |
+| 工作目录 | `/workspace`，只读 | 配置文件 |
+| `DATA_DIR`，默认 `./data` | `/data` | 数据库、任务、日志及临时文件 |
+| `BIN_DIR`，默认 `./bin` | `/tdl-bin` | 自动安装的 tdl 程序 |
+| `TDL_DIR`，默认 `./data/tdl` | `/data/tdl` | Telegram 登录状态 |
 
-自定义宿主机目录需先创建
-宿主机路径由 Compose 解析，应用在容器内使用固定 Linux 路径，宿主机的 `TDL_BINARY` 覆盖值在 Compose 中会被忽略
-不要让原生实例与容器同时操作同一工作空间
+自定义位置先在宿主机创建，再修改 `.env` 的对应值
+Docker 使用容器内 Linux 程序，宿主机 `TDL_BINARY` 设置不会用来运行容器
+不要让原生实例和容器同时使用一份工作空间
 
-Compose 必须设置 `TZ`
-在宿主机执行 `tdl-bot setup` 会自动填写系统时区，下载空白模板时需自己填写
-请使用 IANA 地区/城市名称，不要使用含义不确定的 `CST`
-Docker Desktop 不会自动把桌面系统时区提供给应用
-镜像内置时区数据，无需挂载 `/etc/localtime`
-修改 `TZ` 后执行 `docker compose up -d` 重建容器
+容器时区使用 `.env` 的 `TZ`，不自动读取桌面系统设置
+填写地区/城市名称，不要使用含义不明确的 `CST`
+镜像已包含时区数据，无需挂载系统时区文件，修改 `TZ` 后执行 `docker compose up -d` 重建容器
 
-## 使用 Git 源码运行
+## 使用 Git 源码
+
+适合希望直接管理仓库文件的部署方式
+先安装依赖，再使用同一个向导：
 
 ```sh
 git clone https://github.com/yzctzl/tdl-bot.git
@@ -146,61 +233,67 @@ uv run tdl-bot setup -i
 uv run tdl-bot run
 ```
 
-默认将项目目录作为工作目录
-需要放在其他位置时，给 `setup -i` 增加 `-d /path/to/workspace`，运行命令增加 `-e /path/to/workspace/.env`
-已有工作空间不需要重新初始化，向导可修改已有值并保留高级设置
-不使用向导时，`setup` 仅生成 `.env`，需自行编辑后再执行 `login` 和 `run`
+向导的四步和 [uv tool](#使用-uv-tool) 完全相同，默认将项目目录作为工作目录
+之后所有终端中的 `tdl-bot` 命令，使用 `uv run tdl-bot` 执行
+工作目录放到其他位置时，给 setup 加 `-d`，运行、登录和停止命令加 `-e`
+不使用向导时，普通 `setup` 只生成 `.env`，你需要自己编辑配置，再登录、启动
 
-## 工作目录与高级设置
+## 平台支持
+
+原生安装需要 Python 3.12 或更新版本，示例让 uv 使用 3.12
+Docker 已包含 Python，三种安装方式都不需要 Go 环境
+
+| 平台 | 原生运行 | Docker |
+| --- | --- | --- |
+| Linux x64 / ARM64 | 支持，提供手动热重载 | amd64/arm64 Linux 镜像 |
+| macOS Intel / Apple Silicon | 支持，提供手动热重载 | Docker Desktop 运行 Linux 镜像 |
+| Windows | 支持收藏、重试、追踪、历史搬运和管理；不支持热重载或 Bot 崩溃自动重启 | Docker Desktop 使用 Linux 容器，或在 WSL2 按 Linux 安装 |
+
+Windows 原生需要停止并重新启动，才能加载更新代码或新登录账号
+请将文件放在当前用户可写的本地目录，并通过 Windows 文件权限保护会话
+CI 检查三个系统的应用行为，但不执行真实 Telegram 传输，也不代表所有架构组合均已真机验证
+
+## 工作目录与配置
+
+### 哪些文件需要保留
 
 ```text
 workspace/
 ├── .env
 ├── data/
-│   ├── state.sqlite3    # Settings, permissions, tasks and history
-│   ├── tdl/            # Telegram authorizations
-│   ├── jobs/           # Temporary media, cleaned after processing
-│   └── engine.log      # Unix engine log
-└── bin/                # Managed executables, separated by OS/architecture
+│   ├── state.sqlite3
+│   ├── tdl/
+│   ├── jobs/
+│   └── engine.log
+└── bin/
 ```
 
-向导仍会将配置保存到生成的 `.env`，只是替你完成填写
-所有相对路径都以 **`.env` 所在目录**为基准，与运行命令的目录无关
-可以用 `-e <file>` 或 `TDL_BOT_ENV_FILE` 选择配置，否则读取当前目录 `.env`
-系统环境变量优先于文件值，应用读取 `.env` 时不展开 shell 变量
+`.env` 保存配置，`state.sqlite3` 保存权限、目标、任务与历史，`tdl/` 保存登录授权
+`jobs/` 是处理期间的临时媒体，完成后会清理
+`engine.log` 用于 Unix 任务引擎排错，`bin/` 中的程序可重新安装
+不要把整个 `data/` 当作临时下载目录删除
 
-| 设置 | 默认值 / 用途 |
-| --- | --- |
-| `DATA_DIR`、`BIN_DIR` | 必须显式设置，生成模板使用 `./data`、`./bin` |
-| `TDL_DIR`、`TDL_NAMESPACE` | 模板中为 `./data/tdl`、`default`，表示公共登录位置和命名空间 |
-| `BOT_TOKEN`、`ADMIN_USER_IDS` | Bot token 与首次初始化必填的管理员 UID |
-| `TDL_PROXY` | 可选 SOCKS5、SOCKS4 或 HTTP 代理，用于执行会话 |
-| `WORKERS`、`QUEUE_SIZE` | 2 个链接任务 worker、20 个等待任务，备份另用同样大小的 worker 池 |
-| `DOWNLOAD_TIMEOUT`、`UPLOAD_TIMEOUT` | 分别为 7200 秒，clone 超时包含下载和上传全过程 |
-| `UPLOAD_CONCURRENCY` | 每文件传输线程/窗口为 8，可用范围 1–32 |
-| `TDL_BINARY` | 原生运行时可显式指定程序，替代托管二进制 |
-| `RUNTIME_DIR` | 原生默认为 `DATA_DIR`，Unix socket 路径过长时改用较短的本地路径 |
-| `SESSION_SOURCE` | 默认 `tdl`，兼容的 `telethon` 模式还需 `TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH` |
+向导替你填写 `.env`，不代表不再需要这个文件
+相对路径以 **`.env` 所在目录**为基准，不随终端当前位置改变
+找不到配置时，在工作目录运行，或指定 `-e /path/to/.env`
+环境变量 `TDL_BOT_ENV_FILE` 也可选择配置，直接设置的系统环境变量优先于文件值
+应用不展开 `.env` 里的 shell 变量
 
-增加 worker 不代表一定增加带宽，同一执行会话的操作需要协调，仍受 Telegram 与传输后端限制
-没有明确需求时，建议保留默认值
+### 复用或增加登录
 
-`ADMIN_USER_IDS` 只用于初始化空工作空间，之后在 Bot 内管理成员，修改变量不会重置数据库角色
+独立执行 `tdl login` 通常把授权放在其自己的家目录位置
+`tdl-bot login` 使用 `.env` 的 `TDL_DIR`，新工作空间默认为 `./data/tdl`
+因此两个命令的登录位置不一定相同，Bot 不会自动从家目录复制授权
+复用已有会话时，停止旧服务，将 `TDL_DIR` 指向 tdl 根目录，不要指向其中的 `data` 子目录
 
-### 复用与增加登录
-
-`tdl-bot login` 将授权保存在配置的 `TDL_DIR`，不是独立运行 tdl 时默认的家目录
-已有 tdl 登录时，将 `TDL_DIR` 指向其**根目录**，不要指向内部的 `data` 子目录
-程序不会自动从家目录复制授权
-
-使用验证码或 Telegram Desktop 登录：
+需要验证码登录或导入 Telegram Desktop 会话时：
 
 ```sh
 tdl-bot login -m code
 tdl-bot login -m desktop
 ```
 
-增加个人执行账号时，先停止服务，再在同一会话目录中使用其他命名空间登录：
+为另一个账号创建单独登录时，原生使用：
 
 ```sh
 tdl-bot stop
@@ -208,33 +301,75 @@ tdl-bot login -n personal
 tdl-bot run
 ```
 
-这不会改变公共命名空间
-账号通过 Telegram 验证的 UID 与 Bot 操作用户匹配，每个执行账号都需要内部存储权限
-同一授权请使用相同网络出口，避免同时在其他机器或不同代理下使用，并保护整个会话目录
-
-## 重载、停止与更新
-
-| 操作 | Linux / macOS / Linux 容器 | Windows 原生 |
-| --- | --- | --- |
-| `reload` | Bot 重新连接，活动传输继续，引擎改动等待空闲交接 | 不支持 |
-| `stop` | 等待已接收任务完成后停止服务 | 等待任务完成后停止单进程 |
-| 替换程序、依赖或镜像 | 先停止，再升级和启动 | 先停止，再升级和启动 |
+Docker 使用：
 
 ```sh
-tdl-bot reload                  # Select the only running instance
-tdl-bot reload -a               # Reload all instances owned by this OS user
-tdl-bot reload -e ./work/.env    # Select one workspace
-tdl-bot stop -e ./work/.env
+docker compose stop
+docker compose run --rm bot login -n personal
+docker compose up -d
 ```
 
-多个运行实例需使用 `-a` 或 `-e`，有歧义时不会重载任何实例
-`stop` 使用所选工作空间，不采用 reload 的自动发现方式
-程序不监控目录变化，reload 不会更新安装包、搬迁数据，也不能改变 Docker 挂载及容器环境变量
+登录时使用另一个 Telegram 账号，`personal` 可替换成唯一、容易记忆的名字
+这不会改掉公共登录账号，账号如何自动选择见[执行账号管理](manual_zh.md#管理执行账号)
+同一授权不要同时在不同机器或不同网络出口运行，每个账号都需要内部存储权限
 
-Unix 上 Ctrl+C 停止前台 Bot 管理器，引擎可能继续传输，完整停服请使用 `stop`
-Windows 原生按一次 Ctrl+C 会请求单进程等待任务结束，请保持终端打开直到完成
+### 需要调整参数时再看
 
-更新 uv tool 安装：
+没有具体需求时，保留向导生成的默认值即可
+
+| 设置 | 默认值 / 用途 |
+| --- | --- |
+| `DATA_DIR`、`BIN_DIR` | 显式路径，模板为 `./data`、`./bin` |
+| `TDL_DIR`、`TDL_NAMESPACE` | 模板为 `./data/tdl`、`default`，公共登录位置与名称 |
+| `ADMIN_USER_IDS` | 首次初始化管理员的数字 UID，之后在 Bot 内管理角色 |
+| `TDL_PROXY` | 执行账号可选的 SOCKS5/SOCKS4/HTTP 代理 |
+| `WORKERS`、`QUEUE_SIZE` | 默认 2 个链接任务 worker、20 个等待任务，备份另有相同大小的 worker 池 |
+| `DOWNLOAD_TIMEOUT`、`UPLOAD_TIMEOUT` | 各 7200 秒，clone 超时包含下载与上传全过程 |
+| `UPLOAD_CONCURRENCY` | 默认 8，单文件传输线程/窗口，范围 1–32 |
+| `TDL_BINARY` | 原生可显式指定现有程序，替代托管程序位置 |
+| `RUNTIME_DIR` | 原生默认 `DATA_DIR`，socket 路径过长时可另选较短本地路径 |
+| `SESSION_SOURCE` | 默认 `tdl`，兼容的 `telethon` 模式才需要另外填写 API ID/hash |
+
+增加 worker 不保证占满带宽，仍受账号协调、网络和 Telegram 限制
+`TDL_PROXY` 不等于改变宿主机或整个容器的所有网络设置
+
+## 停止、重载与升级
+
+### 完整停止
+
+在工作目录使用相应命令：
+
+| 安装方式 | 停止命令 | 再次启动 |
+| --- | --- | --- |
+| uv tool | `tdl-bot stop` | `tdl-bot run` |
+| Git 源码 | `uv run tdl-bot stop` | `uv run tdl-bot run` |
+| Docker | `docker compose stop` | `docker compose up -d` |
+
+停止会等待已接收任务完成收尾，不一定立即返回
+请等待完成后再更新文件、搬迁目录或关闭机器
+Unix 上 Ctrl+C 只停止前台 Bot 管理器，引擎可能继续工作，完整停服请用 `stop`
+Windows 原生按一次 Ctrl+C 会请求整个进程正常收尾，保持终端打开直到完成
+
+### 手动重载
+
+Linux、macOS 和 Linux 容器可以手动 reload，让 Bot 界面重新启动，同时保留正在执行的传输
+Windows 原生请使用停止再启动
+
+```sh
+tdl-bot reload
+tdl-bot reload -a
+tdl-bot reload -e /path/to/workspace/.env
+```
+
+只有一个实例时自动选择，多个实例时 `-a` 全部重载，`-e` 指定一个
+源码方式给命令加 `uv run`，Docker 使用 `docker compose exec bot tdl-bot reload`
+没有目录监控，文件变化不会自动触发重载
+reload 不负责升级安装包、替换镜像、搬迁数据或改变容器环境，任务引擎更新等待现有工作空闲后交接
+
+### 升级程序
+
+升级前先备份，尤其是有数据库结构变化的版本
+uv tool 在工作目录执行：
 
 ```sh
 tdl-bot stop
@@ -242,8 +377,8 @@ uv tool upgrade tdl-bot
 tdl-bot run
 ```
 
-源码安装：先停止，更新仓库，执行 `uv sync --locked` 后启动
-Compose 使用：
+源码安装：停止后更新仓库，执行 `uv sync --locked`，再运行
+Docker 执行：
 
 ```sh
 docker compose pull
@@ -251,40 +386,39 @@ docker compose stop
 docker compose up -d
 ```
 
-容器内手动重载使用 `docker compose exec bot tdl-bot reload`
-**替换镜像不属于热重载**，默认停止等待期限为 24 小时，可用 `TDL_STOP_GRACE_PERIOD` 调整，超过期限会被 Docker 强制结束
-容器停止或被杀死后，无法继续在后台传输
+**更换 Docker 镜像不是热重载**
+容器正常停止等待默认为 24 小时，可用 `TDL_STOP_GRACE_PERIOD` 调整，超过期限会被 Docker 强制结束
+强制关闭的进程不会继续传输，重启后遇到未确认的发送请先检查目标再处理
 
-tdl 通过 **Bot 管理 → 更新 tdl** 或 `/update_tdl` 单独更新
-更新先比较版本，等待当前使用结束后下载、校验并替换程序，目前使用官方 tdl 发行版
+Bot 管理中的“更新 tdl”仅更新传输程序，不会升级 tdl-bot
 
-## 备份与迁移工作空间
+## 备份与迁移
 
-停止服务后，备份 `.env`、整个数据目录，以及单独配置在其他位置的会话目录
-保留权限并保护备份隐私，复制完成后再启动
-程序文件可以重装，登录会话和数据库才是重要状态
-数据库结构升级前保留备份，旧程序会拒绝打开新版数据库
+1. 用原配置完整停止服务，确认正常结束
+2. 复制 `.env`、整个数据目录，以及单独放在其他位置的会话目录，保留文件权限
+3. 将备份放在受保护的位置，其中包含 Bot token 和 Telegram 登录授权
+4. 备份完成后再启动服务
 
-迁移路径时，先使用**旧配置**停止，移动文件，修改 `.env` 及 Docker 挂载后再启动
-不要跨机器、容器或原生安装共用正在运行的数据库与会话
+更换机器或目录时，停止后再移动文件，修改 `.env` 路径及必要的 Docker 挂载，然后启动
+不要让两个实例同时使用同一份数据或会话
+旧程序可能无法读取升级后的数据库，回退版本前保留并使用匹配的升级前备份
 
 ## 常见问题
 
-| 问题 | 处理方式 |
-| --- | --- |
-| 找不到配置文件 | 进入工作目录，或指定 `-e /path/to/.env` |
-| setup 提示配置已存在 | 使用 `setup -i` 修改，普通 `setup` 不覆盖文件 |
-| 缺少 tdl 且无法下载 | 检查 GitHub 网络/代理及二进制目录写入权限 |
-| 独立运行 tdl 登录后仍提示未登录 | 对齐 `TDL_DIR` 与命名空间，或使用 `tdl-bot login` 登录 |
-| 资源被其他实例占用 | 停止旧实例，不要删除锁文件绕过正在使用的资源 |
-| 容器无法写入映射目录 | 确认目录已创建，Linux 检查 `PUID`/`PGID` |
-| 代理在宿主机可用，容器内不可用 | 容器的 `127.0.0.1` 指向自身，需要改成容器可访问的地址 |
-| 时区缺失或不正确 | 原生检查系统时区，Compose 设置 `TZ` 后重建容器 |
-| Windows 原生无法 reload | 使用 `stop` 后 `run`，Docker/WSL2 提供 Unix 运行方式 |
-| Unix socket 路径过长 | 先停止旧实例，再将 `RUNTIME_DIR` 改为较短本地路径 |
+| 现象 | 先检查什么 | 处理方式 |
+| --- | --- | --- |
+| 找不到配置 | 当前终端是否在工作目录 | 进入该目录，或显式传 `-e` |
+| setup 提示配置存在 | 是否已经生成过 `.env` | 用 `setup -i` 继续配置，普通 setup 不覆盖 |
+| 找不到管理员按钮 | 操作账号是否与首次管理员一致 | 用初始管理员账号打开 Bot，已有数据库用用户管理调整 |
+| 下载 tdl 失败 | GitHub 连通性、程序目录权限 | 处理网络/代理或写权限，再重新执行登录或启动 |
+| 已登录却仍提示未登录 | 是否使用相同 `TDL_DIR` 和登录名称 | 用同一配置执行 `tdl-bot login`，或指向已有目录 |
+| 容器目录不可写 | 目录是否存在，Linux UID/GID 是否对应 | 创建目录并修正 `PUID`/`PGID` |
+| 宿主机代理可用，容器不可用 | 是否填了容器自身的 `127.0.0.1` | 使用容器能访问的代理地址 |
+| 时区不正确 | 原生系统时区或 Compose 的 `TZ` | 修正系统设置，或填写 `TZ` 后重建容器 |
+| 资源被占用 | 是否仍有旧实例运行 | 先停止旧实例，不删除锁文件绕过占用 |
+| Unix socket 路径过长 | 工作目录路径是否过深 | 停止后设置较短的本地 `RUNTIME_DIR` |
 
-`tdl-bot health` 检查本地进程存活，不代表 Telegram 网络可用
-`tdl-bot help`、`tdl-bot help login` 和 `tdl-bot login help` 无需配置即可使用
-日志可能含有账号标识，分享诊断信息前请移除凭据和私密内容
-
-Bot 内的操作问题，见[用户手册](manual_zh.md#常见问题)
+`tdl-bot health` 用于检查本地服务是否存活，不代表已经验证 Telegram 网络
+`tdl-bot help`、`tdl-bot help login`、`tdl-bot login help` 可在未配置时查看用法
+请求协助时，说明系统、安装方式、操作步骤和错误日志，先移除 token、登录凭据及私密内容
+Bot 内发送失败与重试问题见[使用手册](manual_zh.md#常见问题)
