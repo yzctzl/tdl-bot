@@ -1,308 +1,152 @@
-# Deployment
+# Installation and maintenance
 
-Choose one installation method. All three use a workspace that you own, with an
-explicit `.env` file. Program installation, workspace configuration, and Telegram
-authorization have independent lifetimes.
+[简体中文](deployment_zh.md) · [Home](../README.md) · [User guide](manual.md)
 
-| Host | Docker | Native uv tool / source |
+## Choose an installation
+
+| Method | Best for | What you need |
 | --- | --- | --- |
-| Linux x86-64 / ARM64 | Supported deployment target | Supported |
-| macOS Intel / Apple Silicon | Linux containers through Docker Desktop | CI covers native macOS |
-| Windows | Docker Desktop in Linux-container mode, or WSL2 | Single-process runtime; no hot reload |
+| uv tool | A personal server or desktop; guided setup | uv and an interactive terminal |
+| Docker Compose | A service with persistent mapped folders | Docker Engine + Compose, or Docker Desktop using Linux containers |
+| Git checkout | Running from source or making changes | Git and uv |
 
-The repository includes Windows/Linux/macOS checks and multi-architecture image builds.
-A configured workflow is not evidence that it has already run successfully on
-GitHub; check the Actions results for the revision you deploy.
+Python 3.12 or newer is required for native installations; the examples ask uv
+to use 3.12. Docker includes Python. A separate Go installation is not required.
 
-## Workspace and configuration
+| Platform | Native installation | Docker |
+| --- | --- | --- |
+| Linux x64 / ARM64 | Supported; manual hot reload | Linux images for amd64 and arm64 |
+| macOS Intel / Apple Silicon | Supported; manual hot reload | Docker Desktop, using Linux images |
+| Windows | Native single-process runtime; no hot reload or automatic Bot crash restart | Docker Desktop with Linux containers, or Linux installation inside WSL2 |
 
-A new workspace looks like this after initialization and login:
+The same collection, destination, retry, dump/follow and member-management features
+are available in native Windows. Stop and restart to refresh code or logged-in
+accounts there. CI checks application behavior across the three operating systems;
+it does not perform real Telegram transfers or certify every OS/architecture combination.
 
-```text
-workspace/
-├── .env
-├── compose.yaml          # Only needed for Compose deployments
-├── data/
-│   ├── state.sqlite3
-│   ├── tdl/              # Telegram namespaces and authorization
-│   ├── jobs/             # Owned temporary transfer directories
-│   └── engine.log
-└── bin/
-    └── linux-amd64/tdl   # Selected by runtime OS and architecture
-```
+## Before you begin
 
-- Every start requires an existing `.env`; missing files produce an actionable
-  error rather than silently selecting another workspace.
-- `DATA_DIR` and `BIN_DIR` must be explicit. An existing `TDL_BINARY` can replace
-  `BIN_DIR` for native installations.
-- Relative paths resolve against the directory containing `.env`, including
-  paths supplied through environment overrides. `~` and absolute paths work.
-- Environment variables override file values. File values are not exported into
-  the parent process, so child processes re-read file edits on manual reload.
-  Shell-style variable interpolation inside the application `.env` is not used.
-- `TDL_DIR` is independent of `DATA_DIR`; new templates use `./data/tdl`. Existing
-  `TDL_DIR=.tdl` and custom `TDL_BINARY` values remain valid for native deployment.
-- Native managed binaries have separate OS/architecture directories, so a macOS
-  executable cannot accidentally replace the Linux executable used in Docker.
-- `RUNTIME_DIR` controls sockets, frontend PID and polling/supervisor locks. Native
-  runs default to `DATA_DIR`. Compose uses a private container-local tmpfs.
-  For deep workspaces, choose a short local `RUNTIME_DIR` to stay within the
-  operating system's Unix socket path limit. Resource locks protecting the database, sessions and binary stay with those
-  resources, preventing two instances from using them concurrently.
+1. Create a Bot with **@BotFather** and keep its token private
+2. Prepare a storage channel or group; a private channel keeps the workspace tidy
+3. Add the Bot to that storage with posting permissions, and ensure the Telegram
+   account you will sign in with can also post there
+4. Choose a writable workspace you want to keep, outside uv's installation/cache
+   directories; configuration, login sessions and saved state live there
 
-From anywhere, select a configuration explicitly:
+That signed-in Telegram account reads sources and prepares content. The Bot sends
+content to your final destination. Both need access to storage. You do not need
+`TELEGRAM_API_ID` or `TELEGRAM_API_HASH` for the default tdl login mode.
+
+## Install with uv tool
 
 ```sh
-tdl-bot login -e /path/to/workspace/.env
+uv tool install --python 3.12 git+https://github.com/yzctzl/tdl-bot.git
+mkdir tdl-bot-workspace
+cd tdl-bot-workspace
+tdl-bot setup -i
+tdl-bot run
+```
+
+The wizard confirms timezone for Docker use, checks the Bot token, guides Telegram
+sign-in, asks you to confirm administrators, and selects storage. You can use the
+signed-in account as administrator without looking up its UID separately.
+For storage, enter an ID or `@username`; enter `list` only if you want to see
+channels/groups you own. It does not list all your conversations.
+
+Missing tdl binaries are downloaded, checksum-checked and installed automatically
+at login or startup. Keep network access to GitHub available for the first install.
+Existing valid login sessions are reused. Setup checks permissions without posting
+a test message. Press Enter to keep existing values when re-running the wizard;
+completed steps are saved. Stop the running service before changing its setup.
+
+The above commands also work in PowerShell. If `tdl-bot` is not found after tool
+installation, follow uv's PATH instructions and reopen the terminal.
+
+From a different directory, use an explicit configuration:
+
+```sh
+tdl-bot setup -i -d /path/to/workspace
 tdl-bot run -e /path/to/workspace/.env
-tdl-bot reload -e /path/to/workspace/.env
-tdl-bot stop -e /path/to/workspace/.env
 ```
 
-Use `tdl-bot help` to list commands. `tdl-bot help login`,
-`tdl-bot login help`, and `tdl-bot login -h` (or `--help`) display identical
-command help and work before configuration. Login options `--namespace` and
-`--login-method` belong after `login`; `--directory` belongs after `setup`.
-Short options are `-e` (env file), `-d` (workspace), `-n` (namespace), and
-`-m` (login method). `setup` defaults to the current directory; `login`
-defaults to QR sign-in. Long options remain supported.
-`--env-file` works before or after runtime commands. Running without a command
-still starts the Bot.
+On Windows use your own path, for example `C:\Users\you\tdl-bot-workspace`.
+Quote paths that contain spaces. Keep the run terminal open, or use your system's
+service manager to run this same command with the same workspace and OS user.
+The CLI does not install an operating-system service for you.
 
-`TDL_BOT_ENV_FILE` is an alternative to `--env-file`. Otherwise the CLI uses
-`.env` in the current directory. All spawned processes inherit the resolved
-configuration filename. Use the same workspace for login, run and stop.
+## Install with Docker Compose
 
-`tdl-bot reload` automatically selects the only running instance owned by the
-current system user, regardless of the current `.env`. With multiple instances,
-use `tdl-bot reload -a` for all or `tdl-bot reload -e <workspace>/.env` for one.
-An ambiguous command lists configurations and reloads nothing. Each selected
-instance reports whether its reload request succeeded; failures do not prevent
-other selected instances from receiving requests. `-a` and `-e` cannot be combined.
+No host Python, uv or tdl is needed. Start with an empty workspace and download
+these files from the **same release or Git revision**:
 
-New supervisors register configuration/runtime paths and their PID (no tokens)
-in `$XDG_STATE_HOME/tdl-bot/instances` (default `~/.local/state/tdl-bot/instances`).
-Records are removed on exit; stale records are ignored using the supervisor lock
-and live PID. Older supervisors can be discovered from `.env` in the current
-directory or immediate child directories. For an older instance elsewhere, use
-`-e` until its next full stop/start. Containers only discover instances within
-their own filesystem/process environment.
-`setup` creates a template and refuses to replace an existing `.env`.
-Use `tdl-bot setup -i` for native interactive onboarding, or
-`setup -i -d <workspace>` for another directory. It confirms the detected Docker
-timezone, verifies the Bot token, reuses or creates a native tdl login,
-and explicitly confirms administrators,
-and accepts a storage channel/group UID or @username. Enter `list` to display
-only channels/groups owned by the signed-in execution account; nothing is
-listed automatically. No UID lookup is
-needed when the signed-in account is the administrator. Both Bot and execution
-account permissions are checked without sending test messages. Add the Bot to
-storage with posting permissions first.
+- [`compose.yaml`](../compose.yaml)
+- [`env.example`](../src/tdl_bot/resources/env.example), saved as `.env`
 
-Enter keeps existing values; completed steps are saved with private file
-permissions. Existing database membership and advanced settings are preserved.
-Stop the service before interactive setup. The Compose workspace is read-only;
-its existing manual configuration/login flow remains required for containers.
+The packaged template is the single maintained configuration template.
+An image is available after that version's release workflow publishes it; check
+the repository's Releases and package page. To build an unpublished revision,
+clone the repository, run `docker build -t tdl-bot:local .`, and set
+`TDL_BOT_IMAGE=tdl-bot:local` in the workspace `.env`.
 
-Before changing data, session, binary or runtime locations, stop the old instance
-with its original configuration. Move data explicitly, edit the paths, then
-start again. An in-container reload can apply Bot settings and refresh accounts;
-it does not relocate bind mounts or change the container's environment.
-
-Record timestamps and member deadlines use the running machine's local timezone,
-including daylight saving time for the recorded instant. Stored timestamps remain
-UTC. Host `setup` detects the local IANA timezone name during initialization
-and saves `TZ` in `.env`.
-`setup -i` lets you confirm or change it. Native runs keep using the system
-setting; Compose passes `TZ` to the container, whose image includes system
-`tzdata`. No host timezone file mount is required. Previously posted Telegram
-records retain their text until updated.
-
-## Native Windows
-
-Use Python 3.12+ and uv from PowerShell. The source and `uv tool` installation
-steps below also apply on Windows. A source checkout can be configured with:
-
-```powershell
-uv sync
-uv run tdl-bot setup -i
-uv run tdl-bot
-```
-
-The managed binary is `bin/windows-<architecture>/tdl.exe`. Explicit
-`TDL_BINARY` overrides must point to a Windows executable. Login and native tdl
-transfers use the default Windows asyncio loop, which supports subprocesses.
-No Unix socket, detached engine or signal-based supervisor is used: polling and
-transfers share one process and the existing persistent database.
-
-`reload` is unavailable on native Windows. Stop before upgrading code,
-dependencies or refreshing execution accounts, then start again:
-
-```powershell
-uv run tdl-bot stop
-uv run tdl-bot
-```
-
-Use the same workspace, or pass `-e <workspace>/.env` to each command. `stop`
-requests cooperative shutdown and waits for active work and account cleanup;
-it does not forcefully terminate the process. Pressing Ctrl+C once requests the
-same drain. Keep the terminal open until shutdown finishes. Forceful termination
-or closing the terminal may interrupt writes; the existing recovery checks
-still apply. `health` checks the running instance's lock and polling heartbeat.
-It does not probe Telegram or guarantee network connectivity.
-
-There is no automatic frontend crash restart in this mode. Use a local directory
-owned by your Windows user for configuration, credentials and data. POSIX modes
-do not configure Windows ACLs; protect access using Windows file permissions.
-Do not share active workspaces across systems. Docker and WSL2 remain options
-for the Unix supervisor and manual hot reload.
-
-## Docker Compose
-
-Install Docker Engine with Compose on Linux, or Docker Desktop with Linux
-containers on Windows/macOS. No host Python, uv or tdl installation is required.
-Images target `linux/amd64` and `linux/arm64`.
-
-Create a workspace. Download `compose.yaml` and the configuration template
-[`src/tdl_bot/resources/env.example`](../src/tdl_bot/resources/env.example)
-from the same revision of this repository. Save the template as `.env` in the
-workspace. This packaged resource is the only maintained template; native
-`tdl-bot setup` generates `.env` from it. Published images become available after the container
-workflow succeeds for a manually pushed version tag (for example `v0.1.0`). Before then, build locally
-with `docker build -t tdl-bot:local <repository>` and set
-`TDL_BOT_IMAGE=tdl-bot:local` in `.env`.
-
-Linux/macOS/WSL2:
+Create the mapped directories in your workspace:
 
 ```sh
 mkdir -p data/tdl bin
 ```
 
-Windows PowerShell:
+PowerShell equivalent:
 
 ```powershell
 New-Item -ItemType Directory -Force data/tdl, bin
 ```
 
-Edit `.env`. Set `TZ` to the host timezone's IANA name, for example
-`Asia/Taipei` or `Europe/London`. This is required when using the downloaded
-blank template; a workspace created by host `tdl-bot setup` already contains
-the detected name. Windows/macOS Docker Desktop also uses this value rather
-than the Linux virtual machine's timezone. Use a region/city name rather than
-an ambiguous abbreviation such as `CST`; the region supplies daylight saving
-rules. If detection is unavailable, fill the name manually or use `setup -i`.
-Changing `TZ` requires recreating the container with `docker compose up -d`;
-Bot `reload` cannot change a container's environment.
+Edit `.env`, keeping its default paths, and fill in:
 
-Keep the explicit paths, fill in `BOT_TOKEN`, and obtain your UID
-through login before filling `ADMIN_USER_IDS` for the first Bot start. Existing
-workspace membership remains authoritative after initialization.
+| Setting | Value |
+| --- | --- |
+| `BOT_TOKEN` | Token from @BotFather |
+| `TZ` | Your timezone's region/city name, such as `Asia/Taipei` or `Europe/London` |
+| `ADMIN_USER_IDS` | Initial administrators' Telegram user IDs, comma-separated; login below prints your UID |
+| `TDL_BOT_IMAGE` | Optional release image, such as `ghcr.io/yzctzl/tdl-bot:v0.1.0`; otherwise Compose uses `latest` |
 
-On Linux/WSL2, the container's UID/GID must match the owner of the mounted files.
-The defaults are 1000/1000. Check `id -u` and `id -g`; set `PUID` and `PGID` in
-`.env` if different. Windows/macOS Docker Desktop handles host file sharing.
-For WSL2 deployment, prefer its Linux filesystem for the workspace.
+On Linux/WSL2, also set `PUID` and `PGID` if the owner of the mapped folders is not
+1000/1000. Obtain the values with `id -u` and `id -g`. Docker Desktop manages host
+file sharing. Prefer WSL2's Linux filesystem rather than a Windows-mounted folder.
 
-Run these commands from the directory containing `compose.yaml` and `.env`:
+Run from the workspace:
 
 ```sh
 docker compose run --rm bot login
-# Fill ADMIN_USER_IDS in .env, then:
+# Fill ADMIN_USER_IDS in .env using the UID printed by login, then:
 docker compose up -d
 docker compose logs -f bot
 ```
 
-Startup and login automatically install a missing tdl into the mapped binary directory
-using the existing checksum/version verification. Interactive QR/code login
-uses the same mounted session directory as the service. For another namespace,
-stop the service and run `docker compose run --rm bot login -n personal`.
+Open the Bot and configure **Bot management → Change storage**, or use
+`/storage @your_storage_channel`. The Bot and execution account both need access.
+Interactive `setup -i` is for native installations; the supplied Compose deployment
+uses the file/login flow above because its configuration mount is read-only.
 
-The Compose file maps:
+### Your mapped files
 
-| Host path | Container path | Purpose |
+| Host location | Container location | Contents |
 | --- | --- | --- |
-| Workspace directory | `/workspace`, read-only | Read `.env`; directory mounting also sees atomic editor replacements |
-| `DATA_DIR` | `/data`, writable | Database, checkpoints, downloads, logs |
-| `BIN_DIR` | `/tdl-bin`, writable | Managed tdl executables and updates |
-| `TDL_DIR` | `/data/tdl`, writable | Existing or new Telegram authorizations |
-| Container tmpfs | `/run/tdl-bot` | Private local process communication |
+| Workspace directory | `/workspace`, read-only | `.env` and Compose configuration |
+| `DATA_DIR` — default `./data` | `/data` | Database, task state, logs and temporary work |
+| `BIN_DIR` — default `./bin` | `/tdl-bin` | Managed tdl executables |
+| `TDL_DIR` — default `./data/tdl` | `/data/tdl` | Telegram login sessions |
 
-Create configured host directories before running Compose. Container environment
-values deliberately override host-specific paths in `.env`; a host `D:/...` or
-`/Users/...` path is used by Compose for the mount, not as a Linux application
-path. Compose selects the container's managed Linux tdl rather than a native
-`TDL_BINARY` override. Do not run native and container instances on one workspace
-at the same time.
+Create custom host directories before starting. Host paths are resolved by
+Compose; the application uses fixed Linux paths inside the container. A host
+`TDL_BINARY` override is deliberately ignored in Compose. Do not run native and
+container instances against the same workspace simultaneously.
 
-Proxy addresses must be reachable from the container. A host proxy bound to
-`127.0.0.1` is not the container's loopback address. Configure a reachable proxy
-endpoint when using `TDL_PROXY`.
-
-### Manual reload and image upgrades
-
-**Docker supports manual hot reload inside the running container:**
-
-```sh
-docker compose exec bot tdl-bot reload
-```
-
-The frontend restarts immediately. Existing tdl processes continue in the
-resident engine, which checkpoints and hands off at task/unit boundaries.
-There is no source-directory watcher. Application code comes from the image;
-reload does not fetch or install another image.
-
-**Replacing the image is a graceful restart, not hot reload:**
-
-```sh
-docker compose pull
-docker compose stop
-docker compose up -d
-```
-
-On stop, the supervisor first stops polling and its engine health monitor. It
-then requests engine shutdown: dump/follow scheduling quiesces after the current
-unit, and accepted URL jobs finish. The container remains alive until the engine
-releases its instance lock after database closure and client disconnection.
-`TDL_STOP_GRACE_PERIOD` defaults to `24h`; choose a value long enough for your
-accepted workload. Docker forcibly terminates the container if that deadline
-expires. Interrupted uncertain writes require manual inspection/resume; saving
-checkpoints does not make a killed tdl process continue.
-
-Pulling alone does not change a running container. Use `TDL_BOT_IMAGE` to select
-an immutable `sha-<full-commit>` image instead of `latest`. Database schema changes
-may require restoring a pre-upgrade backup when rolling back to older code.
-
-## uv tool: Windows, Linux and macOS
-
-Until a PyPI release is published, install directly from GitHub:
-
-```sh
-uv tool install --python 3.12 git+https://github.com/yzctzl/tdl-bot.git
-tdl-bot setup -d /path/to/workspace
-```
-
-Edit the generated `.env`, then use the explicit `--env-file` commands above, or
-change into the workspace and run `tdl-bot login` followed by `tdl-bot run`.
-The workspace can be placed on a user-selected disk. It must not be created
-inside uv's tool environment or cache.
-
-Package upgrades and dependency replacement use a graceful stop/start:
-
-```sh
-tdl-bot stop -e /path/to/workspace/.env
-uv tool upgrade tdl-bot
-tdl-bot run -e /path/to/workspace/.env
-```
-
-A package upgrade does not automatically switch a running Python process.
-`uv tool upgrade` may replace dependencies still needed by an old engine, so
-finish the stop before upgrading. The external workspace survives reinstalling
-or uninstalling the tool. On Linux/macOS, ordinary manual `reload` preserves active work; it is
-not a guarantee that an in-place replacement of the Python environment is safe.
-
-The source project's `uv.lock` is used for source and image builds. Tool installs
-resolve dependencies from the package metadata; CI therefore also checks a real
-built-wheel tool install outside the checkout.
+`TZ` is required for Compose. Host `tdl-bot setup` fills it from the system;
+a downloaded blank template needs your input. Use an IANA region/city name,
+not `CST`, whose meaning is ambiguous. Docker Desktop does not automatically
+provide the desktop timezone to the application. The image includes timezone
+data; no `/etc/localtime` mount is needed. After changing `TZ`, recreate the
+container with `docker compose up -d`.
 
 ## Run from a Git checkout
 
@@ -310,57 +154,162 @@ built-wheel tool install outside the checkout.
 git clone https://github.com/yzctzl/tdl-bot.git
 cd tdl-bot
 uv sync --locked --python 3.12
-uv run tdl-bot setup
-# Edit .env with paths, BOT_TOKEN, and ADMIN_USER_IDS.
-uv run tdl-bot login
+uv run tdl-bot setup -i
 uv run tdl-bot run
 ```
 
-For an existing `.env`, skip `setup` and keep explicit `DATA_DIR` plus `BIN_DIR`
-or the existing `TDL_BINARY`. The existing Telegram session location is reused.
-The first upgrade to explicit configuration should use `stop` then `run`, so
-an old supervisor that exported dotenv values does not keep stale settings.
+The workspace defaults to the project directory. To keep it elsewhere, add
+`-d /path/to/workspace` to `setup -i` and `-e /path/to/workspace/.env` to runtime
+commands. Existing workspaces skip initialization; the wizard can update their
+values while retaining advanced settings. Without a wizard, `setup` generates
+`.env`, which you must edit before `login` and `run`.
 
-On Linux/macOS, code/configuration development uses manual `uv run tdl-bot reload`.
-Windows uses `stop` then `run`. A version
-upgrade that also changes dependencies should stop first, update the checkout,
-run `uv sync --locked`, then start. No deployment mode watches file changes.
+## Workspace and advanced settings
 
-## CI and publishing
-
-`checks.yaml` runs on branch pushes and pull requests, and can also be called
-by the release workflow. It runs Ruff, Ty, offline tests and package checks on
-Windows/Linux/macOS, including a built-wheel uv tool install outside the checkout.
-Ordinary commits and pull requests do not build Docker images or publish releases.
-
-`container.yaml` triggers **only when a `vX.Y.Z` Git tag is pushed**. It validates
-that the tag matches `project.version` in `pyproject.toml`, then runs the reusable
-checks. After checks and Docker smoke checks pass, it builds/pushes
-`linux/amd64` and `linux/arm64` images to GHCR. A final job creates the GitHub
-Release for that existing tag and attaches the wheel and source archive. The
-workflow never creates Git tags or publishes to PyPI.
-
-For a release, update `project.version`, run `uv lock`, and commit both files
-before manually creating/pushing the matching tag:
-
-```sh
-# Example: pyproject.toml must already declare version = "0.1.0".
-git tag v0.1.0
-git push origin v0.1.0
+```text
+workspace/
+├── .env
+├── data/
+│   ├── state.sqlite3    # Settings, permissions, tasks and history
+│   ├── tdl/            # Telegram authorizations
+│   ├── jobs/           # Temporary media, cleaned after processing
+│   └── engine.log      # Unix engine log
+└── bin/                # Managed executables, separated by OS/architecture
 ```
 
-Stable `vX.Y.Z` tags are supported; other tag names are not release versions.
-The release workflow has no manual-dispatch or branch-push release path.
-Rerunning a tagged workflow can refresh its existing release assets.
+The generated `.env` remains the configuration file; the wizard saves it for you.
+Relative paths resolve against **its directory**, regardless of where you run the
+command. Set `-e <file>` explicitly, or use `TDL_BOT_ENV_FILE`; otherwise the CLI
+uses `.env` in the current directory. Shell environment variables override file
+values. Shell variable interpolation inside application `.env` values is not supported.
 
-Each release produces `vX.Y.Z`, `X.Y.Z`, `latest`, and `sha-<full-commit>` image
-tags. Set `TDL_BOT_IMAGE=ghcr.io/yzctzl/tdl-bot:v0.1.0` to select a version.
-Publishing uses `GITHUB_TOKEN`, scoped to package writes for the image job and
-repository contents writes for the release job. Public pull access may require
-making the GHCR package public once in GitHub's package settings. Forks should
-set `TDL_BOT_IMAGE` to their own GHCR image.
+| Setting | Default / purpose |
+| --- | --- |
+| `DATA_DIR`, `BIN_DIR` | Explicit paths; generated as `./data`, `./bin` |
+| `TDL_DIR`, `TDL_NAMESPACE` | `./data/tdl`, `default` in the template; shared login location and namespace |
+| `BOT_TOKEN`, `ADMIN_USER_IDS` | Bot token and required initial administrator UIDs |
+| `TDL_PROXY` | Optional SOCKS5, SOCKS4 or HTTP proxy used by execution sessions |
+| `WORKERS`, `QUEUE_SIZE` | 2 foreground workers and 20 waiting tasks; backups have a separate worker pool of the same size |
+| `DOWNLOAD_TIMEOUT`, `UPLOAD_TIMEOUT` | 7200 seconds each; clone timeout includes both download and upload |
+| `UPLOAD_CONCURRENCY` | 8 per-file transfer threads/window, accepted range 1–32 |
+| `TDL_BINARY` | Optional native executable override instead of a managed binary |
+| `RUNTIME_DIR` | Native default: `DATA_DIR`; choose a shorter local path if Unix socket paths are too long |
+| `SESSION_SOURCE` | Default `tdl`; legacy `telethon` mode additionally requires `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` |
 
-Real Telegram transfers are not part of CI. Windows runs offline application
-and native lifecycle tests; Unix-only signal/socket/shebang suites run on Linux
-and macOS with the coverage threshold. A successful Windows CI run is still
-required; local Linux checks do not establish real Windows Telegram behavior.
+More workers do not guarantee more bandwidth. Operations sharing one execution
+session are coordinated; Telegram limits and the transfer backend still apply.
+Keep defaults unless you have a concrete reason to change them.
+
+`ADMIN_USER_IDS` initializes an empty workspace only. After initialization,
+manage members in the Bot; changing the variable does not reset database roles.
+
+### Existing and additional logins
+
+`tdl-bot login` writes to the configured `TDL_DIR`, not tdl's standalone default
+home directory. To reuse an existing tdl login, set `TDL_DIR` to its **root**,
+not its nested `data` folder. Nothing is copied from your home directory automatically.
+
+For code or Telegram Desktop login:
+
+```sh
+tdl-bot login -m code
+tdl-bot login -m desktop
+```
+
+To add a personal execution account, stop the service and sign in under another
+namespace in the same session directory:
+
+```sh
+tdl-bot stop
+tdl-bot login -n personal
+tdl-bot run
+```
+
+This does not change the shared namespace. Accounts are matched to Bot operators
+by verified Telegram UID. Each execution account needs storage access. Use one
+network exit for a shared authorization; avoid running it on another machine or
+through a different proxy at the same time. Protect the entire session directory.
+
+## Reload, stop and update
+
+| Action | Linux / macOS / Linux containers | Native Windows |
+| --- | --- | --- |
+| `reload` | Bot reconnects while active transfers continue; engine changes wait for an idle handoff | Unavailable |
+| `stop` | Drains accepted tasks and stops the service | Drains tasks and stops the single process |
+| Replace package, dependencies or image | Stop first, upgrade, start again | Stop first, upgrade, start again |
+
+```sh
+tdl-bot reload                  # Select the only running instance
+tdl-bot reload -a               # Reload all instances owned by this OS user
+tdl-bot reload -e ./work/.env    # Select one workspace
+tdl-bot stop -e ./work/.env
+```
+
+Multiple running instances require `-a` or `-e`; ambiguous reloads change nothing.
+`stop` uses the selected workspace rather than reload's automatic discovery.
+There is no directory watcher. Reload is not a package update, does not relocate
+data, and cannot change Docker mounts or container environment variables.
+
+On Unix, Ctrl+C stops the foreground Bot supervisor; the engine may keep
+transferring. Use `stop` for a full shutdown. On native Windows, one Ctrl+C asks
+the single process to drain. Keep the terminal open until it finishes.
+
+Upgrade a uv tool installation:
+
+```sh
+tdl-bot stop
+uv tool upgrade tdl-bot
+tdl-bot run
+```
+
+For source installations: stop, update the checkout, run `uv sync --locked`, then
+start again. For Compose:
+
+```sh
+docker compose pull
+docker compose stop
+docker compose up -d
+```
+
+Container-internal manual reload uses `docker compose exec bot tdl-bot reload`.
+**Replacing the image is not hot reload.** The supplied stop grace period is
+24 hours (`TDL_STOP_GRACE_PERIOD`); Docker kills work that exceeds it. A stopped
+or killed container cannot keep transferring in the background.
+
+Update tdl separately using **Bot management → Update tdl** or `/update_tdl`.
+The updater checks versions before downloading, waits for active use, verifies
+the download and replaces the executable. It currently uses official tdl releases.
+
+## Back up and move your workspace
+
+Stop the service, then back up `.env`, the whole data directory and any separately
+configured session directory. Preserve permissions and keep the backup private.
+Restart after copying. Program files can be reinstalled; login sessions and the
+database are the valuable state. Retain a pre-upgrade backup before schema changes;
+older programs reject newer database versions.
+
+To move paths, stop with the **old** configuration, move files, update `.env`
+and any Docker mounts, then start. Do not share live databases or sessions
+between machines, containers or native installations.
+
+## Troubleshooting
+
+| Problem | Next step |
+| --- | --- |
+| Configuration not found | Run in the workspace or pass `-e /path/to/.env` |
+| Setup says configuration exists | Use `setup -i` to edit it; plain `setup` never overwrites it |
+| Missing tdl cannot be downloaded | Check GitHub access/proxy and binary-folder write permission |
+| Login missing after using standalone tdl | Match `TDL_DIR` and namespace, or log in using `tdl-bot login` |
+| Another instance owns a resource | Stop the old instance; do not delete locks to bypass active ownership |
+| Container cannot write mapped files | Check folder creation and Linux `PUID`/`PGID` |
+| Proxy works on host but not in Docker | Container `127.0.0.1` is the container itself; use an endpoint reachable from it |
+| Timezone missing or incorrect | Verify system timezone natively; set Compose `TZ` and recreate its container |
+| Native Windows rejects reload | Use `stop`, then `run`; Docker/WSL2 provides the Unix lifecycle |
+| Long Unix socket path | Use a shorter local `RUNTIME_DIR`, after stopping the old instance |
+
+`tdl-bot health` checks local process liveness, not Telegram reachability.
+Use `tdl-bot help`, `tdl-bot help login` or `tdl-bot login help` without needing
+a configured workspace. Logs may contain account identifiers; redact credentials
+and private content before sharing diagnostics.
+
+For in-chat failures, see the [user guide](manual.md#troubleshooting).
