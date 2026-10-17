@@ -1,227 +1,475 @@
-# User guide
+# Owner's guide
 
 [简体中文](manual_zh.md) · [Home](../README.md) · [Installation](deployment.md)
 
+This guide is for you as the person deploying, using and managing your own Bot.
+You are its owner and administrator, whether you use it alone, from several of
+your accounts, or with trusted collaborators. Everyday tasks use buttons; you do
+not need to learn the command list or the implementation first.
+
+Not installed yet? Complete the [installation guide](deployment.md), then start
+with “First use” below.
+
+## Find what you want to do
+
+| Your next task | Start here |
+| --- | --- |
+| Open your newly deployed Bot and check that it works | [First use](#first-use) |
+| Save a video or a complete album | [Save a message or album](#save-a-message-or-album) |
+| Send content to your collection channel or a specific topic | [Set your destination](#set-your-destination) |
+| Collect new posts continuously or copy existing history | [Scheduled tracking and history backups](#scheduled-tracking-and-history-backups) |
+| Inspect or cancel tasks; join a source and retry | [Tasks and failed transfers](#tasks-and-failed-transfers) |
+| Use several Telegram accounts | [Manage execution accounts](#manage-execution-accounts) |
+| Give your other accounts or collaborators access | [Manage members and activity](#manage-members-and-activity) |
+| Change storage, language or the tdl version | [Settings and maintenance](#settings-and-maintenance) |
+| Work out what to check when something fails | [Troubleshooting](#troubleshooting) |
+
+## Understand the three locations
+
+Once configured, most work happens in Telegram. You use the terminal to start,
+stop, upgrade or add a login. Three locations are worth distinguishing:
+
+| Name | What it is | What you do with it |
+| --- | --- | --- |
+| Bot chat | Your private conversation with the Bot you created | Send links, press buttons and read task progress here |
+| Internal storage | The channel/group selected during deployment, holding saved content and necessary activity records | Keep it accessible to the Bot and every execution account; do not casually empty it |
+| Destination | Where you want to read your collection; your Bot chat by default | Optionally change it to a channel, group or forum topic |
+
+Internal storage and your destination are independent settings. For your first
+test, keep delivery in the Bot chat. Once one item arrives successfully, set up
+a collection channel. This makes permission problems easier to locate.
+
 ## First use
 
-Your administrator installs the Bot and grants you access. Open its **private
-chat**, send `/start`, and choose English or Simplified Chinese. Your language
-choice is saved; it does not change the language of media captions.
+### 1. Open your Bot
 
-The main screen shows your account, destination and task summary. Its buttons are:
+The setup wizard displays the Bot's `@username` when it verifies the token.
+Search for it in Telegram, open its private chat, and press Start or send `/start`.
+The first welcome message is bilingual. Choose **English** or **简体中文**; you
+can change this in Settings later. Interface language does not translate source captions.
 
-| Section | What you can do |
+### 2. Check your administrator access
+
+The main screen shows your account, destination, active tasks, pending retries
+and tracking summary. You should see three main rows of buttons:
+
+| First column | Second column |
 | --- | --- |
-| Task management | See current status, active tasks and pending retries; join a source |
-| Scheduled tracking | Create a follow, see its progress, pause, resume, change its interval or cancel |
-| Settings | Choose a destination and interface language |
-| Help | Show the commands available to your role |
-| User management — administrators | Manage members, permissions, quotas and history |
-| Bot management — administrators | Back up history, configure internal storage, choose an execution account and update tdl |
+| Task management | Scheduled tracking |
+| User management | Bot management |
+| Settings | Help |
 
-Opening or returning to a page loads its current summary. Progress messages are
-separate, so you can browse menus while a task runs. If an old button expires,
-send `/start` again. Commands remain available alongside buttons; sending a command
-exits a menu's pending text-input step.
+If the second row is missing, the Telegram account you are using is not an
+administrator. For a new installation, check that it is the account you confirmed
+in setup step three. With an existing database, editing `ADMIN_USER_IDS` in `.env`
+does not reset roles; use an existing administrator's account to make the change
+in User management.
+
+### 3. Check internal storage
+
+Open **Bot management** and check that Internal storage shows the channel/group
+you prepared. If the wizard already configured it, you do not need to repeat the
+step. For a manual Docker installation without storage configured, press
+**Change storage** and enter its `@username` or ID.
+
+The Bot must be able to read and copy the stored messages; the execution account
+must be able to post there. In a channel, make the Bot an administrator with
+posting permission and disable content protection/restricted saving.
+For setup and login issues, see [Before you begin](deployment.md#before-you-begin).
+
+### 4. Save your first item
+
+Choose a small video or photo message that your signed-in account can open.
+Copy its message link and send it in the Bot chat. Wait for `5/5` and check that
+the media and caption appear in that conversation.
+
+A complete result confirms that source access, internal storage and final delivery
+work together. Try albums, private sources and custom destinations afterward,
+so you can verify each setting separately.
 
 ## Save a message or album
 
-Send a Telegram **message link** in the Bot chat. A link to any member of an album
-selects the whole album, including captions attached to other members. Photos,
-videos and their text stay in source order; formatting is preserved and spoiler
-covers are removed from the saved content.
+### Which link to send
 
-Public links, private `/c/` links, forum message links, `/s/` preview links and
-supported discussion-comment links are accepted. A private link does not itself
-grant access: the account doing the transfer must be able to read that source.
+Open the Telegram message you want to keep, copy its link from the message menu,
+and paste it into your Bot chat. Use a **specific message link**, rather than a
+channel homepage or an invitation link.
 
-The Bot replies to your link with **one progress message**, updated in place:
+For example, `https://t.me/example_channel/123` identifies a message;
+`https://t.me/example_channel` is only a channel homepage. These illustrate the
+format; replace them with a real message you want to save.
 
-| Step | What it means |
-| --- | --- |
-| 1/5 Queued | Your task has been accepted |
-| 2/5 Locating | Finding the message and other members of its album |
-| 3/5 Preparing | Preparing the media; when byte transfer is needed, the message shows downloading, uploading, or both |
-| 4/5 Sending | Sending the prepared content to your destination |
-| 5/5 Complete | Media and captions have been sent |
+For an album, send any one member's link. There is no need to send every photo
+separately. The Bot finds the other members and processes photos, videos and
+captions together, preserving order and text formatting. Saved content has its
+spoiler covers and original-sender forwarding labels removed.
 
-Use **Cancel** beneath that message, or choose a task in Task management.
-Cancellation waits for local cleanup. Content already sent to Telegram may remain;
-cancelling is not a recall operation. Terminal states remove the cancel button.
+Public messages, private `/c/` messages, forum messages, `/s/` previews and supported
+discussion-comment links are accepted. A private link is not an access grant;
+the execution account still needs to be able to read the source.
 
-Previously saved content can be sent without another download. This also works
-for another link into the same album when the Bot can identify it. It depends on
-the saved copy still being accessible; it is not an unlimited archive of deleted content.
+### Read the progress message
 
-## Choose where content arrives
+The Bot replies to your link with one message and updates it in place, rather
+than sending another message for each step:
 
-Open **Settings → Receiving settings**. The default is your Bot chat. You can instead
-enter a channel/group `@username` or ID, with a topic ID when needed:
+| Step | What it means | What you should do |
+| --- | --- | --- |
+| 1/5 Queued | The task is accepted and waiting | Wait; do not send the same link again |
+| 2/5 Locating | Finding the message and the rest of its album | No action needed |
+| 3/5 Preparing | Preparing media; shows downloading, uploading or both when transfer is needed | Large files may take longer here; keep the service running |
+| 4/5 Sending | Sending to your destination | Wait for the delivery result |
+| 5/5 Complete | Media and captions have been sent | Open your destination |
+
+Preparation time depends on file size, network conditions and Telegram limits;
+the steps do not take equal time. Previously saved content that remains available
+usually arrives sooner, without you selecting a different processing mode.
+
+### Stop a task midway
+
+Press **Cancel** below the progress message and wait for cancellation to finish.
+This cleans the task's local temporary files. Content already sent to Telegram
+may remain; cancellation does not recall it. The cancel button disappears when
+the task ends.
+
+Menu navigation does not replace task progress, so you can adjust other settings
+while waiting.
+
+## Set your destination
+
+### Receive in the Bot chat
+
+This is the default and is convenient for a first test, without adding the Bot
+to another channel. To restore it, choose **Settings → Receiving settings →
+Receive in Bot dialogue**. The equivalent command is:
 
 ```text
 /target bot
+```
+
+### Receive in a channel or group
+
+1. Prepare an existing Telegram channel/group, such as your collection channel
+2. Add the Bot; channels need administrator posting permission, while groups
+   must allow the relevant text and media messages
+3. Ensure your own operator account also has access to this destination
+4. Return to the Bot chat and choose **Settings → Receiving settings → Set group or channel**
+5. Send the destination's `@username` or numeric ID when prompted; private channels
+   generally need an ID
+6. Check the destination on the returned page, then send a new message link to test it
+
+In the button flow, send only the requested destination, without `/target`.
+If you prefer a command, use the full form:
+
+```text
 /target @my_collection
+```
+
+The Bot does not create channels or initiate conversations with arbitrary private
+accounts. A personal Bot-chat destination is your own conversation with it.
+
+### Receive in a forum topic
+
+Set up the group permissions as above, then append a topic ID after the destination,
+separated by a space:
+
+```text
 /target @my_forum 42
 ```
 
-Prepare an existing destination; the Bot does not create channels. Add the Bot
-with permission to send the relevant messages and media. For a channel, make it
-an administrator with posting permission. Private destinations may require a numeric ID.
-A destination/topic link in status opens the corresponding location where Telegram supports it.
+A topic ID is its numeric identifier, not its title. For a link shaped like
+`t.me/c/<chat>/42/<message>`, `42` is the topic ID and the final segment is a
+message ID; `?thread=42` also explicitly identifies topic 42. If unsure, first
+omit the topic to check group delivery, then configure the topic. Status includes a clickable destination/topic link you
+can use to verify the location.
 
-Changes apply to **new tasks**. Accepted tasks and retries keep the destination
-and execution account they were created with. Changing your destination does not
-redirect a pending retry. Use `/status` to check your current selection.
-
-## Tasks, retries and joining sources
-
-Task management shows the current state directly. Open active tasks for progress
-and cancellation; pending retries have controls to retry, remove, or join a source
-before retrying. Ordinary members manage their own personal tasks; administrators
-can manage all tasks, subject to execution-account access rules.
-
-If the source requires membership, choose **Join**, then send its public homepage
-or invitation link. Joining is also available independently of a failed task.
-A join linked to a retry uses that task's original execution account. Approval
-requests may need a source administrator's action before a retry can succeed.
-
-```text
-/pending
-/retry <id>
-/join https://t.me/+INVITE <retry_id>
-/retry_cancel <id>
-```
-
-Ordinary members can keep **three pending retries**. When the list is full, retry
-or remove existing entries before sending more links. A join request awaiting
-approval uses the same entry, not an extra slot. Remove only deletes the retry
-record; cancel an active retry before removing its record. Administrators are
-not subject to this cap.
-
-Joining cannot restore deleted messages, overcome a ban, or reveal history the
-source does not make available to your account. If the original execution account
-is unavailable, ask your administrator to restore it; retries do not switch identities silently.
+Destination changes affect **new tasks only**. Accepted tasks and pending retries
+retain their original location; changing Settings does not redirect old work.
 
 ## Scheduled tracking and history backups
 
-### Follow new posts
+### Choose the right task
 
-Use **Scheduled tracking** to select a source, an optional destination and an
-interval. A follow starts **after the latest message present when it is created**.
-It checks every five minutes by default; the shortest interval is 60 seconds.
-It copies new albums, individual media and text, ignoring service notifications.
-Edits and deletions are not synchronized.
+| What you want | Feature | Where to find it |
+| --- | --- | --- |
+| Collect newly published content from now on | Scheduled tracking; command name `follow` | Main screen → Scheduled tracking |
+| Copy content already in the source | History backup; command name `dump` | Bot management → History backup |
+
+Both support albums, individual media and plain text, ignoring service messages.
+Neither creates a destination channel or synchronizes later edits and deletions.
+
+### Create scheduled tracking
+
+1. Choose **Scheduled tracking → New tracking**
+2. Send the source's `@username`, ID or link; private sources require execution-account access
+3. On the review page, check the source and press **Destination**
+4. To use a separate backup channel, choose **Set group or channel** and enter it;
+   to keep content only in internal storage, leave **Default** selected
+5. Press **Interval** and select a preset, or enter a custom value such as `5m` or `1h`
+6. Check the source, destination and interval, then press **Start tracking**
+
+The default check interval is five minutes; the minimum is 60 seconds. After
+creation, task details show its state, processed counts, interval and next check
+time when applicable. Counts remain unchanged when the source has no new posts.
+
+Tracking starts **after the latest message present at creation**. It does not
+collect earlier history. **Default** here means **internal storage only**, not
+your personal destination from Settings. Explicitly choose your collection channel
+if you want tracking results to arrive there.
+
+Equivalent command:
 
 ```text
 /follow @source_channel to @backup_channel every 5m
-/follow @source_channel every 10m
-/follow interval <id> 1h
 ```
 
-Prepare the destination and Bot permissions as for normal delivery. Omitting the
-destination saves to the service's default storage only; it does **not** send to
-your personal destination. No channel is created automatically.
+### Create a history backup
 
-Ordinary members have **nine follows** by default. Active and paused follows both
-count; cancelling frees a slot. Administrators can change a member's quota.
-A lower quota keeps existing follows, but creation and resumption must fit the
-new quota. Administrators have no count cap.
+1. Choose **Bot management → History backup → New backup**
+2. Send the source channel or group
+3. Choose a destination on the review page; omitting it saves to internal storage only
+4. Confirm by pressing **Start backup**
+5. Inspect task details for progress; history is copied oldest first, keeping albums together
 
-### Back up earlier messages — administrators
+The task copies only history visible to its execution account. It fixes its end
+position at creation, so new posts do not keep extending the job. Create tracking
+as well if you want to keep collecting future posts.
 
-In **Bot management → History backup**, choose the source and optional destination.
-A dump copies visible history from oldest to newest, keeping albums together.
-The last message to include is fixed at creation, so new posts do not extend the
-backup indefinitely. Use a follow for later posts.
+Equivalent command:
 
 ```text
 /dump @source_channel to @backup_channel
 ```
 
-The execution account must have access to the source. Only history visible to
-that account can be copied. Omitting a destination saves to internal storage only.
-Running a new dump of the same history can deliver those posts again.
-A dump and a follow are separate tasks, not an atomic handover: if you need both,
-creating the follow first avoids a gap between their creation times, but the
-overlapping posts may be delivered twice.
+Starting another backup of the same history may deliver those posts again.
+History backups and tracking are independent tasks. If using both, create tracking
+first to avoid a gap between creation times; overlapping content may be sent twice.
 
-### Pause, resume and recover
+### Pause, change, cancel and resume
 
-Both task types have status, pause, resume and cancel controls. Pausing retains
-progress; cancelling is final. Cancelled tasks stay in lists for seven days.
-Tasks keep their original execution account and destination.
+Open the relevant task list, select a task, then choose an action:
 
-Telegram rate limits and safe network failures trigger delayed retries. If the
-result of a send is uncertain, the backup pauses instead of guessing. Inspect
-the destination, then use the offered retry/skip controls. Retrying may duplicate
-a successful but unacknowledged send; skipping may omit an item that never arrived.
-
-Large backups are paced automatically. A quiet task may be waiting for Telegram's
-requested delay or its next follow interval, rather than being stuck.
-
-## Accounts and collaboration
-
-This is a shared workspace for trusted people, not an isolated public hosting
-service. Do not use one workspace for people whose collections must be isolated.
-Members have personal destinations and language settings. Administrators
-manage access, tasks and history. Submitted links and explicit join actions are
-recorded for administrators, including compact records in internal storage.
-Other everyday commands are not posted there as activity records.
-
-The account sending commands to the Bot and the account reading sources are not
-necessarily the same. If your own Telegram account is already logged in on the
-server, it is used automatically; otherwise the shared execution account is used.
-Ordinary members cannot select another person's session. Your administrator
-handles server-side logins; the Bot chat does not collect login codes.
-
-## Administrator controls
-
-Use **User management** to list members with pagination buttons. Select a member
-to see their destination, role, ban state and follow usage, then make changes.
-Most member commands accept a UID or `@username`; an unresolvable username may
-still need a UID. Permissions attach to the UID, so renaming a username does not transfer access.
-
-| Operation | Command alternative |
+| Action | Result |
 | --- | --- |
-| Add / remove | `/user add @person` · `/user remove @person` |
-| Ban / unban | `/user ban @person 1d` · `/user unban @person` |
-| Change role | `/user role @person user` or `admin` |
-| Follow quota | `/user follow @person 9` — range 0–1000 |
-| History | `/user history [@person]` — activity, with a management-history tab |
-| Member destination | `/target for @person @destination` |
+| Pause | Retains progress for later resumption |
+| Resume | Continues from saved progress, rather than creating a new task from the beginning |
+| Change interval | Changes the tracking frequency, keeping its original source and destination |
+| Cancel | Ends the task permanently; already sent messages remain |
 
-Ban durations are `1d`, `1w` and `1m` (30 days). Removing/banning a member stops
-their active work; completed content remains. Removing a member does not delete
-server-side Telegram sessions. The final effective administrator is protected
-against deletion, banning and demotion.
+Cancelled tasks remain in lists for seven days, then are hidden. New destination
+or execution-account settings do not alter existing tasks; create a new task for
+a different destination. Large backups are paced automatically. Telegram rate
+limits cause a wait; repeatedly pausing and resuming does not speed it up.
 
-**Bot management** shows tdl version, internal storage and execution account.
-Internal storage must remain readable by the Bot and writable by every execution
-account. Deleting its media can prevent reuse. An administrator may select any
-loaded execution account; the choice affects only that administrator's new tasks.
-Updating tdl checks the installed version first and preserves the old executable
-if installation fails.
+If the last send is unconfirmed, first inspect the destination for that item:
 
-## Command shortcuts
+- Confirmed complete: choose **Skip current item** to avoid sending it again
+- Confirmed absent: choose **Retry current item**
+- Partly received or unclear: check the content before proceeding; repeated retries can leave duplicates
 
-Use Help for the complete role-specific command list. `/start` opens the menu;
-`/whoami` shows your own UID. Subcommands accept an unambiguous prefix, such as
-`/user h` for history. Ambiguous prefixes do nothing and ask for a longer spelling:
-`/user r` can mean `remove` or `role`. Values such as usernames and URLs are not abbreviated.
+## Tasks and failed transfers
+
+### Inspect and cancel active work
+
+**Task management** shows current status directly. Open **Active tasks** and select
+a task to inspect its source, destination, stage and cancel control. Ended tasks
+leave the active list; the original progress message retains the result.
+Use Refresh on dynamic lists for current counts; navigating back to other pages
+loads their latest state automatically.
+
+### Join a source and retry
+
+If a link enters pending retries because the source is inaccessible:
+
+1. Choose **Task management → Retry management**
+2. Select the record and check its source and destination
+3. If access is already fixed, press **Retry**
+4. If not yet a member, press **Join and retry** and send the source homepage or invitation link
+5. Check the execution account shown on the confirmation screen, then confirm joining
+
+A successful join starts the retry. If approval is required, wait for the source
+administrator to approve, then return to that record and press Retry. You can
+also join independently through **Task management → Join**. The execution account
+joins the source; this does not add the Bot to it.
+
+Joining cannot recover deleted content, bypass bans or reveal unavailable history.
+If one of your accounts can read a source but the Bot cannot, check which execution
+account the Bot is actually using.
+
+### Remove an unwanted retry
+
+Open its details, press **Remove retry**, then confirm. This removes only the
+record: it does not recall media or leave a group you have joined. If the retry
+is already running, cancel the active task before removing its record.
+
+Administrators are not subject to the three-record retry cap. Ordinary members
+can keep three pending retries; they must retry or remove an entry before
+submitting more links. This does not limit you while operating as administrator.
+
+## Manage execution accounts
+
+### Start with one account
+
+You do not need multiple accounts for everyday use. The Telegram account signed
+in during setup is the shared execution account, responsible for reading sources
+and preparing media. You can operate the Bot from that account or from another
+authorized Telegram account.
+
+Members without a personal login use the shared executor. Source access therefore
+depends on **the execution account**, not just the account that sent the link.
+
+### Add another of your accounts
+
+For a native installation, run these commands in your workspace terminal:
+
+```sh
+tdl-bot stop
+tdl-bot login -n personal
+tdl-bot run
+```
+
+`personal` is a name for this login; choose another memorable name if you prefer.
+Scan with the intended account, rather than signing in as the original account
+again. See [Reuse or add logins](deployment.md#reuse-or-add-logins) for Docker.
+Every execution account needs permission to post to internal storage.
+
+After restart, a logged-in personal account is used automatically when its UID
+matches the account operating the Bot; otherwise the shared executor is used.
+Logging in does not grant Bot membership. Add other operator accounts in User management too.
+
+### Select an account as administrator
+
+Open **Bot management → Execution account** to see the loaded accounts and current
+selection. Select one to use it for your subsequent new tasks, or choose
+**Automatic** to restore the own-account-otherwise-shared rule.
+
+The selection affects only your new tasks. It does not change another member's
+account or the identity of existing tasks and retries. Ordinary members cannot
+use this selector to borrow someone else's personal account.
+
+## Manage members and activity
+
+### Using it alone? Skip member setup
+
+The administrator confirmed at first setup already has management access; you
+do not need to add yourself again. Add members only when you want other accounts
+or collaborators to operate the Bot. This workspace is for trusted collaboration,
+not private collections isolated from other members.
+
+### Add an account
+
+1. Open **User management** to see the member list
+2. Press **Add account** and enter the person's `@username` or UID
+3. After confirming, have that person open the same Bot's private chat and send `/start`
+4. They can choose a language, send links and set their own destination
+
+If they have no username or it cannot be resolved, have them use `/whoami` and
+add the returned UID instead. Permissions attach to that UID; a later username
+change does not transfer access.
+
+### Inspect and change a member
+
+Use pagination buttons in the list, then select an account to open its details.
+Check its role, ban state, destination and follow usage before making changes:
+
+| Action | When to use it |
+| --- | --- |
+| Change destination | Help another account correct where its content is sent |
+| Set role | Grant administrator access for someone helping manage the Bot; otherwise keep the regular role |
+| Ban / unban | Temporarily suspend access for a day, week or 30 days, or lift it early |
+| Remove | Revoke the account's permission to use the Bot |
+| Follow quota | Set an ordinary member's tracking allowance, from 0 to 1000 |
+
+Ordinary members start with nine follows. Active and paused tasks both count;
+cancelling releases a slot. Lowering a quota preserves existing tasks, but new
+creation and resumption must fit the new allowance. Administrators have no count cap.
+
+Banning/removing a member stops their active work. Completed content and server-side
+login sessions remain. The last effective administrator cannot be removed, banned
+or demoted, preserving access to management.
+
+### See who processed what
+
+Open History in User management for all link/join activity, or filter by member.
+Switch tabs for management records, kept separately from content activity.
+
+Links and explicit joins also leave compact records in internal storage; other
+everyday buttons and commands are not all posted there. Records prefer usernames,
+with failed/cancelled links struck through. Requests for already saved content
+link to the existing media instead of adding another media copy to storage.
+
+## Settings and maintenance
+
+### Change language
+
+Choose **Settings → Language settings**, then English or Simplified Chinese.
+Each operator's choice is saved across restarts; source captions stay unchanged.
+
+### Change internal storage
+
+Prepare the new channel/group and grant access to the Bot and every execution
+account. Choose **Bot management → Change storage** and send the new location
+when prompted. Check the displayed location, then verify it with a new link.
+
+This does not migrate old media. Accepted tasks keep their original storage
+location, and existing results in the old channel may still be used. Do not
+immediately delete the old channel. Change your destination separately in
+Settings → Receiving settings.
+
+### Update tdl versus updating the Bot
+
+**Bot management → Update tdl** updates the program that handles transfers.
+Choosing the latest version first checks the installed version; it downloads
+only when needed and waits for active use before replacement. Failure preserves
+the old executable. This does not update tdl-bot itself.
+
+For Bot upgrades, backups, stopping and restarting, follow
+[Stop, reload and upgrade](deployment.md#stop-reload-and-upgrade). Do not delete
+installation or login folders as a way to fix a task error.
+
+### When you need commands
+
+**Help** displays the full command list for your role. Buttons cover everyday
+work; commands are useful for direct entry once familiar. For example, `/status`
+shows status and `/user h` opens history. Subcommands accept unambiguous prefixes;
+an ambiguous prefix does not execute anything.
 
 ## Troubleshooting
 
-| Symptom | What to check |
-| --- | --- |
-| Access denied | Ask the administrator to add or unban your Bot account |
-| Source unavailable / pending retry | Check the execution account's membership, approval status and visible history |
-| Sending failed | Add the Bot to the destination **and internal storage**; check posting/media permissions and topic ID |
-| Some media may already have been uploaded | Inspect the destination before resending; an interrupted acknowledgement can leave a successful send |
-| Queue full | Wait for a task to finish; submitting the same link repeatedly does not help |
-| Three pending retries already exist | Retry or remove an entry before submitting another link |
-| A follow has no old posts | Follows start with new posts; ask an administrator for a history backup |
-| An old button no longer works | Open `/start` again |
-| Destination changed but retry goes elsewhere | Retries keep their original destination; submit a new task for the new location |
+### The Bot replies, but content does not arrive
 
-For startup, proxy, Windows, Docker or upgrade issues, use the
-[installation and maintenance guide](deployment.md#troubleshooting).
+Keep delivery in the Bot chat and check that the execution account can read the
+source. Then check Internal storage in **Bot management**: the Bot must have
+joined, have posting permissions, and storage must allow copying. If Bot-chat
+delivery works but your collection channel does not, check that channel's Bot
+permissions and topic ID. Internal storage permissions matter as well as the final target.
+
+### The error says some media may already have been uploaded
+
+Inspect the destination for all or part of the content. A connection can fail
+after a successful send, so resubmitting immediately may create duplicates.
+For a normal link task, decide whether to resubmit after checking; for backups
+or tracking, use the task's retry/skip controls.
+
+### You can read the source, but the Bot asks to join
+
+Check the actual identity under **Bot management → Execution account**.
+If using the shared account, that account must join, not only the account sending
+the link. Approval may still be pending, and joining does not necessarily expose
+older history restricted by the source.
+
+### A new follow has not sent anything
+
+Tracking does not copy pre-existing posts. Check that the task is Running and
+look at its next check time. For a test, create tracking on a source you control,
+publish a new message afterward, then wait at least one polling interval.
+Use History backup for older content.
+
+### An old button fails, or an old task still uses the previous destination
+
+Send `/start` again to replace an expired menu. Target/account changes affect
+new tasks only; existing tasks and retries retain their settings. Submit a new
+task when you need the new location.
+
+For startup, Docker folders, proxies and Windows issues, see
+[installation troubleshooting](deployment.md#troubleshooting).
