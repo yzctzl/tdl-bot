@@ -1,24 +1,8 @@
 """One command registry drives routing, menus and help."""
 
 COMMANDS = (
-    ("dump", "backups.dump", "Back up channel or group history (admin)", True),
-    ("follow", "backups.follow", "Track new channel or group messages", False),
-    (
-        "account",
-        "execution.account",
-        "View execution account; administrators can switch",
-        True,
-    ),
-    ("language", "language", "Choose your language", False),
     ("start", "start", "Open main menu", False),
     ("help", "help", "Show help", False),
-    ("whoami", "whoami", "Show your account ID", False),
-    (
-        "target",
-        "destinations.target",
-        "Set destination: Bot dialogue, group, or channel",
-        False,
-    ),
     (
         "status",
         "destinations.status",
@@ -31,14 +15,30 @@ COMMANDS = (
     ("retry", "tasks.retry", "Retry a task: retry ID", False),
     ("retry_cancel", "tasks.retry_cancel", "Remove a pending retry: ID", False),
     ("join", "tasks.join", "Join source group: group link and retry ID", False),
+    ("follow", "backups.follow", "Track new channel or group messages", False),
+    (
+        "target",
+        "destinations.target",
+        "Set destination: Bot dialogue, group, or channel",
+        False,
+    ),
+    ("language", "language", "Choose your language", False),
+    ("whoami", "whoami", "Show your account ID", False),
+    ("user", "members.user", "Manage members: /user for help", True),
+    (
+        "account",
+        "execution.account",
+        "View execution account; administrators can switch",
+        True,
+    ),
     (
         "storage",
         "destinations.storage",
         "Configure internal storage (admin)",
         True,
     ),
+    ("dump", "backups.dump", "Back up channel or group history (admin)", True),
     ("update_tdl", "update", "Check and update tdl", True),
-    ("user", "members.user", "Manage members: /user for help", True),
 )
 
 HELP = (

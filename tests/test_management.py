@@ -267,6 +267,28 @@ def test_retry_limit_is_atomic_across_connections(managed, tmp_path):
 async def test_registered_menus_cover_every_command_and_follow_roles(managed):
     app, _, store, _ = managed
     await app.register_commands()
+    expected = [
+        "start",
+        "help",
+        "status",
+        "jobs",
+        "cancel",
+        "pending",
+        "retry",
+        "retry_cancel",
+        "join",
+        "follow",
+        "target",
+        "language",
+        "whoami",
+        "user",
+        "account",
+        "storage",
+        "dump",
+        "update_tdl",
+    ]
+    assert [item.command for item in app.command_menu(admin=True)] == expected
+    assert [item.command for item in app.command_menu()] == expected[:13]
     names = {item.command for item in app.command_menu(admin=True)}
     assert names == {name for name, _, _, _ in COMMANDS}
     assert "users" not in names and not any(
