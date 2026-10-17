@@ -3,6 +3,7 @@
 import asyncio
 import os
 import signal
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
 
@@ -45,6 +46,8 @@ def settings(tmp_path, monkeypatch):
 def test_reload_and_stop_require_live_supervisor_and_release_locks(
     settings, monkeypatch
 ):
+    if sys.platform == "win32":
+        pytest.skip("Unix supervisor signals")
     pid_file = settings.data_dir / "frontend.pid"
     pid_file.write_text("123")
     (settings.data_dir / "runtime.sock").touch()
@@ -265,6 +268,8 @@ def test_help_exits_without_loading_configuration(monkeypatch, capsys):
 def test_reload_discovers_instances_and_requires_an_explicit_choice(
     tmp_path, monkeypatch, capsys
 ):
+    if sys.platform == "win32":
+        pytest.skip("Unix supervisor signals")
     from pathlib import Path
 
     from tdl_bot.runtime.instances import (

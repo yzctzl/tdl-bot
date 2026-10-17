@@ -458,6 +458,8 @@ def parse_arguments(argv=None):
 
 
 def reload_instances(env_file=None, *, all_instances=False):
+    assert sys.platform != "win32", "Reload requires the Unix supervisor"
+
     from tdl_bot.runtime.instances import Instance, discover
 
     instances = discover(lambda runtime: signal_supervisor(runtime, 0))

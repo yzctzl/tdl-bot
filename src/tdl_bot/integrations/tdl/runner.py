@@ -239,10 +239,10 @@ class Tdl:
                     stdin=asyncio.subprocess.DEVNULL,
                     env=environment,
                     # Keep console Ctrl+C in the Bot; accepted jobs drain there.
-                    **(
-                        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                    creationflags=(
+                        subprocess.CREATE_NEW_PROCESS_GROUP
                         if os.name == "nt"
-                        else {}
+                        else 0
                     ),
                 )
             except OSError as exc:

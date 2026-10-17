@@ -254,6 +254,8 @@ async def test_supervisor_reloads_only_on_explicit_request(
     monkeypatch,
     container,
 ):
+    if sys.platform == "win32":
+        pytest.skip("Unix supervisor signals")
     import signal
     import subprocess
 

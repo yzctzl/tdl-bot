@@ -56,6 +56,7 @@ def spawn_process(command: str, **kwargs):
 
 
 async def exchange(path: Path, request):
+    assert sys.platform != "win32", "Engine RPC requires Unix sockets"
     reader, writer = await asyncio.open_unix_connection(str(path), limit=_LIMIT)
     try:
         request = {**request, "language": current_language()}
@@ -230,6 +231,7 @@ class EngineServer:
             self.calls -= 1
 
     async def serve(self):
+        assert sys.platform != "win32", "Engine RPC requires Unix sockets"
         path = runtime_directory(self.settings) / "runtime.sock"
         # The engine instance lock is acquired before removing a stale socket.
         path.unlink(missing_ok=True)

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 from pathlib import Path
 
 from tdl_bot.runtime.engine import spawn_process
@@ -20,6 +21,7 @@ async def _stop_child(child, waiter):
 
 
 async def supervise(data_dir: Path, *, shutdown=None):
+    assert sys.platform != "win32", "The supervisor requires Unix signals"
     loop = asyncio.get_running_loop()
     restart = asyncio.Event()
     stopping = asyncio.Event()
