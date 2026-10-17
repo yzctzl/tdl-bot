@@ -71,3 +71,20 @@ jobs:
             if (!(Test-Path $path)) { throw "Missing workspace path: $path" }
           }
           & $cli help login
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $cli run help
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $python = Join-Path $env:UV_TOOL_DIR "tdl-bot/Scripts/python.exe"
+          @'
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          from tdl_bot.core.config import Settings
+          from tdl_bot.core.i18n import CATALOGS
+
+          settings = Settings.from_env(login_only=True, env_file=Path("workspace/.env"))
+          assert settings.tdl_binary.name == "tdl.exe"
+          assert settings.tdl_binary.parent.name == "windows-amd64"
+          assert {"en", "zh"} <= CATALOGS.keys()
+          assert ZoneInfo("America/New_York").key == "America/New_York"
+          '@ | & $python -
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
