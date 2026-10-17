@@ -310,7 +310,7 @@ def test_catalogs_cover_sources_and_keep_languages_in_sync():
     sources = {HELP, ADMIN_HELP, USER_HELP, *(row[2] for row in COMMANDS)}
     stages = {"Queued"}
     for path in Path("src/tdl_bot").rglob("*.py"):
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         assert not re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", source), path
         for node in ast.walk(ast.parse(source)):
             if (
@@ -337,7 +337,8 @@ def test_catalogs_cover_sources_and_keep_languages_in_sync():
         messages = catalog["messages"]
         if catalog is CATALOGS["en"]:
             continue
-        assert sources | stages <= messages.keys()
+        missing = (sources | stages) - messages.keys()
+        assert not missing, f"{catalog['name']}: missing keys {sorted(missing)}"
         assert all(
             isinstance(value, str) and value for value in messages.values()
         )
