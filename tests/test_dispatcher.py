@@ -2,6 +2,7 @@
 
 import asyncio
 import itertools
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -295,6 +296,8 @@ async def test_remote_engine_bootstrap_retry_and_shutdown_lifecycle(
     journey, monkeypatch
 ):
     """Exercise Unix RPC, durable jobs, retries, and account operations."""
+    if sys.platform == "win32":
+        pytest.skip("Unix engine bootstrap requires local sockets")
     j = journey
     await j.send("/target bot")
     j.service.durable = True

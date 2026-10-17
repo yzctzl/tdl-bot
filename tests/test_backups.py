@@ -1,6 +1,7 @@
 """Backup ordering, durable checkpoints, permissions and uncertain writes."""
 
 import asyncio
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -350,6 +351,8 @@ async def test_failures_never_advance_cursor_and_uncertain_resume_is_explicit(
 
 
 async def test_scheduler_cancellation_recovery_and_graceful_reload(workspace):
+    if sys.platform == "win32":
+        pytest.skip("Unix engine handoff requires local sockets")
     w = workspace
     created = await w.manager.execute(
         1, "dump", "create", source_ref="@source0"
@@ -381,6 +384,8 @@ async def test_scheduler_cancellation_recovery_and_graceful_reload(workspace):
         release.set()
         await asyncio.wait_for(serving, 3)
     finally:
+        # Release the fake writer even when server startup or assertions fail.
+        release.set()
         serving.cancel()
         await asyncio.gather(serving, return_exceptions=True)
     assert record.cursor == 1 and record.state == "active"
@@ -401,6 +406,7 @@ async def test_scheduler_cancellation_recovery_and_graceful_reload(workspace):
         await restarted.execute(1, "dump", "cancel", task_id=record.id)
         assert recovered.state == "cancelled" and recovered.phase == "uncertain"
     finally:
+        release.set()
         await restarted.close()
 
 
@@ -603,6 +609,8 @@ async def test_live_permissions_cancel_backups_and_rename_never_changes_source(
 async def test_idle_follow_restarts_after_reload_without_a_user_request(
     workspace, monkeypatch
 ):
+    if sys.platform == "win32":
+        pytest.skip("Unix engine handoff requires local sockets")
     from tdl_bot.runtime.engine import maintain_engine
 
     w = workspace

@@ -33,12 +33,14 @@ jobs:
         run: uv run --locked pytest --basetemp=/tmp/tdl-bot-tests -q
       - name: Test native Windows lifecycle and application behavior
         if: runner.os == 'Windows'
+        timeout-minutes: 10
         # These suites exercise Unix signals, sockets and executable shebangs.
         # Shared behavior and native process controls run on Windows below.
         run: >-
           uv run --locked pytest --no-cov
           --ignore=tests/test_cli.py --ignore=tests/test_runtime.py
-          --ignore=tests/test_tdl.py -q
+          --ignore=tests/test_tdl.py -vv --durations=10
+          -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
       - run: uv build --no-sources
       - name: Install the built wheel as a tool and initialize an external workspace
         if: runner.os != 'Windows'
