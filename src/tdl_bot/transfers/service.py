@@ -69,7 +69,6 @@ class TransferService:
         self._jobs: dict[str, Job] = {}
         self._workers: list[asyncio.Task] = []
         self._closing = False
-        self._transfer_locks: dict[int, asyncio.Lock] = {}
         self._work_locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
     def start(self) -> None:
@@ -655,9 +654,9 @@ class TransferService:
     async def _transfer(self, job: Job) -> None:
         """Resolve, download, verify and upload under one update lease."""
         executor = self.accounts.get(job.executor_key)
-        lock = self._transfer_locks.setdefault(id(executor.tdl), asyncio.Lock())
+        # Deduplicate content, not accounts: native sessions retain their own
+        # protocol/storage locks, while other stages can make progress.
         async with (
-            lock,
             self._work_lock("url:" + job.url),
             executor.tdl.gate.job(),
         ):
@@ -692,13 +691,11 @@ class TransferService:
     async def backup_group(self, job, group):
         """Reuse the transfer pipeline without adding per-item Bot messages."""
         executor = self.accounts.get(job.executor_key)
-        lock = self._transfer_locks.setdefault(id(executor.tdl), asyncio.Lock())
         fingerprint = media_fingerprint(group.messages)
         aliases = [*group.urls]
         if fingerprint:
             aliases.append(fingerprint)
         async with (
-            lock,
             executor.tdl.gate.job(),
             self._work_lock("group:" + (fingerprint or group.urls[0])),
         ):

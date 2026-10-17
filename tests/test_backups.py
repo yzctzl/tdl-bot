@@ -670,8 +670,7 @@ async def test_backup_pacing_shares_chats_cooldowns_and_stops_before_writes():
     storage = Target("-1000000999999")
     first = pacer.keys("shared", storage, Target("@destination", 1))
     other = pacer.keys("own", storage, Target("@destination", 2))
-    assert await pacer.wait(first, lambda: stop)
-    pacer.charge(first, 10)
+    assert await pacer.reserve(first, 10, lambda: stop)
     assert pacer.remaining("shared") == 10
     assert await pacer.wait(other, lambda: stop)
     assert (
@@ -688,6 +687,49 @@ async def test_backup_pacing_shares_chats_cooldowns_and_stops_before_writes():
     stop = True
     assert not await pacer.wait(first, lambda: stop)
     assert all(delay <= 1 for delay in waits)
+
+
+async def test_backup_cycles_overlap_without_losing_individual_checkpoints(
+    workspace,
+):
+    w = workspace
+    w.manager.workers = 8
+    assert BackupService(w.transfers, workers=8).workers == 8
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_copy(group, target):
+        started.set()
+        await release.wait()
+        return [2000 + m.id for m in group.messages]
+
+    w.shared.media.copy_group.side_effect = slow_copy
+    first = await w.manager.execute(1, "dump", "create", source_ref="@source0")
+    # A different executor and source must progress during the slow transfer.
+    w.data[utils.get_peer_id(w.channels["@source1"])] = [
+        message(20, photo=True)
+    ]
+    second = await w.manager.execute(1, "dump", "create", source_ref="@source1")
+    other = w.manager.records[second["id"]]
+    other.executor = "operator:2"
+    slow = w.manager.records[first["id"]]
+    task = asyncio.create_task(w.manager._cycle(slow))
+    try:
+        async with asyncio.timeout(2):
+            await started.wait()
+            await w.manager._cycle(other)
+        assert not task.done()
+        assert other.state == "done" and other.cursor == 20
+        assert slow.cursor == 0 and slow.phase == "writing"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert slow.state == "paused" and slow.phase == "uncertain"
+        assert other.state == "done" and other.cursor == 20
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def test_follow_default_capacity_cancelled_retention_and_durable_limits(

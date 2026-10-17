@@ -76,14 +76,17 @@ def instance_lock(path: Path):
 async def run(settings: Settings, command: str, *, login_method="qr") -> None:
     """Run user-account login or the aiogram polling service."""
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    storage_locks = {settings.tdl_dir: AccountLock()}
+    # Bolt locks each namespace separately; only legacy storage is global.
+    storage_lock = (
+        None if (settings.tdl_dir / "data").exists() else AccountLock()
+    )
     tdl = Tdl(
         settings.tdl_binary,
         settings.tdl_namespace,
         settings.download_timeout,
         data_dir=settings.tdl_dir,
         proxy=settings.tdl_proxy,
-        storage_lock=storage_locks[settings.tdl_dir],
+        storage_lock=storage_lock,
         upload_timeout=settings.upload_timeout,
         upload_threads=settings.upload_concurrency,
     )
@@ -197,7 +200,7 @@ async def run(settings: Settings, command: str, *, login_method="qr") -> None:
                 proxy=settings.tdl_proxy,
                 upload_timeout=settings.upload_timeout,
                 upload_threads=settings.upload_concurrency,
-                storage_lock=storage_locks[settings.tdl_dir],
+                storage_lock=storage_lock,
             )
             own_tdl.gate = tdl.gate
             own = SharedSessionClient(

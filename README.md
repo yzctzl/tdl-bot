@@ -585,7 +585,7 @@ Ctrl+C 只停止交互管理器和交互，引擎仍继续运行。
 | `TDL_BINARY` | 可选 | 原生运行时显式覆盖托管 tdl 可执行程序路径 |
 | `TDL_NAMESPACE` | `default` | tdl 登录 namespace |
 | `TDL_PROXY` | 空 | tdl 和 Telethon 共享的 socks5／socks4／http 代理 |
-| `WORKERS` | `2` | 后台任务 worker 数量 |
+| `WORKERS` | `2` | 同时处理的链接任务数；备份任务另外使用同样数量的 worker，原生 clone 仍按账号串行 |
 | `QUEUE_SIZE` | `20` | 最多排队任务数量 |
 | `DOWNLOAD_TIMEOUT` | `7200` | 单次 tdl 下载超时，秒 |
 | `UPLOAD_CONCURRENCY` | `8` | tdl clone 每文件传输线程数；独立 Telethon 模式的分片窗口，1–32 |
@@ -703,6 +703,12 @@ Native clone preserves original document attributes and previews; Python does
 not download thumbnails or rebuild video metadata. Personal bindings use the
 same path. `UPLOAD_CONCURRENCY=8` sets native transfer threads per file, while
 `UPLOAD_TIMEOUT=7200` bounds the complete clone, including download and upload.
+
+`WORKERS` controls simultaneous foreground jobs and, separately, backup cycles,
+with no fixed two-worker ceiling on backups. Independent Bolt namespaces can
+transfer concurrently. Native clone still downloads each file before uploading
+it and serializes use of one namespace; increasing `WORKERS` does not provide
+same-account full duplex. See [concurrency boundaries](docs/architecture.md#concurrency-and-transport-boundaries).
 
 The Bot requests individual clone receipts, verifies every expected member and
 its document size, then assembles the album using existing Telegram media

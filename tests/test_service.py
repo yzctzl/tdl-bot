@@ -326,6 +326,76 @@ async def test_different_album_links_reuse_one_result_under_concurrency(
     tdl.download.assert_not_awaited()
 
 
+@pytest.mark.parametrize("backup", [False, True])
+async def test_independent_work_overlaps_and_cancellation_is_isolated(
+    setup_service, backup
+):
+    service, tdl, media, _, _ = setup_service
+    uploading = asyncio.Event()
+    downloads = asyncio.Event()
+    release = asyncio.Event()
+    count = 0
+
+    def group_for(link):
+        return SimpleNamespace(
+            messages=media.resolve.return_value.messages,
+            urls=[link.url_for(link.message_id)],
+        )
+
+    media.resolve.side_effect = group_for
+    original_download = tdl.download.side_effect
+
+    async def download(urls, directory):
+        nonlocal count
+        await original_download(urls, directory)
+        count += 1
+        if count == 1:
+            return
+        # Subsequent downloads must progress while the first upload is active.
+        await uploading.wait()
+        if count == 8:
+            downloads.set()
+        await release.wait()
+
+    async def upload(*args):
+        uploading.set()
+        await release.wait()
+        return [100, 101]
+
+    tdl.download.side_effect = download
+    media.upload.side_effect = upload
+    jobs = [
+        Job(1, f"https://t.me/channel/{i}", Target("me")) for i in range(1, 9)
+    ]
+    if backup:
+        from tdl_bot.core.links import MessageLink
+
+        tasks = [
+            asyncio.create_task(
+                service.backup_group(job, group_for(MessageLink.parse(job.url)))
+            )
+            for job in jobs
+        ]
+    else:
+        tasks = [asyncio.create_task(service._transfer(job)) for job in jobs]
+    try:
+        async with asyncio.timeout(2):
+            await downloads.wait()
+        tasks[0].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tasks[0]
+        assert not any(task.done() for task in tasks[1:])
+        release.set()
+        await asyncio.gather(*tasks[1:])
+        assert media.upload.await_count == 8
+        assert not service._work_locks
+        assert not any(service.jobs_dir.iterdir())
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def test_same_media_in_another_source_reuses_by_fingerprint(
     setup_service,
 ):

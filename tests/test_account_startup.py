@@ -16,10 +16,15 @@ pytestmark = pytest.mark.usefixtures("chinese")
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "same_user", "expired", "duplicate", "bot", "connect"]
+    "failure, storage",
+    [(None, "bolt"), (None, "legacy")]
+    + [
+        (reason, "bolt")
+        for reason in ("same_user", "expired", "duplicate", "bot", "connect")
+    ],
 )
 async def test_account_startup_validates_and_disconnects_all_clients(
-    tmp_path, monkeypatch, failure
+    tmp_path, monkeypatch, failure, storage
 ):
     # Exercise shared account setup with a stubbed engine on every host.
     monkeypatch.setattr("tdl_bot.runtime.cli.WINDOWS", False)
@@ -73,6 +78,7 @@ async def test_account_startup_validates_and_disconnects_all_clients(
             version=AsyncMock(),
             namespace=namespace,
             proxy=kwargs.get("proxy"),
+            storage_lock=kwargs["storage_lock"],
         )
         tdls.append(tdl)
         return tdl
@@ -100,6 +106,11 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         tdl_dir=tmp_path / "shared",
     )
     settings.tdl_binary.touch()
+    if storage == "bolt":
+        (settings.tdl_dir / "data").mkdir(parents=True)
+    else:
+        settings.tdl_dir.mkdir()
+        (settings.tdl_dir / "data.kv").touch()
     if failure == "connect":
         with pytest.raises(OSError):
             await run(settings, "run")
@@ -116,5 +127,10 @@ async def test_account_startup_validates_and_disconnects_all_clients(
         assert all(item.gate is tdls[0].gate for item in tdls)
         bot.session.close.assert_awaited_once()
         engine.serve.assert_awaited_once()
+    if storage == "bolt":
+        assert all(item.storage_lock is None for item in tdls)
+    else:
+        assert tdls[0].storage_lock is not None
+        assert all(item.storage_lock is tdls[0].storage_lock for item in tdls)
     for client in clients:
         client.disconnect.assert_awaited_once()

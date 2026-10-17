@@ -24,7 +24,7 @@ class BackupService:
         self.store = transfers.store
         self.policy = transfers.policy
         self.notify = notify
-        self.workers = max(1, min(workers, 2))
+        self.workers = max(1, workers)
         self.records = {task.id: task for task in self.store.backups.all()}
         for record in self.records.values():
             if record.state == "cancelled" and not record.cancelled_at:
@@ -37,7 +37,6 @@ class BackupService:
         self.wake = asyncio.Event()
         self.runner = None
         self.pacer = BackupPacer()
-        self.write_lock = asyncio.Lock()
 
     @property
     def busy(self):
@@ -456,26 +455,22 @@ class BackupService:
                         storage_only=record.target is None,
                         quiet=True,
                     )
-                    # Avoid backup bursts after long uploads.
-                    async with self.write_lock:
-                        keys = self.pacer.keys(
-                            record.executor, record.storage, record.target
+                    keys = self.pacer.keys(
+                        record.executor, record.storage, record.target
+                    )
+                    if not await self.pacer.reserve(
+                        keys,
+                        len(unit.messages),
+                        lambda: self.draining or record.state != "active",
+                    ):
+                        return
+                    if not self._allowed(record):
+                        raise UserError(
+                            tr("This account is unauthorized or banned.")
                         )
-                        if not await self.pacer.wait(
-                            keys,
-                            lambda: self.draining or record.state != "active",
-                        ):
-                            return
-                        if not self._allowed(record):
-                            raise UserError(
-                                tr("This account is unauthorized or banned.")
-                            )
-                        record.phase, record.inflight = "writing", unit.end_id
-                        self.store.backups.save(record)
-                        try:
-                            await self.transfers.backup_group(job, unit)
-                        finally:
-                            self.pacer.charge(keys, len(unit.messages))
+                    record.phase, record.inflight = "writing", unit.end_id
+                    self.store.backups.save(record)
+                    await self.transfers.backup_group(job, unit)
                     record.cursor = unit.end_id
                     record.phase, record.error, record.attempts = "idle", "", 0
                     record.processed += 1

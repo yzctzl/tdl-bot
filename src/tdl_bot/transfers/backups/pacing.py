@@ -32,6 +32,15 @@ class BackupPacer:
             await self.sleep(min(delay, 1))
         return False
 
+    async def reserve(self, keys, count, stopped):
+        """Reserve admission spacing without locking the byte transfer."""
+        if not await self.wait(keys, stopped):
+            return False
+        # No await between admission and charging: concurrent waiters observe
+        # the reservation before another task can enter.
+        self.charge(keys, count)
+        return True
+
     def charge(self, keys, count):
         now = self.clock()
         for key, seconds in keys.items():

@@ -99,7 +99,8 @@ managing a shared retry never grants the use of somebody else's session.
 
 Manual reload requests a new engine generation even without a code change,
 allowing login/logout discovery after active work drains. No background watcher
-reads or changes tdl sessions. Separate namespaces share a storage lock and
+reads or changes tdl sessions. Bolt namespaces have independent storage locks; legacy storage retains a
+directory-wide lock because all namespaces share one database. Accounts share
 an update gate, while each account retains its own RPC lock.
 
 ## Initial setup and native login
@@ -150,11 +151,14 @@ ensures a replacement engine starts after handoff without requiring a new user
 request. This health check never hashes code or watches directories. Shutdown
 stops the frontend health task before draining the resident engine.
 
-Backup writes share a pacer and a single write lease; scans remain bounded to two
-workers. Per-message account and destination gaps are charged after each unit,
-and albums count every member. FloodWait defers all backups on that execution
-account; Bot API rate limits defer backup Bot deliveries globally. Waiting stays
-cancellable and checks reload before recording a writing checkpoint.
+Backup cycles use the configured worker count without a separate two-worker
+ceiling. Before starting a unit, the shared pacer atomically reserves account and
+destination admission spacing; albums count every member. No global write lease
+is held during byte transfer. Admission spacing does not guarantee spacing
+between completion times: transfers of different sizes can finish together.
+FloodWait defers backups on that execution account; Bot API rate limits defer
+backup Bot deliveries globally. Waiting stays cancellable and checks reload
+before recording a writing checkpoint.
 
 Follow quotas live in workspace metadata and default to nine ordinary-member
 active/paused tasks. Admin-only quota changes use the existing membership audit
@@ -255,3 +259,28 @@ removes the supervisor PID file before draining; a delayed engine checks that
 its launching supervisor still matches after acquiring the instance lease.
 This prevents an engine from starting after the shutdown idle check, including
 when a replacement supervisor has already started.
+
+
+## Concurrency and transport boundaries
+
+`WORKERS` bounds foreground job lifetimes and, separately, concurrent backup
+cycles. Increasing it allows unrelated content to resolve, transfer and deliver
+concurrently. There is no whole-task execution-account mutex. URL and media-group
+locks still prevent duplicate preparation; cancellation owns only its job's
+process and temporary directory. Foreground and backup worker pools are separate,
+so their combined active task count can exceed `WORKERS`.
+
+Native tdl still holds its namespace storage lock and authorization coordinator
+for the lifetime of a subprocess. Telethon RPCs using that authorization wait for
+it; removing this coordination would permit competing API layers. Different Bolt
+namespaces no longer block each other's native processes. Legacy databases still
+require shared storage coordination.
+
+Upstream `core/forwarder/forwarder.go` processes source messages sequentially;
+`core/forwarder/clone.go` downloads a file completely before starting its upload.
+Its transfer threads parallelize chunks within the current direction. More Bot
+workers or tdl threads do not turn native clone into full-duplex streaming, and
+`forward` does not use the root task `--limit` setting in this implementation.
+Same-account full duplex therefore requires a transport change, rather than
+parallel native processes sharing a Bolt namespace. No bandwidth-saturation or
+fixed Telegram account-concurrency guarantee follows from these scheduler changes.
